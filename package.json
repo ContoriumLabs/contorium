@@ -1,0 +1,109 @@
+{
+  "name": "context-recall-dev",
+  "displayName": "ContextRecall",
+  "description": "ContextRecall: persist workspace session state (task, notes, editors, Git paths) and export AI-ready summaries — local .context-recall/state.json.",
+  "version": "0.2.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/frankleeeeeee/context-recall.git"
+  },
+  "homepage": "https://github.com/frankleeeeeee/context-recall#readme",
+  "bugs": {
+    "url": "https://github.com/frankleeeeeee/context-recall/issues"
+  },
+  "publisher": "frankleeeeeee-dev",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "session",
+    "context",
+    "workspace",
+    "restore",
+    "git",
+    "notes",
+    "ai",
+    "productivity"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:contextRecall.sidebar"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "contextRecall.exportAIContext",
+        "title": "ContextRecall: Export AI context"
+      },
+      {
+        "command": "contextRecall.saveStateNow",
+        "title": "ContextRecall: Save session state now"
+      },
+      {
+        "command": "contextRecall.restoreSession",
+        "title": "ContextRecall: Restore editors from snapshot"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "contextRecall",
+          "title": "ContextRecall",
+          "icon": "icon.png"
+        }
+      ]
+    },
+    "views": {
+      "contextRecall": [
+        {
+          "type": "webview",
+          "id": "contextRecall.sidebar",
+          "name": "Session & Context"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "ContextRecall",
+      "properties": {
+        "contextRecall.autoRestoreOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "When opening the workspace, restore editors from .context-recall/state.json."
+        },
+        "contextRecall.maxRestoreEditors": {
+          "type": "number",
+          "default": 8,
+          "minimum": 0,
+          "maximum": 30,
+          "description": "Maximum editors to open on auto-restore (0 = open none)."
+        },
+        "contextRecall.workingSetMaxFiles": {
+          "type": "number",
+          "default": 40,
+          "minimum": 5,
+          "maximum": 200,
+          "description": "Max paths in working set (recentFiles); counts focus/save only."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "simple-git": "^3.22.0"
+  }
+}

@@ -1,0 +1,9 @@
+.vscode/**
+.vscode-test/**
+src/**
+**/*.map
+**/tsconfig.json
+.gitignore
+插件开发文档.md
+.project-recall/**
+.context-recall/**
