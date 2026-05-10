@@ -78,3 +78,5 @@
 {"type":"file_save","file":"package.json","timestamp":1778415235353}
 {"type":"git_change","modified":[],"staged":[],"timestamp":1778415624393}
 {"type":"git_change","modified":[".context-recall/events/sess_moz8l51n_4349b682.jsonl",".context-recall/state.json"],"staged":[],"timestamp":1778415648078}
+{"type":"git_change","modified":[],"staged":[],"timestamp":1778415713988}
+{"type":"git_change","modified":[".context-recall/events/sess_moz8l51n_4349b682.jsonl",".context-recall/state.json"],"staged":[],"timestamp":1778415772273}
