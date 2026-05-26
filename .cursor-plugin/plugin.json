@@ -1,0 +1,32 @@
+{
+  "name": "contorium",
+  "displayName": "Contorium",
+  "version": "0.5.4",
+  "description": "Local workspace memory for AI coding: current focus, Git and editor state, session events, heuristic intent, and one-click AI-ready context export.",
+  "publisher": "franklee-dev",
+  "author": {
+    "name": "franklee-dev"
+  },
+  "homepage": "https://github.com/frankleeeeeee/contora#readme",
+  "repository": "https://github.com/frankleeeeeee/contora",
+  "license": "MIT",
+  "logo": "assets/logo.png",
+  "category": "developer-tools",
+  "keywords": [
+    "workspace",
+    "context",
+    "memory",
+    "session",
+    "git",
+    "ai",
+    "productivity"
+  ],
+  "tags": [
+    "workspace-memory",
+    "context-export",
+    "continuity"
+  ],
+  "commands": "./commands/",
+  "skills": "./skills/",
+  "rules": "./rules/"
+}

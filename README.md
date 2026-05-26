@@ -13,6 +13,32 @@ Built for developers who work with AI every day.
 
 ---
 
+## Repository layout (Cursor Marketplace + VS Code extension)
+
+This repo follows the [Cursor plugin template](https://github.com/cursor/plugin-template) **single-plugin-at-root** layout, with the existing VS Code extension host unchanged:
+
+```text
+contorium/
+├── .cursor-plugin/plugin.json   # Cursor Marketplace manifest
+├── assets/logo.png                # Marketplace logo
+├── commands/                      # Agent slash-command docs
+├── skills/                        # Agent skills (SKILL.md)
+├── rules/                         # Cursor rules (.mdc)
+├── package.json                   # VS Code extension manifest (sidebar UI)
+├── src/                           # Extension TypeScript source
+├── packages/runtime/              # Bundled @contora/runtime
+└── scripts/
+    ├── validate-plugin.mjs        # Cursor plugin checklist
+    └── package-vsix.cjs           # VSIX build (Open VSX / VS Code)
+```
+
+- **Cursor Marketplace**: submit this Git repository ([publish guide](https://cursor.com/marketplace/publish)). Run `npm run validate:plugin` before submission.
+- **VS Code / Cursor IDE extension**: build with `npm run vsix` and install the `.vsix` for the sidebar, scanners, and clipboard export.
+
+Internal command and config IDs remain `contora.*`; display name is **Contorium**.
+
+---
+
 # Why Contorium?
 
 Most AI coding tools forget everything.

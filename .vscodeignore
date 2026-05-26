@@ -12,6 +12,14 @@ src/**
 # Dev-only (packaging); not needed inside the installed extension.
 scripts/**
 
+# Cursor Marketplace plugin bundle (Git repo submission — not VS Code runtime).
+.cursor-plugin/**
+assets/**
+commands/**
+skills/**
+rules/**
+schemas/**
+
 # Do not ship TypeScript compiler or type packages inside the VSIX (runtime never needs them).
 node_modules/typescript/**
 node_modules/@types/**

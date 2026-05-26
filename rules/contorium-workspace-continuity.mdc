@@ -1,0 +1,15 @@
+---
+description: Prefer Contorium workspace memory and AI-ready export over re-explaining the whole repository in chat.
+globs:
+alwaysApply: false
+---
+
+# Contorium workspace continuity
+
+When the Contorium extension is available in this workspace:
+
+- Treat **Current focus** as the user's stated goal; telemetry alone is not intent.
+- Before long explanations of project state, suggest **Copy AI-ready context** or read `.contora/state.json` for focus and Git snapshot.
+- Do not assume `.contora/last-intent.json` is current — it may be marked stale after file churn.
+- After a major task switch, recommend **Start fresh AI context session** instead of mixing old session events into new work.
+- Keep `.contora/` and session JSONL as local workspace data; do not commit secrets or API keys (BYOK uses SecretStorage).

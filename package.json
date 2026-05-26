@@ -249,6 +249,7 @@
   "scripts": {
     "vscode:prepublish": "node scripts/vscode-prepublish.cjs",
     "vsix": "node scripts/package-vsix.cjs",
+    "validate:plugin": "node scripts/validate-plugin.mjs",
     "build:runtime": "npm --prefix packages/runtime run build",
     "compile": "npm run build:runtime && tsc -p ./",
     "watch": "tsc -watch -p ./"
