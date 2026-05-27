@@ -41,6 +41,24 @@ contorium/
 
 Internal command and config IDs remain `contora.*`; display name is **Contorium**.
 
+### Versioning
+
+**Single source of truth:** root `package.json` → `"version"`.
+
+After changing the version, run:
+
+```bash
+npm run version:sync
+```
+
+Or use npm’s version helper (sync runs automatically via `postversion`):
+
+```bash
+npm version patch   # 0.5.5 → 0.5.6
+```
+
+`npm run compile` / `npm run vsix` also run `version:sync` first.
+
 ---
 
 # Why Contorium?

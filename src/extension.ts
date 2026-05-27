@@ -238,7 +238,7 @@ async function mergeDiskIfEnabled(stateManager: StateManager, es: EventStore | u
   try {
     const st = stateManager.getCached(folder) ?? (await stateManager.load(folder));
     const sid = st.sessionId ?? 'unknown';
-    const disk = await EventLog.replay(folder.uri.fsPath, sid);
+    const disk = await EventLog.replayRecent(folder.uri.fsPath, sid, eventBufferCap());
     es.mergeFromDisk(disk);
   } catch {
     /* ignore */
@@ -249,6 +249,7 @@ function startScanners(
   stateManager: StateManager,
   eventStore: EventStore,
   onAfterPersist?: () => void,
+  options?: { deferInitialScan?: boolean },
 ): WorkspaceScanner[] {
   disposeScanners();
   const folders = vscode.workspace.workspaceFolders;
@@ -258,11 +259,26 @@ function startScanners(
   const next: WorkspaceScanner[] = [];
   for (const folder of folders) {
     const s = new WorkspaceScanner(folder, stateManager, eventStore, onAfterPersist);
-    s.start();
+    s.start(options);
     next.push(s);
   }
   scanners = next;
   return next;
+}
+
+let workspaceBootstrapPromise: Promise<void> | undefined;
+
+function scheduleSidebarRefresh(sidebar: ContoraSidebarProvider): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return () => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      timer = undefined;
+      void sidebar.refresh();
+    }, 400);
+  };
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -284,36 +300,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
+  const refreshSidebarDebounced = scheduleSidebarRefresh(sidebar);
+
   const syncWorkspace = async (): Promise<void> => {
     globalEventStore = createEventStore(stateManager);
-    startScanners(stateManager, globalEventStore, () => {
-      void sidebar.refresh();
-    });
     sidebar.setEventStore(globalEventStore);
     const folder = stateManager.getPrimaryFolder();
     sidebar.setWorkspaceFolder(folder);
-    if (folder) {
-      const m = await ensureIgnoreMatcher(folder);
-      bindIgnoreFileWatcher(folder, m);
-    } else {
+    if (!folder) {
+      disposeScanners();
       disposeIgnoreWatchers();
       workspaceIgnoreMatcher = undefined;
-    }
-    await mergeDiskIfEnabled(stateManager, globalEventStore);
-    const folderAfter = stateManager.getPrimaryFolder();
-    if (folderAfter) {
-      const st0 = stateManager.getCached(folderAfter) ?? (await stateManager.load(folderAfter));
-      sessionBoundaryBaseline = {
-        focus: (st0.currentTask ?? '').trim(),
-        paths: topWorkspacePathsFromState(st0),
-      };
-    } else {
       sessionBoundaryBaseline = undefined;
+      return;
     }
+
+    const st0 = await stateManager.load(folder);
+    const [, matcher] = await Promise.all([
+      mergeDiskIfEnabled(stateManager, globalEventStore),
+      ensureIgnoreMatcher(folder),
+    ]);
+    bindIgnoreFileWatcher(folder, matcher);
+    startScanners(stateManager, globalEventStore, refreshSidebarDebounced, { deferInitialScan: true });
+    sessionBoundaryBaseline = {
+      focus: (st0.currentTask ?? '').trim(),
+      paths: topWorkspacePathsFromState(st0),
+    };
   };
 
-  await syncWorkspace();
-  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void syncWorkspace()));
+  const runWorkspaceBootstrap = (): Promise<void> => {
+    if (!workspaceBootstrapPromise) {
+      workspaceBootstrapPromise = syncWorkspace().catch((err) => {
+        workspaceBootstrapPromise = undefined;
+        console.error(`[${PRODUCT_DISPLAY_NAME}] workspace bootstrap failed:`, err);
+        throw err;
+      });
+    }
+    return workspaceBootstrapPromise;
+  };
+
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    workspaceBootstrapPromise = undefined;
+    void runWorkspaceBootstrap();
+  }));
+
+  const ensureWorkspaceReady = async (): Promise<boolean> => {
+    try {
+      await runWorkspaceBootstrap();
+      return !!globalEventStore;
+    } catch {
+      return false;
+    }
+  };
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (e) => {
@@ -355,11 +393,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  const primary = stateManager.getPrimaryFolder();
-  if (primary) {
-    await stateManager.load(primary);
-  }
-
   const shouldIgnore = (): ((p: string) => boolean) => {
     const m = workspaceIgnoreMatcher;
     if (m) {
@@ -377,6 +410,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const folder = stateManager.getPrimaryFolder();
     if (!folder) {
       await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
+      return;
+    }
+    if (!(await ensureWorkspaceReady())) {
       return;
     }
     if (!workspaceIgnoreMatcher) {
@@ -487,6 +523,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
       return;
     }
+    if (!(await ensureWorkspaceReady())) {
+      return;
+    }
     const es = globalEventStore;
     if (!es) {
       return;
@@ -548,6 +587,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const folder = stateManager.getPrimaryFolder();
       if (!folder) {
         await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
+        return;
+      }
+      if (!(await ensureWorkspaceReady())) {
         return;
       }
       if (!workspaceIgnoreMatcher) {
@@ -645,6 +687,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push({ dispose: () => disposeScanners() });
   context.subscriptions.push({ dispose: () => disposeIgnoreWatchers() });
+
+  // Return quickly from activate; bootstrap scanners / disk replay in the background.
+  void runWorkspaceBootstrap();
 }
 
 export function deactivate(): void {

@@ -2,7 +2,7 @@
   "name": "contorium",
   "displayName": "Contorium",
   "description": "Contorium: local workspace memory (task, notes, editors, Git), event JSONL, heuristic intent/ranking, ignore rules, token budget, optional BYOK (OpenAI / Claude / Gemini / DeepSeek) — export AI-ready context to clipboard (markdown, JSON, etc.).",
-  "version": "0.5.4",
+  "version": "0.5.6",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -250,10 +250,12 @@
     "vscode:prepublish": "node scripts/vscode-prepublish.cjs",
     "vsix": "node scripts/package-vsix.cjs",
     "validate:plugin": "node scripts/validate-plugin.mjs",
+    "version:sync": "node scripts/sync-version.mjs",
     "build:runtime": "npm --prefix packages/runtime run build",
     "install:mcp": "npm install --prefix packages/mcp --no-fund --no-audit",
     "build:mcp": "npm run install:mcp && npm --prefix packages/mcp run build",
-    "compile": "npm run build:runtime && npm run build:mcp && tsc -p ./",
+    "compile": "npm run version:sync && npm run build:runtime && npm run build:mcp && tsc -p ./",
+    "postversion": "node scripts/sync-version.mjs",
     "watch": "tsc -watch -p ./"
   },
   "devDependencies": {

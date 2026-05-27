@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
+import { readFileSync } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { getMemory, searchMemory, storeMemory } from './memoryStore.js';
 import { findWorkspaceRoot, resolveWorkspaceRoot } from './paths.js';
 import { loadWorkspaceSnapshot } from './workspace.js';
+
+function mcpPackageVersion(): string {
+  const pkgPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
+  return JSON.parse(readFileSync(pkgPath, 'utf8')).version as string;
+}
 
 async function workspaceRootForTools(): Promise<string> {
   const hint = resolveWorkspaceRoot();
@@ -21,7 +28,7 @@ function textResult(data: unknown) {
 
 const server = new McpServer({
   name: 'contorium',
-  version: '0.5.4',
+  version: mcpPackageVersion(),
 });
 
 server.registerTool(

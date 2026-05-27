@@ -1,6 +1,6 @@
 {
   "name": "@contorium/mcp",
-  "version": "0.5.4",
+  "version": "0.5.6",
   "description": "Contorium MCP server for Claude Code and Cursor (stdio tools over workspace memory).",
   "type": "module",
   "license": "MIT",
@@ -8,7 +8,9 @@
   "bin": {
     "contorium-mcp": "./dist/server.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p ./",
     "start": "node ./dist/server.js"

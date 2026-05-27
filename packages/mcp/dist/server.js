@@ -1,11 +1,17 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { getMemory, searchMemory, storeMemory } from './memoryStore.js';
 import { findWorkspaceRoot, resolveWorkspaceRoot } from './paths.js';
 import { loadWorkspaceSnapshot } from './workspace.js';
+function mcpPackageVersion() {
+    const pkgPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
+    return JSON.parse(readFileSync(pkgPath, 'utf8')).version;
+}
 async function workspaceRootForTools() {
     const hint = resolveWorkspaceRoot();
     return findWorkspaceRoot(hint);
@@ -17,7 +23,7 @@ function textResult(data) {
 }
 const server = new McpServer({
     name: 'contorium',
-    version: '0.5.4',
+    version: mcpPackageVersion(),
 });
 server.registerTool('store_memory', {
     description: 'Store important coding context into Contorium memory (persisted under .contora/mcp/).',

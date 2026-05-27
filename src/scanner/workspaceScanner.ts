@@ -56,6 +56,8 @@ const EDIT_ACTIVITY_DEBOUNCE_MS = 500;
 
 /** Same-path `file_focus` emissions at most once per interval (tab spam / split / Ctrl+Tab). */
 const FILE_FOCUS_EMIT_GAP_MS = 5000;
+/** Defer first Git/tab scan so extension activate is not blocked on startup. */
+const INITIAL_SCAN_DEFER_MS = 2_500;
 
 export class WorkspaceScanner {
   private disposables: vscode.Disposable[] = [];
@@ -125,7 +127,7 @@ export class WorkspaceScanner {
     this.onAfterPersist?.();
   }
 
-  start(): void {
+  start(options?: { deferInitialScan?: boolean }): void {
     this.disposables.push(
       vscode.window.onDidChangeActiveTextEditor((ed) => {
         if (!ed?.document) {
@@ -235,7 +237,11 @@ export class WorkspaceScanner {
       }),
     );
 
-    void this.persist();
+    if (options?.deferInitialScan) {
+      setTimeout(() => void this.persist(), INITIAL_SCAN_DEFER_MS);
+    } else {
+      void this.persist();
+    }
 
     this.gitTimer = setInterval(() => {
       void this.persist();

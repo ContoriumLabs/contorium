@@ -54,11 +54,14 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
   setWorkspaceFolder(folder: vscode.WorkspaceFolder | undefined): void {
     this.folder = folder;
-    void this.pushStateToWebview();
+    if (this.view) {
+      void this.pushStateToWebview();
+    }
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
     this.view = webviewView;
+    void this.pushStateToWebview();
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.ctx.extensionUri],
