@@ -1,0 +1,1 @@
+{"version":3,"file":"snapshot.d.ts","sourceRoot":"","sources":["../../src/state-builder/snapshot.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,iBAAiB,EAAE,MAAM,YAAY,CAAC;AAcpD,qEAAqE;AACrE,wBAAgB,6BAA6B,CAAC,KAAK,EAAE,iBAAiB,GAAG,MAAM,CAsB9E;AAED,wBAAgB,0BAA0B,CAAC,KAAK,EAAE,iBAAiB,GAAG,MAAM,EAAE,CAe7E"}

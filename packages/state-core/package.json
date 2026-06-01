@@ -1,0 +1,26 @@
+{
+  "name": "@contora/state-core",
+  "version": "0.7.0",
+  "description": "Tool-agnostic Contorium workspace scan, bootstrap, and dual-mode state inputs (IDE + MCP + CLI).",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}

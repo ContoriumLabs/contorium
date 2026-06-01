@@ -1,284 +1,300 @@
 ![Contorium demo](./demo.gif)
 
-Contorium
 
-**Website:** [contorium.dev](https://www.contorium.dev/)
+# Contorium
 
-Runtime continuity layer for AI coding agents.
+**Shared Workspace State Layer for AI Tools**
 
-AI coding tools reset context constantly.
+Contorium creates a persistent project state inside your workspace that can be shared across IDEs, MCP agents, CLI tools, and AI coding assistants.
 
-Contorium maintains continuous workspace state across sessions, tools, and models.
+Switch between Cursor, Claude Code, Gemini CLI, VS Code, Codex, or any MCP-compatible agent without losing project understanding.
 
-It keeps AI coding agents aligned with:
+**Not chat memory.**
+**Not prompt stuffing.**
+**Not agent orchestration.**
 
-* current focus
-* workspace state
-* active files
-* git activity
-* session continuity
+Contorium acts as a shared workspace state layer that keeps your project context portable across tools, sessions, and models.
 
-across:
+---
 
-* Cursor
-* VS Code
-* Claude Code
-* Codex
-* MCP-compatible agents
+## Why Contorium?
 
-⸻
+Modern AI coding tools are powerful, but they all suffer from the same problem:
 
-What is Contorium?
+They lose project understanding when you switch tools, sessions, or conversations.
 
-Contorium defines the runtime continuity layer for AI coding agents.
+Examples:
 
-Not a memory tool.
-Not a context retrieval system.
+* Cursor → Claude Code
+* Claude Code → Gemini CLI
+* VS Code → Terminal
+* One AI model → Another AI model
 
-A persistent runtime state layer between AI agents and your workspace.
+Contorium solves this by maintaining a structured project state inside your repository.
 
-⸻
+Instead of relying on chat history, it continuously builds and updates:
 
-Why?
+* Current project goal
+* Active modules
+* Open problems
+* Recent work
+* Next actions
 
-AI coding tools lose workspace state between sessions.
+Every compatible tool can read the same state.
 
-Every restart forces developers to:
+---
 
-* re-explain project goals
-* rebuild architectural context
-* recover debugging progress
-* restore active workspace state
+## Architecture
 
-Contorium prevents that.
+```text
+Workspace
+      │
+      ▼
+Contorium State Layer (.contora/)
+      │
+      ├── IDE Extension
+      ├── MCP Server
+      ├── CLI
+      └── AI Agents
+```
 
-⸻
+The workspace is the source of truth.
 
-Core Runtime Capabilities
+IDEs, MCP servers, CLI tools, and AI agents all interact with the same shared state layer.
 
-Current Focus
+---
 
-Continuously maintains what you’re actively building.
+## Features
 
-AI agents stay aligned with your current intent across sessions and tools.
+### 🧠 Shared Project State
 
-⸻
+Persistent project understanding stored inside your workspace.
 
-Workspace State
+### 🔄 Cross-Tool Continuity
 
-Tracks the real-time state of your workspace:
+Move between Cursor, Claude Code, Gemini CLI, Codex, VS Code, and MCP agents without rebuilding context.
 
-* active files
-* git changes
-* recent activity
-* working set evolution
+### 📋 AI-Ready Context Export
 
-⸻
+Generate clean, structured context for any AI assistant.
 
-Session Continuity
+### ⚡ Tool-Independent Design
 
-Maintains workspace continuity across:
+IDE, MCP, and CLI workflows can operate independently while sharing the same project state.
 
-* IDE restarts
-* model switches
-* long coding sessions
-* multi-agent workflows
+### 🏗 Workspace-Aware
 
-No context reset. No repeated explanations.
+Tracks:
 
-⸻
+* File activity
+* Git changes
+* Active modules
+* Project evolution
 
-Install
+### 🔍 Structured Snapshots
 
-**IDE extension (VS Code / Cursor)**
+Produces stable project snapshots instead of raw chat logs.
 
-1. Download the latest `.vsix` from [GitHub Releases](https://github.com/ContoriumLabs/contorium/releases) (or build with `npm run vsix`).
-2. Open **Extensions** → `…` → **Install from VSIX…** → select the file.
-3. Reload the window. Open the **Contorium** sidebar from the activity bar.
+---
 
-**From source**
+## Quick Start
+
+### IDE
+
+Build and install the VSIX extension:
 
 ```bash
-git clone https://github.com/ContoriumLabs/contorium.git
-cd contorium
+npm install
+npm run compile
+npm run vsix
+```
+
+Install the generated VSIX into VS Code or Cursor.
+
+Open a workspace and use:
+
+```text
+Contorium: Copy AI-ready context
+```
+
+---
+
+### MCP
+
+Build the MCP server:
+
+```bash
 npm install
 npm run compile
 ```
 
-Press **F5** in VS Code/Cursor to run the Extension Development Host, or package with `npm run vsix`.
+Configure your MCP host and set:
 
-**MCP server (for Claude Code, Cursor Agent, Gemini CLI, Codex)**
+```text
+CONTORIUM_WORKSPACE=/absolute/path/to/project
+```
 
-Build once from the repo root:
+Typical usage:
+
+```text
+get_project_snapshot
+get_workspace_context
+get_project_state
+```
+
+---
+
+### CLI
+
+Initialize a workspace:
 
 ```bash
-npm run build:mcp
+npx contorium init .
 ```
 
-Entry: `packages/mcp/dist/server.js` · portable launcher: `bin/contorium-mcp-launch.cjs`
-
-Full tool list and env vars: [docs/MCP.md](docs/MCP.md).
-
-⸻
-
-MCP config (Claude Code)
-
-After `npm run build:mcp`:
-
-**Plugin (recommended)** — uses [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) and [`.mcp.claude.json`](.mcp.claude.json):
+Generate a snapshot:
 
 ```bash
-claude --plugin-dir /path/to/contorium
+npx contorium snapshot .
 ```
 
-**MCP only (project scope)**
+View state:
 
 ```bash
-cd /path/to/your/workspace
-claude mcp add --scope project contorium -- node /path/to/contorium/bin/contorium-mcp-launch.cjs
+npx contorium state .
 ```
 
-Bundled plugin MCP (`.mcp.claude.json`):
+---
 
-```json
-{
-  "contorium": {
-    "command": "node",
-    "args": ["./bin/contorium-mcp-launch.cjs"],
-    "cwd": "${CLAUDE_PLUGIN_ROOT}",
-    "env": {
-      "CONTORIUM_WORKSPACE": "${CLAUDE_PROJECT_DIR}"
-    }
-  }
-}
+## Example Snapshot
+
+```text
+Goal:
+Develop documentation and authentication system
+
+Current Stage:
+Documentation work
+
+Active Modules:
+- app
+- stream_session
+- configuration
+
+Open Problems:
+- documentation consistency
+
+Next Actions:
+- update documentation
+- validate authentication flow
 ```
 
-Keep the **Contorium VS Code extension** (or another editor with scanners) running in the workspace so `.contora/state.json` stays updated; MCP reads that state.
+---
 
-⸻
+## Documentation
 
-MCP config (Cursor / Gemini CLI)
+| Guide                                            | Description                        |
+| ------------------------------------------------ | ---------------------------------- |
+| [Install Guide](./docs/INSTALL.md)               | Installation, usage, and uninstall |
+| [IDE Extension](./docs/IDE_EXTENSION.md)         | VS Code and Cursor integration     |
+| [MCP Server](./docs/MCP.md)                      | Claude Code, Cursor, Codex, Gemini |
+| [CLI](./docs/CLI.md)                             | Terminal workflows                 |
+| [State Engine](./docs/STATE_ENGINE.md)           | State generation and export        |
+| [Architecture v2.2](./docs/ARCHITECTURE_V2_2.md) | Full system architecture           |
+| [Runtime Package](./docs/RUNTIME.md)             | Runtime package documentation      |
 
-**Cursor** — root [`mcp.json`](mcp.json) (also referenced from [`.cursor-plugin/plugin.json`](.cursor-plugin/plugin.json)):
+---
 
-```json
-{
-  "mcpServers": {
-    "contorium": {
-      "command": "node",
-      "args": ["${workspaceFolder}/packages/mcp/dist/server.js"],
-      "env": {
-        "CONTORIUM_WORKSPACE": "${workspaceFolder}"
-      }
-    }
-  }
-}
+## Design Principles
+
+### Workspace First
+
+The workspace is the source of truth.
+
+### Tool Independence
+
+IDE, MCP, and CLI workflows can operate independently.
+
+### Stable State
+
+Project state is deterministic and reproducible.
+
+### Minimal Context
+
+Exports remain concise and AI-friendly.
+
+### Transparency
+
+Conflicts are surfaced rather than automatically resolved.
+
+---
+
+## Repository Structure
+
+```text
+src/
+├── scanner/
+├── state/
+├── state-engine/
+├── state-builder/
+├── cognition/
+├── ai/
+└── ui/
+
+packages/
+├── state-core/
+├── mcp/
+└── runtime/
 ```
 
-In Cursor: **Settings → MCP** → add/import the server above (or enable the plugin’s bundled `contorium` server after installing from the marketplace). Run `npm run build:mcp` in the cloned repo first.
+---
 
-**Gemini CLI** — add to project `.gemini/settings.json` or user `~/.gemini/settings.json` (use **absolute paths** to your clone):
+## Supported Workflows
 
-```json
-{
-  "mcpServers": {
-    "contorium": {
-      "command": "node",
-      "args": ["/absolute/path/to/contorium/packages/mcp/dist/server.js"],
-      "env": {
-        "CONTORIUM_WORKSPACE": "/absolute/path/to/your/workspace"
-      }
-    }
-  }
-}
+### IDE Only
+
+VS Code / Cursor extension.
+
+### MCP Only
+
+Claude Code, Codex, Gemini, and other MCP-compatible agents.
+
+### CLI Only
+
+Terminal-based workflows and CI environments.
+
+### Hybrid
+
+Use IDE, MCP, and CLI together while sharing the same workspace state.
+
+---
+
+## Version
+
+```text
+Version: 0.7.x
+State Engine: v2.2
+Architecture: Shared Workspace State Layer
 ```
 
-Alternatively set `args` to `["/absolute/path/to/contorium/bin/contorium-mcp-launch.cjs"]` and `cwd` to the repo root. Restart the Gemini CLI session after editing settings.
+---
 
-**Codex** (optional): `codex mcp add contorium -- node ./bin/contorium-mcp-launch.cjs` — see [docs/MCP.md](docs/MCP.md).
+## Why It Matters
 
-⸻
+AI tools will continue to evolve.
 
-Example usage
+Your project understanding should not be locked to any single tool.
 
-**1. Set Current focus** — In the Contorium sidebar, describe what you are building (e.g. *Fix websocket reconnect issue*).
+Contorium keeps project state portable across:
 
-**2. Work normally** — The extension tracks open files, saves, Git, and recent activity into `.contora/` (local only).
+* Tools
+* Sessions
+* Agents
+* Models
 
-**3. Restore context for AI** — Command Palette → **Contorium: Copy AI-ready context (clipboard)** → paste into Cursor chat, Claude, or Gemini. Export includes TASK, workspace focus, active files, and recent work.
+---
 
-**4. Agent via MCP** — In Claude Code / Cursor Agent / Gemini CLI, ask the agent to call `get_workspace_context` or `store_memory` (e.g. *“Read Contorium workspace context and continue the auth refactor”*).
+**Website:** https://www.contorium.dev
 
-**5. Next day** — Reopen the IDE; focus and workspace state persist. Use **Contorium: Start fresh AI context session** when you switch to an unrelated task.
-
-Optional: **Contorium: Configure API key…** for BYOK summaries/intent (OpenAI, Anthropic, Gemini, DeepSeek).
-
-⸻
-
-Uninstall
-
-**VS Code / Cursor extension**
-
-1. Extensions → find **Contorium** → **Uninstall**.
-2. Reload the window.
-
-**MCP registrations**
-
-| Host | Remove |
-|------|--------|
-| Claude Code | `claude mcp remove contorium` (or disable/remove the plugin install) |
-| Cursor | Settings → MCP → delete the `contorium` server |
-| Gemini CLI | Remove `contorium` from `.gemini/settings.json` or `~/.gemini/settings.json` |
-| Codex | `codex mcp remove contorium` |
-
-**Local data (optional)**
-
-Uninstalling does **not** delete workspace data. To remove runtime files:
-
-```bash
-rm -rf .contora
-# legacy layout (if present):
-rm -rf .context-recall
-```
-
-Also remove BYOK keys if stored: Command Palette → **Contorium: Configure API key…** → clear keys, or delete the extension’s Secret Storage entries when uninstalling from the IDE.
-
-⸻
-
-Local-first
-
-* no cloud sync
-* no hidden telemetry
-* optional BYOK
-* workspace data stays local
-
-⸻
-
-Architecture
-
-Contorium combines:
-
-* IDE-native runtime tracking
-* workspace state persistence
-* MCP-compatible runtime access
-* local-first storage
-
-to create a continuous runtime layer for AI coding systems.
-
-Additional docs:
-
-* RUNTIME.md
-* MCP.md
-* ARCHITECTURE.md
-
-⸻
-
-Vision
-
-AI coding systems need more than memory.
-
-They need runtime continuity.
-
-Contorium is building that layer.
-
-**Website:** [contorium.dev](https://www.contorium.dev/)
+Build once.
+Switch tools freely.
+Keep your project state.

@@ -40,7 +40,8 @@ function parseAiReadyMarkdown(md: string): MdSection[] | null {
     out.push({ title, body: buf.join('\n').trimEnd() });
   }
   const keys = new Set(out.map((s) => titleNorm(s.title)));
-  if (!keys.has('TASK') || !keys.has('INSTRUCTION')) {
+  const hasAnchor = keys.has('TASK ANCHOR') || keys.has('TASK');
+  if (!hasAnchor || !keys.has('INSTRUCTION')) {
     return null;
   }
   return out;
@@ -95,53 +96,53 @@ export function compressAiReadyMarkdownLocal(md: string, targetTokens: number): 
   let guard = 0;
   while (tok() > targetTokens && guard < 120) {
     guard++;
-    const recent = findSection(sections, 'RECENT WORK');
-    if (recent) {
-      const b = bulletLines(recent.body);
-      if (b.length > 2) {
-        recent.body = bulletsMd(b.slice(0, -1));
+    const ctx = findSection(sections, 'WORKING CONTEXT');
+    if (ctx) {
+      const recentIdx = ctx.body.toLowerCase().indexOf('recent work:');
+      const activePart = recentIdx > 0 ? ctx.body.slice(0, recentIdx) : ctx.body;
+      const recentPart = recentIdx > 0 ? ctx.body.slice(recentIdx) : '';
+      const activeBullets = bulletLines(activePart);
+      const recentBullets = bulletLines(recentPart);
+      if (recentBullets.length > 2) {
+        ctx.body =
+          'Active Files:\n' +
+          bulletsMd(activeBullets.length ? activeBullets : ['(none)']) +
+          '\n\nRecent Work:\n' +
+          bulletsMd(recentBullets.slice(0, -1));
         continue;
       }
-      if (b.length === 2) {
-        recent.body = bulletsMd([b[0]!]);
+      if (recentBullets.length === 2) {
+        ctx.body =
+          'Active Files:\n' +
+          bulletsMd(activeBullets.length ? activeBullets : ['(none)']) +
+          '\n\nRecent Work:\n' +
+          bulletsMd([recentBullets[0]!]);
         continue;
       }
-      if (b.length === 1 && b[0]!.length > 72) {
-        recent.body = bulletsMd([truncateWords(b[0]!, 68)]);
+      if (activeBullets.length > 2) {
+        ctx.body =
+          'Active Files:\n' +
+          bulletsMd(activeBullets.slice(0, -1)) +
+          '\n\nRecent Work:\n' +
+          bulletsMd(recentBullets.length ? recentBullets : ['(none)']);
         continue;
       }
     }
-    const active = findSection(sections, 'ACTIVE FILES');
-    if (active) {
-      const b = bulletLines(active.body);
+    const insights = findSection(sections, 'INSIGHTS');
+    if (insights) {
+      const b = bulletLines(insights.body);
       if (b.length > 2) {
-        active.body = bulletsMd(b.slice(0, -1));
-        continue;
-      }
-      if (b.length === 2) {
-        active.body = bulletsMd([b[0]!]);
-        continue;
-      }
-    }
-    const focus = findSection(sections, 'WORKSPACE FOCUS');
-    if (focus) {
-      const b = bulletLines(focus.body);
-      if (b.length > 2) {
-        focus.body = bulletsMd(b.slice(0, -1));
-        continue;
-      }
-      if (b.length === 2) {
-        focus.body = bulletsMd([b[0]!]);
+        insights.body = bulletsMd(b.slice(0, -1));
         continue;
       }
       if (b.length === 1 && b[0]!.length > 90) {
-        focus.body = bulletsMd([truncateWords(b[0]!, 86)]);
+        insights.body = bulletsMd([truncateWords(b[0]!, 86)]);
         continue;
       }
     }
-    const proj = findSection(sections, 'PROJECT CONTEXT');
-    if (proj && proj.body.length > 48) {
-      proj.body = truncateWords(proj.body, Math.max(48, Math.floor(proj.body.length * 0.72)));
+    const snap = findSection(sections, 'PROJECT SNAPSHOT');
+    if (snap && snap.body.length > 200) {
+      snap.body = truncateWords(snap.body, Math.max(160, Math.floor(snap.body.length * 0.75)));
       continue;
     }
     const notes = findSection(sections, 'NOTES');
@@ -154,9 +155,10 @@ export function compressAiReadyMarkdownLocal(md: string, targetTokens: number): 
       instr.body = truncateWords(instr.body, Math.max(40, Math.floor(instr.body.length * 0.7)));
       continue;
     }
-    const task = findSection(sections, 'TASK');
-    if (task && task.body.length > 24) {
-      task.body = truncateWords(task.body, Math.max(24, Math.floor(task.body.length * 0.75)));
+    const task =
+      findSection(sections, 'TASK ANCHOR') ?? findSection(sections, 'TASK');
+    if (task && task.body.length > 48) {
+      task.body = truncateWords(task.body.trim(), Math.max(24, Math.floor(task.body.length * 0.75)));
       continue;
     }
     break;
@@ -167,31 +169,37 @@ export function compressAiReadyMarkdownLocal(md: string, targetTokens: number): 
 export function compressAiReadyJsonLocal(obj: AiReadyJsonExport, targetTokens: number): AiReadyJsonExport {
   const o: AiReadyJsonExport = {
     ...obj,
-    workspaceFocus: [...obj.workspaceFocus],
-    activeFiles: [...obj.activeFiles],
-    recentWork: [...obj.recentWork],
+    workingContext: {
+      activeFiles: [...obj.workingContext.activeFiles],
+      recentWork: [...obj.workingContext.recentWork],
+    },
+    insights: obj.insights ? [...obj.insights] : undefined,
   };
   let guard = 0;
   while (estimateTokens(JSON.stringify(o)) > targetTokens && guard < 80) {
     guard++;
-    if (o.recentWork.length > 1) {
-      o.recentWork.pop();
+    if (o.insights && o.insights.length > 1) {
+      o.insights.pop();
       continue;
     }
-    if (o.activeFiles.length > 1) {
-      o.activeFiles.pop();
+    if (o.workingContext.recentWork.length > 1) {
+      o.workingContext.recentWork.pop();
       continue;
     }
-    if (o.workspaceFocus.length > 1) {
-      o.workspaceFocus.pop();
+    if (o.workingContext.activeFiles.length > 1) {
+      o.workingContext.activeFiles.pop();
       continue;
     }
-    if (o.recentWork[0] && o.recentWork[0].length > 40) {
-      o.recentWork = [truncateWords(o.recentWork[0], 36)];
+    if (o.projectSnapshot && o.projectSnapshot.length > 120) {
+      o.projectSnapshot = truncateWords(
+        o.projectSnapshot,
+        Math.max(120, Math.floor(o.projectSnapshot.length * 0.72)),
+      );
       continue;
     }
-    if (o.projectContext.length > 40) {
-      o.projectContext = truncateWords(o.projectContext, Math.max(40, Math.floor(o.projectContext.length * 0.7)));
+    const rw0 = o.workingContext.recentWork[0];
+    if (rw0 && rw0.length > 40) {
+      o.workingContext.recentWork = [truncateWords(rw0, 36)];
       continue;
     }
     if (o.notes.length > 12 && o.notes !== '(none)') {
@@ -202,8 +210,8 @@ export function compressAiReadyJsonLocal(obj: AiReadyJsonExport, targetTokens: n
       o.instruction = truncateWords(o.instruction, Math.max(20, Math.floor(o.instruction.length * 0.7)));
       continue;
     }
-    if (o.task.length > 16 && o.task !== '(not set)') {
-      o.task = truncateWords(o.task, Math.max(16, Math.floor(o.task.length * 0.75)));
+    if (o.taskAnchor.length > 16 && o.taskAnchor !== '(not set)') {
+      o.taskAnchor = truncateWords(o.taskAnchor, Math.max(16, Math.floor(o.taskAnchor.length * 0.75)));
       continue;
     }
     break;
@@ -214,10 +222,10 @@ export function compressAiReadyJsonLocal(obj: AiReadyJsonExport, targetTokens: n
 const EXPORT_MD_COMPRESS_SYSTEM = `You are compressing a fixed-structure workspace handoff for another AI model.
 
 Strict rules:
-- Output ONLY valid markdown using these section headers when present in the input: # TASK, # WORKSPACE FOCUS, # ACTIVE FILES, # RECENT WORK, # PROJECT CONTEXT, optional # NOTES, and # INSTRUCTION.
+- Output ONLY valid markdown using these section headers when present in the input: # TASK ANCHOR, optional # PROJECT SNAPSHOT, # WORKING CONTEXT, optional # INSIGHTS, optional # NOTES, and # INSTRUCTION.
 - Preserve the same header order as the input. Do not add new sections.
 - Do not invent repository facts, file names, or intents; only shorten, merge redundant bullets, or tighten wording.
-- Prefer removing lower-value bullets over deleting # TASK or # INSTRUCTION entirely.
+- Prefer removing lower-value bullets over deleting # TASK ANCHOR or # INSTRUCTION entirely.
 - Stay at or below the user's approximate token target. Plain markdown only (no code fences around the whole doc).`;
 
 async function compressAiReadyMarkdownWithLlm(

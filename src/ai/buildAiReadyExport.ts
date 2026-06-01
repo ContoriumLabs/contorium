@@ -1,17 +1,25 @@
 import type { EventStore } from '../core/engine/eventStore';
 import type { ProjectState } from '../types/state';
 import type { ActivityAnalysis } from '../core/semantic/activityAnalyzer';
+import { extractTaskAnchor } from '../state-engine';
+import {
+  buildLightInsights,
+  formatWorkingContextMarkdown,
+  purifySnapshotMarkdown,
+} from './exportConvergence';
 import { filterEngineeringPaths } from '../ui/sidebarPathFilter';
-import { buildHeuristicOperationalIntentLines } from '../ui/heuristicOperationalIntent';
 import { buildActivityStreamItems } from '../ui/sidebarViewModel';
+import type { StateSummary } from '../intelligence/types';
 
-/** Structured export for JSON format — no raw events / scores / session id (product doc). */
+/** v2.1 converged export — 4 layers + notes/instruction (no inferred-behavior stack). */
 export interface AiReadyJsonExport {
-  task: string;
-  workspaceFocus: string[];
-  activeFiles: string[];
-  recentWork: string[];
-  projectContext: string;
+  taskAnchor: string;
+  projectSnapshot?: string;
+  workingContext: {
+    activeFiles: string[];
+    recentWork: string[];
+  };
+  insights?: string[];
   notes: string;
   instruction: string;
 }
@@ -21,7 +29,6 @@ function basenameOf(rel: string): string {
   return parts.length ? parts[parts.length - 1]! : rel;
 }
 
-/** Doc §7: drop junk / low-signal scratch files from AI-facing file list. */
 function isLowValueBasename(rel: string): boolean {
   const base = basenameOf(rel);
   const nameNoExt = base.includes('.') ? base.slice(0, base.lastIndexOf('.')) : base;
@@ -50,7 +57,6 @@ function computePathScore(
   return f * 0.5 + s * 3 + open * 2 + git * 4;
 }
 
-/** Doc §8: top 3–5 meaningful paths; display basename only. */
 function pickActiveFileBasenames(
   state: ProjectState,
   analysis: ActivityAnalysis,
@@ -103,7 +109,6 @@ function pickActiveFileBasenames(
   return out;
 }
 
-/** Doc §11: short human lines (aggregated stream), not raw JSON events. */
 function pickRecentWorkLines(eventStore: EventStore | undefined, max: number): string[] {
   if (!eventStore) {
     return [];
@@ -124,89 +129,43 @@ function pickRecentWorkLines(eventStore: EventStore | undefined, max: number): s
   return out;
 }
 
-function buildProjectContextSentence(
-  state: ProjectState,
-  focusBullets: string[],
-  activeBasenames: string[],
-): string {
-  const task = (state.currentTask ?? '').trim();
-  const primary = activeBasenames[0];
-  const topIntent = focusBullets.find((l) => !l.startsWith('Stated focus:'));
-  if (task && topIntent) {
-    return `This workspace is currently focused on: ${task}. Signals suggest ${topIntent.replace(/\.$/, '')}.`;
-  }
-  if (task) {
-    return `This workspace is currently focused on: ${task}.`;
-  }
-  if (topIntent && primary) {
-    return `Activity centers on ${primary} with emphasis on ${topIntent.replace(/\.$/, '')}.`;
-  }
-  if (topIntent) {
-    return `Current work direction: ${topIntent.replace(/\.$/, '')}.`;
-  }
-  if (primary) {
-    return `Most active file recently: ${primary}.`;
-  }
-  return 'Workspace activity is light — open or edit files to build richer context.';
-}
-
-function workspaceFocusBullets(
-  state: ProjectState,
-  eventStore: EventStore | undefined,
-  confirmedAiGoals?: string[],
-): string[] {
-  const lines = buildHeuristicOperationalIntentLines(state, eventStore, 8);
-  const task = (state.currentTask ?? '').trim();
-  const withoutStated = task ? lines.filter((l) => !l.startsWith('Stated focus:')) : lines;
-  const merged: string[] = [];
-  const seen = new Set<string>();
-  for (const g of confirmedAiGoals ?? []) {
-    const t = g.trim();
-    if (!t || seen.has(t)) {
-      continue;
-    }
-    seen.add(t);
-    merged.push(t);
-  }
-  for (const l of withoutStated) {
-    if (seen.has(l)) {
-      continue;
-    }
-    seen.add(l);
-    merged.push(l);
-  }
-  /** Doc §10: top 3 intents for “Workspace focus” in export. */
-  return merged.slice(0, 3);
-}
-
 export function buildAiReadyJsonExport(args: {
   state: ProjectState;
   eventStore: EventStore | undefined;
   analysis: ActivityAnalysis;
   instruction: string;
   shouldIgnore?: (p: string) => boolean;
-  /** High-confidence persisted intent lines; omitted when lifecycle marked stale. */
-  confirmedAiIntentGoals?: string[];
+  projectSnapshot?: string;
+  summary?: StateSummary;
 }): AiReadyJsonExport {
-  const { state, eventStore, analysis, instruction, shouldIgnore, confirmedAiIntentGoals } = args;
-  const focus = workspaceFocusBullets(state, eventStore, confirmedAiIntentGoals);
+  const { state, eventStore, analysis, instruction, shouldIgnore, projectSnapshot, summary } = args;
+  const taskAnchor = extractTaskAnchor(state);
   const active = pickActiveFileBasenames(state, analysis, shouldIgnore, 5);
   const recent = pickRecentWorkLines(eventStore, 5);
   const notes = (state.notes ?? '').trim();
-  return {
-    task: (state.currentTask ?? '').trim() || '(not set)',
-    workspaceFocus: focus.length ? focus : ['(no strong intent signal yet)'],
-    activeFiles: active.length ? active : ['(none above threshold)'],
-    recentWork: recent.length ? recent : ['(no recent edits in buffer)'],
-    projectContext: buildProjectContextSentence(state, focus, active),
+  const insights = buildLightInsights(summary, taskAnchor);
+
+  const out: AiReadyJsonExport = {
+    taskAnchor: taskAnchor || '(not set)',
+    workingContext: {
+      activeFiles: active.length ? active : ['(none above threshold)'],
+      recentWork: recent.length ? recent : ['(no recent edits in buffer)'],
+    },
     notes: notes || '(none)',
     instruction: instruction.trim() || '(none)',
   };
+  if (projectSnapshot?.trim()) {
+    out.projectSnapshot = purifySnapshotMarkdown(projectSnapshot, summary);
+  }
+  if (insights.length) {
+    out.insights = insights;
+  }
+  return out;
 }
 
 /**
- * Compressed, AI-facing markdown (doc: TASK / WORKSPACE FOCUS / ACTIVE FILES / RECENT WORK / PROJECT CONTEXT / INSTRUCTION).
- * No session id, raw events, ranking scores, or JSON git blobs.
+ * v2.1 converged markdown:
+ * TASK ANCHOR → PROJECT SNAPSHOT (pure) → WORKING CONTEXT → INSIGHTS → NOTES → INSTRUCTION
  */
 export function buildAiReadyMarkdownExport(args: {
   state: ProjectState;
@@ -214,32 +173,41 @@ export function buildAiReadyMarkdownExport(args: {
   analysis: ActivityAnalysis;
   instruction: string;
   shouldIgnore?: (p: string) => boolean;
-  confirmedAiIntentGoals?: string[];
+  projectSnapshot?: string;
+  summary?: StateSummary;
 }): string {
   const j = buildAiReadyJsonExport(args);
   const lines: string[] = [];
-  lines.push('# TASK');
-  lines.push(j.task);
+
+  lines.push('# TASK ANCHOR');
+  lines.push(j.taskAnchor);
   lines.push('');
-  lines.push('# WORKSPACE FOCUS');
-  lines.push(j.workspaceFocus.map((s) => `- ${s}`).join('\n'));
+
+  if (j.projectSnapshot) {
+    lines.push('# PROJECT SNAPSHOT');
+    lines.push(j.projectSnapshot);
+    lines.push('');
+  }
+
+  lines.push('# WORKING CONTEXT');
+  lines.push(formatWorkingContextMarkdown(j.workingContext.activeFiles, j.workingContext.recentWork));
   lines.push('');
-  lines.push('# ACTIVE FILES');
-  lines.push(j.activeFiles.map((s) => `- ${s}`).join('\n'));
-  lines.push('');
-  lines.push('# RECENT WORK');
-  lines.push(j.recentWork.map((s) => `- ${s}`).join('\n'));
-  lines.push('');
-  lines.push('# PROJECT CONTEXT');
-  lines.push(j.projectContext);
-  lines.push('');
+
+  if (j.insights?.length) {
+    lines.push('# INSIGHTS');
+    lines.push(j.insights.map((s) => `- ${s}`).join('\n'));
+    lines.push('');
+  }
+
   if (j.notes !== '(none)') {
     lines.push('# NOTES');
     lines.push(j.notes);
     lines.push('');
   }
+
   lines.push('# INSTRUCTION');
   lines.push(j.instruction);
   lines.push('');
+
   return lines.join('\n');
 }

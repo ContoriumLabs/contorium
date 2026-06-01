@@ -1,0 +1,23 @@
+{
+  "name": "@contora/cli",
+  "version": "0.7.0",
+  "description": "Contorium CLI adapter — init workspace state and print snapshot (shared state-core).",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "contorium": "./bin/contorium.cjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p ./"
+  },
+  "dependencies": {
+    "@contora/state-core": "file:../state-core"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}

@@ -56,6 +56,44 @@ export interface SidebarWebviewState {
   activityStreamItems: string[];
   /** Optional; populated by sidebar host when loading `.contora/last-intent.json`. */
   aiIntent?: SidebarAiIntentPanel;
+  /** v0.7 intent graph + project understanding summary. */
+  intentGraph?: SidebarIntentGraphPanel;
+  /** State Builder project state summary. */
+  projectState?: SidebarProjectStatePanel;
+}
+
+/** Single intent node line in the sidebar graph panel. */
+export interface SidebarIntentGraphItem {
+  text: string;
+  status: string;
+  confidence: number;
+  relatedFileCount: number;
+}
+
+/** Derived cognition summary for sidebar (read from `.contora/intelligence` + `intent-graph`). */
+export interface SidebarIntentGraphPanel {
+  projectIntent: string;
+  problemArea: string;
+  domains: string[];
+  hotspot: string;
+  summaryConfidence: number;
+  intents: SidebarIntentGraphItem[];
+  updatedAt: number;
+  empty: boolean;
+}
+
+/** State Builder panel for sidebar (`.contora/state-builder/`). */
+export interface SidebarProjectStatePanel {
+  projectGoal: string;
+  currentStage: string;
+  activeModules: string[];
+  recentDecisions: string[];
+  openProblems: string[];
+  completedMilestones: string[];
+  nextActions: string[];
+  confidence: number;
+  updatedAt: number;
+  empty: boolean;
 }
 
 function topActivityFolder(paths: string[]): string {

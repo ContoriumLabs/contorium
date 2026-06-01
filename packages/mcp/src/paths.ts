@@ -26,6 +26,26 @@ export function mcpMemoryFile(workspaceRoot: string): string {
   return path.join(contoraDir(workspaceRoot), 'mcp', 'memories.json');
 }
 
+export function stateSummaryFile(workspaceRoot: string): string {
+  return path.join(contoraDir(workspaceRoot), 'intelligence', 'state-summary.json');
+}
+
+export function intentGraphFile(workspaceRoot: string): string {
+  return path.join(contoraDir(workspaceRoot), 'intent-graph', 'graph.json');
+}
+
+export function projectStateFile(workspaceRoot: string): string {
+  return path.join(contoraDir(workspaceRoot), 'state-builder', 'project-state.json');
+}
+
+export function projectSnapshotFile(workspaceRoot: string): string {
+  return path.join(contoraDir(workspaceRoot), 'state-builder', 'project-snapshot.md');
+}
+
+export function conflictsFile(workspaceRoot: string): string {
+  return path.join(contoraDir(workspaceRoot), 'state-engine', 'conflicts.json');
+}
+
 export async function findWorkspaceRoot(startDir: string): Promise<string> {
   let dir = path.resolve(startDir);
   for (let i = 0; i < 12; i++) {

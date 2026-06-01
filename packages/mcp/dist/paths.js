@@ -20,6 +20,21 @@ export function contoraDir(workspaceRoot) {
 export function mcpMemoryFile(workspaceRoot) {
     return path.join(contoraDir(workspaceRoot), 'mcp', 'memories.json');
 }
+export function stateSummaryFile(workspaceRoot) {
+    return path.join(contoraDir(workspaceRoot), 'intelligence', 'state-summary.json');
+}
+export function intentGraphFile(workspaceRoot) {
+    return path.join(contoraDir(workspaceRoot), 'intent-graph', 'graph.json');
+}
+export function projectStateFile(workspaceRoot) {
+    return path.join(contoraDir(workspaceRoot), 'state-builder', 'project-state.json');
+}
+export function projectSnapshotFile(workspaceRoot) {
+    return path.join(contoraDir(workspaceRoot), 'state-builder', 'project-snapshot.md');
+}
+export function conflictsFile(workspaceRoot) {
+    return path.join(contoraDir(workspaceRoot), 'state-engine', 'conflicts.json');
+}
 export async function findWorkspaceRoot(startDir) {
     let dir = path.resolve(startDir);
     for (let i = 0; i < 12; i++) {

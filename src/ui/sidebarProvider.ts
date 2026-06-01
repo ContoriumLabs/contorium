@@ -5,6 +5,9 @@ import { CONTORA_CONFIG_SECTION, PRODUCT_DISPLAY_NAME } from '../constants';
 import { readResolvedExportTokenBudget } from '../ai/exportBudget';
 import type { EventStore } from '../core/engine/eventStore';
 import { intentToGoals, readAndEvaluatePersistedIntent } from '../core/memory/intentStore';
+import { buildSidebarGraphPanel } from '../cognition/sidebarGraphPanel';
+import { buildSidebarConflictsPanel } from '../cognition/sidebarConflictsPanel';
+import { buildSidebarProjectStatePanel } from '../cognition/sidebarStateBuilderPanel';
 import { StateManager } from '../state/stateManager';
 import type { ProjectState } from '../types/state';
 import {
@@ -37,6 +40,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   private folder: vscode.WorkspaceFolder | undefined;
   private events?: EventStore;
   private readonly keys: ContoraKeyManager;
+  private pushStateSeq = 0;
+  private pushStateInFlight = false;
+  private pushStateQueued = false;
 
   constructor(
     private readonly ctx: vscode.ExtensionContext,
@@ -61,7 +67,6 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
     this.view = webviewView;
-    void this.pushStateToWebview();
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.ctx.extensionUri],
@@ -71,7 +76,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     // posted before the listener exists and the webview never receives initial state.
     webviewView.webview.onDidReceiveMessage(async (msg: WebviewToExt) => {
       if (msg.type === 'ready') {
-        await this.pushStateToWebview();
+        void this.pushStateToWebview();
         return;
       }
       if (msg.type === 'exportAIContext') {
@@ -151,7 +156,29 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    webviewView.webview.html = this.getHtml(webviewView.webview);
+    try {
+      webviewView.webview.html = this.getHtml(webviewView.webview);
+    } catch (err) {
+      console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar HTML failed:`, err);
+      webviewView.webview.html = this.getFallbackHtml(
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  /** Minimal shell when getHtml() throws — avoids a permanently blank webview. */
+  private getFallbackHtml(errorMessage: string): string {
+    const safe = errorMessage.replace(/[<>&"]/g, (c) => {
+      if (c === '<') return '&lt;';
+      if (c === '>') return '&gt;';
+      if (c === '&') return '&amp;';
+      return '&quot;';
+    });
+    return `<!DOCTYPE html><html><body style="font-family:var(--vscode-font-family);padding:12px;color:var(--vscode-foreground)">
+      <p><strong>${PRODUCT_DISPLAY_NAME}</strong> sidebar failed to render.</p>
+      <p style="opacity:.85;font-size:12px">${safe}</p>
+      <p style="opacity:.7;font-size:11px">Try: Developer: Reload Window, or reinstall the VSIX.</p>
+    </body></html>`;
   }
 
   async refresh(): Promise<void> {
@@ -240,17 +267,92 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     if (!this.view) {
       return;
     }
-    const folder = this.folder ?? this.stateManager.getPrimaryFolder();
-    const byok = await this.loadByokPanelState();
-    if (!folder) {
-      this.view.webview.postMessage({ type: 'state', state: null, byok });
+    if (this.pushStateInFlight) {
+      this.pushStateQueued = true;
       return;
     }
-    const state = await this.stateManager.load(folder);
-    const ver = String((this.ctx.extension.packageJSON as { version?: string }).version ?? '');
-    const base = buildSidebarWebviewState(state, this.events, ver);
-    const aiIntent = await this.readAiIntentForFolder(folder, state);
-    this.view.webview.postMessage({ type: 'state', state: { ...base, aiIntent }, byok });
+    this.pushStateInFlight = true;
+    const seq = ++this.pushStateSeq;
+    try {
+      const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+      const byok = await this.loadByokPanelState();
+      if (!folder) {
+        this.view.webview.postMessage({ type: 'state', state: null, byok });
+        return;
+      }
+      const state = await this.stateManager.load(folder);
+      const ver = String((this.ctx.extension.packageJSON as { version?: string }).version ?? '');
+      const base = buildSidebarWebviewState(state, this.events, ver);
+
+      // Fast first paint — avoid waiting on cognition disk reads.
+      if (seq === this.pushStateSeq) {
+        this.view.webview.postMessage({
+          type: 'state',
+          state: {
+            ...base,
+            aiIntent: { goals: [] },
+            intentGraph: {
+              projectIntent: '',
+              problemArea: '',
+              domains: [],
+              hotspot: '',
+              summaryConfidence: 0,
+              intents: [],
+              updatedAt: 0,
+              empty: true,
+            },
+            projectState: {
+              projectGoal: '',
+              currentStage: '',
+              activeModules: [],
+              recentDecisions: [],
+              openProblems: [],
+              completedMilestones: [],
+              nextActions: [],
+              confidence: 0,
+              updatedAt: 0,
+              empty: true,
+            },
+            stateConflicts: { count: 0, items: [], updatedAt: 0, empty: true },
+          },
+          byok,
+          instant: true,
+        });
+      }
+
+      const [aiIntent, intentGraph, projectState, stateConflicts] = await Promise.all([
+        this.readAiIntentForFolder(folder, state),
+        buildSidebarGraphPanel(folder),
+        buildSidebarProjectStatePanel(folder),
+        buildSidebarConflictsPanel(folder),
+      ]);
+      if (seq !== this.pushStateSeq || !this.view) {
+        return;
+      }
+      this.view.webview.postMessage({
+        type: 'state',
+        state: { ...base, aiIntent, intentGraph, projectState, stateConflicts },
+        byok,
+      });
+    } catch (err) {
+      console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar state push failed:`, err);
+      try {
+        this.view.webview.postMessage({
+          type: 'state',
+          state: null,
+          byok: null,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      } catch {
+        /* webview disposed */
+      }
+    } finally {
+      this.pushStateInFlight = false;
+      if (this.pushStateQueued) {
+        this.pushStateQueued = false;
+        void this.pushStateToWebview();
+      }
+    }
   }
 
   private getHtml(webview: vscode.Webview): string {
@@ -540,6 +642,109 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: 2px;
     }
+    .cr-graph-meta {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+    .cr-graph-line {
+      margin: 0 0 6px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--vscode-foreground);
+    }
+    .cr-graph-muted {
+      margin: 0 0 8px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--vscode-descriptionForeground);
+    }
+    ul.cr-graph-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    ul.cr-graph-list li {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 8px;
+      align-items: start;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,.14));
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    ul.cr-graph-list li:last-child { border-bottom: none; }
+    .cr-graph-status {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+      margin-top: 1px;
+    }
+    .cr-graph-status--active {
+      color: var(--vscode-testing-iconPassed, #89d185);
+      background: rgba(137, 209, 133, 0.12);
+    }
+    .cr-graph-status--weakening {
+      color: var(--vscode-editorWarning-foreground, #cca700);
+      background: rgba(204, 167, 0, 0.12);
+    }
+    .cr-graph-status--partial {
+      color: var(--vscode-descriptionForeground);
+      background: var(--vscode-badge-background, rgba(127,127,127,.18));
+    }
+    .cr-graph-text {
+      color: var(--vscode-foreground);
+      word-break: break-word;
+    }
+    .cr-graph-conf {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground);
+      font-variant-numeric: tabular-nums;
+    }
+    .cr-graph-domains {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin: 0 0 8px;
+    }
+    .cr-graph-domain {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.22));
+      color: var(--vscode-descriptionForeground);
+    }
+    .cr-graph-empty {
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--vscode-descriptionForeground);
+    }
+    .cr-psb-block { margin: 0 0 10px; }
+    .cr-psb-k {
+      display: block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+      margin-bottom: 4px;
+    }
+    ul.cr-psb-list {
+      margin: 0;
+      padding: 0 0 0 16px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--vscode-foreground);
+    }
+    ul.cr-psb-list--warn { color: var(--vscode-editorWarning-foreground, var(--vscode-foreground)); }
     .cr-ai-goals-empty.cr-text-shimmer::after {
       content: '';
       position: absolute;
@@ -639,7 +844,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       color: var(--vscode-descriptionForeground);
     }
     .cr-ai-foot-ctx { color: var(--vscode-textLink-foreground); cursor: default; }
-    .cr-actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+    .cr-actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
     button.cr-primary {
       width: 100%;
       display: flex;
@@ -695,9 +900,103 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       background: var(--vscode-toolbar-hoverBackground);
     }
     .cr-section {
-      margin-top: 14px;
-      padding-top: 2px;
+      margin-top: 12px;
+      padding-top: 0;
     }
+    .cr-module-card {
+      background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,.1));
+      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.2));
+      border-radius: 10px;
+      padding: 10px 10px 8px;
+    }
+    .cr-module-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 0 0 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,.14));
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-descriptionForeground));
+      text-transform: uppercase;
+    }
+    .cr-module-card-head .cr-sec-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .cr-module-card-head .cr-sec-ico {
+      display: flex;
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.95;
+    }
+    .cr-module-card-body { min-width: 0; }
+    .cr-module-card--workspace {
+      border-left: 3px solid var(--vscode-gitDecoration-addedResourceForeground, #73c991);
+    }
+    .cr-module-card--intent {
+      border-left: 3px solid var(--vscode-symbolIcon-arrayForeground, #c586c0);
+      background: linear-gradient(
+        165deg,
+        rgba(197, 134, 192, 0.11) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.1)) 48%
+      );
+    }
+    .cr-module-card--state {
+      border-left: 3px solid var(--vscode-gitDecoration-untrackedResourceForeground, #75beff);
+      background: linear-gradient(
+        165deg,
+        rgba(117, 190, 255, 0.11) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.1)) 48%
+      );
+    }
+    .cr-module-card--files {
+      border-left: 3px solid var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+      background: linear-gradient(
+        165deg,
+        rgba(226, 192, 141, 0.08) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.08)) 40%
+      );
+    }
+    .cr-module-card--state .cr-psb-panel {
+      margin-top: 8px;
+      padding: 8px 8px 6px;
+      border-radius: 6px;
+      background: var(--vscode-input-background, rgba(0, 0, 0, 0.08));
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.14));
+    }
+    .cr-module-card--conflicts {
+      border-left: 3px solid var(--vscode-inputValidationWarningBorder, #cca700);
+      background: rgba(204, 167, 0, 0.08);
+    }
+    .cr-conf-meta { color: var(--vscode-inputValidationWarningForeground, var(--vscode-descriptionForeground)); }
+    .cr-conf-item { margin-bottom: 10px; }
+    .cr-conf-item-k { font-size: 10px; font-weight: 600; text-transform: uppercase; opacity: 0.85; }
+    .cr-module-card--state .cr-psb-panel--warn {
+      border-color: rgba(204, 167, 0, 0.28);
+      background: rgba(204, 167, 0, 0.07);
+    }
+    .cr-module-card--intent .cr-graph-list li {
+      padding: 8px 6px;
+      border-radius: 5px;
+      border-bottom: none;
+    }
+    .cr-module-card--intent .cr-graph-list li + li {
+      margin-top: 4px;
+      border-top: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.12));
+    }
+    .cr-module-card--intent .cr-graph-list li:first-child {
+      background: rgba(127, 127, 127, 0.06);
+    }
+    .cr-module-card--files .cr-file-list {
+      margin: 0;
+      padding: 2px 0 0;
+    }
+    .cr-module-card--workspace .cr-sum-line:first-child { padding-top: 2px; }
     .cr-section-head {
       display: flex;
       align-items: center;
@@ -777,10 +1076,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
     textarea#notes { min-height: 68px; resize: vertical; margin-top: 2px; }
     .cr-summary {
-      background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,.08));
-      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.18));
-      border-radius: 8px;
-      padding: 8px 8px 8px 6px;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      background: transparent;
     }
     .cr-sum-line {
       display: flex;
@@ -988,19 +1287,25 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     html.cr-restore-hydrating .cr-sum-line.cr-restore-hidden,
     html.cr-restore-hydrating #crSecRecent.cr-restore-hidden,
     html.cr-restore-hydrating #crGitDetails.cr-restore-hidden,
-    html.cr-restore-hydrating #crSecAiGoals.cr-restore-hidden {
+    html.cr-restore-hydrating #crSecAiGoals.cr-restore-hidden,
+    html.cr-restore-hydrating #crSecIntentGraph.cr-restore-hidden,
+    html.cr-restore-hydrating #crSecProjectState.cr-restore-hidden {
       transition: none !important;
     }
     .cr-sum-line,
     #crSecRecent,
     #crGitDetails,
-    #crSecAiGoals {
+    #crSecAiGoals,
+    #crSecIntentGraph,
+    #crSecProjectState {
       transition: opacity 0.42s ease-out;
     }
     .cr-sum-line.cr-restore-hidden,
     #crSecRecent.cr-restore-hidden,
     #crGitDetails.cr-restore-hidden,
-    #crSecAiGoals.cr-restore-hidden {
+    #crSecAiGoals.cr-restore-hidden,
+    #crSecIntentGraph.cr-restore-hidden,
+    #crSecProjectState.cr-restore-hidden {
       opacity: 0;
       pointer-events: none;
     }
@@ -1062,7 +1367,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   </section>
 
   <div class="cr-actions">
-    <button type="button" class="cr-primary" id="btnExport" title="Copy a compact, AI-ready snapshot (no raw telemetry) to the clipboard">
+    <button type="button" class="cr-primary" id="btnExport" title="Copy AI-ready context: task anchor, pure snapshot, working context, light insights">
       ${ico.copy}<span>Copy AI-ready context</span>${ico.spark}
     </button>
     <div class="cr-grid2">
@@ -1072,9 +1377,11 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   </div>
 
   <section class="cr-section" id="crSecSnapshot">
-    <div class="cr-section-head">
-      <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Workspace snapshot</span></span>
-    </div>
+    <div class="cr-module-card cr-module-card--workspace">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Workspace snapshot</span></span>
+      </div>
+      <div class="cr-module-card-body">
     <div class="cr-summary">
       <div class="cr-sum-line" id="sumActive">
         <span class="cr-sum-ico cr-sum-ico--files">${ico.list}</span>
@@ -1099,13 +1406,81 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         </div>
       </div>
     </div>
+    </div>
+  </section>
+
+  <section class="cr-section" id="crSecIntentGraph" aria-label="Intent graph summary">
+    <div class="cr-module-card cr-module-card--intent">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Intent graph</span></span>
+        <span class="cr-graph-meta" id="graphMeta">—</span>
+      </div>
+      <div class="cr-module-card-body">
+    <p id="graphUnderstanding" class="cr-graph-line" hidden></p>
+    <p id="graphProblem" class="cr-graph-muted" hidden></p>
+    <div id="graphDomains" class="cr-graph-domains" hidden></div>
+    <ul id="graphIntentList" class="cr-graph-list" hidden aria-label="Active intent nodes"></ul>
+    <p id="graphEmpty" class="cr-graph-empty">Analyzing workspace… intent graph builds from recent activity.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cr-section" id="crSecProjectState" aria-label="Project state (State Builder)">
+    <div class="cr-module-card cr-module-card--state">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>Project state</span></span>
+        <span class="cr-graph-meta" id="psbMeta">—</span>
+      </div>
+      <div class="cr-module-card-body">
+    <p class="cr-graph-muted" style="margin:0 0 8px">L4 preview — <strong>Copy AI-ready context</strong> exports a converged 4-layer handoff (pure snapshot, no source tags).</p>
+    <div class="cr-psb-block">
+      <span class="cr-psb-k">Goal</span>
+      <p id="psbGoal" class="cr-graph-line">—</p>
+    </div>
+    <div class="cr-psb-block">
+      <span class="cr-psb-k">Current stage</span>
+      <p id="psbStage" class="cr-graph-muted">—</p>
+    </div>
+    <div id="psbModules" class="cr-graph-domains" hidden></div>
+    <div class="cr-psb-panel" id="psbDecisionsBlock" hidden>
+      <span class="cr-psb-k">Recent decisions</span>
+      <ul id="psbDecisions" class="cr-psb-list"></ul>
+    </div>
+    <div class="cr-psb-panel cr-psb-panel--warn" id="psbProblemsBlock" hidden>
+      <span class="cr-psb-k">Open problems</span>
+      <ul id="psbProblems" class="cr-psb-list cr-psb-list--warn"></ul>
+    </div>
+    <div class="cr-psb-panel" id="psbNextBlock" hidden>
+      <span class="cr-psb-k">Next actions</span>
+      <ul id="psbNext" class="cr-psb-list"></ul>
+    </div>
+    <p id="psbEmpty" class="cr-graph-empty">Building project state from workspace activity…</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cr-section" id="crSecConflicts" aria-label="State conflicts (v2)" hidden>
+    <div class="cr-module-card cr-module-card--conflicts">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>State conflicts</span></span>
+        <span class="cr-graph-meta cr-conf-meta" id="confMeta">—</span>
+      </div>
+      <div class="cr-module-card-body">
+        <p class="cr-graph-muted" style="margin:0 0 8px">v2 audit — shown only when unresolved; system does not auto-pick a winner.</p>
+        <ul id="confList" class="cr-psb-list cr-psb-list--warn" aria-label="Unresolved state conflicts"></ul>
+      </div>
+    </div>
   </section>
 
   <section class="cr-section" id="crSecRecent">
-    <div class="cr-section-head">
-      <span class="cr-sec-left"><span class="cr-sec-ico">${ico.file}</span><span>Active files</span></span>
-    </div>
+    <div class="cr-module-card cr-module-card--files">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.file}</span><span>Active files</span></span>
+      </div>
+      <div class="cr-module-card-body">
     <ul id="recent" class="cr-file-list"></ul>
+      </div>
+    </div>
   </section>
 
   <details class="cr-git" open id="crGitDetails">
@@ -1157,6 +1532,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   <template id="tpl-file-ico">${ico.file}</template>
 
   <script nonce="${nonce}">
+    (function () {
+    try {
     const vscode = acquireVsCodeApi();
     const TASK_MAX = ${TASK_MAX};
     const taskEl = document.getElementById('task');
@@ -1189,6 +1566,26 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const aiStatCtx = document.getElementById('aiStatCtx');
     const aiStatTierBadge = document.getElementById('aiStatTierBadge');
     const aiTrackStatus = document.getElementById('aiTrackStatus');
+    const graphMetaEl = document.getElementById('graphMeta');
+    const graphUnderstandingEl = document.getElementById('graphUnderstanding');
+    const graphProblemEl = document.getElementById('graphProblem');
+    const graphDomainsEl = document.getElementById('graphDomains');
+    const graphIntentListEl = document.getElementById('graphIntentList');
+    const graphEmptyEl = document.getElementById('graphEmpty');
+    const psbMetaEl = document.getElementById('psbMeta');
+    const psbGoalEl = document.getElementById('psbGoal');
+    const psbStageEl = document.getElementById('psbStage');
+    const psbModulesEl = document.getElementById('psbModules');
+    const psbDecisionsBlock = document.getElementById('psbDecisionsBlock');
+    const psbDecisionsEl = document.getElementById('psbDecisions');
+    const psbProblemsBlock = document.getElementById('psbProblemsBlock');
+    const psbProblemsEl = document.getElementById('psbProblems');
+    const psbNextBlock = document.getElementById('psbNextBlock');
+    const psbNextEl = document.getElementById('psbNext');
+    const psbEmptyEl = document.getElementById('psbEmpty');
+    const confSecEl = document.getElementById('crSecConflicts');
+    const confMetaEl = document.getElementById('confMeta');
+    const confListEl = document.getElementById('confList');
     let lastTrackFingerprint = '';
     let lastActivityStreamHead = '';
     let trackStatusTimer = null;
@@ -1400,6 +1797,264 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
       const h = Math.floor(mins / 60);
       return 'Goals synced ' + h + ' h ago';
+    }
+
+    function formatGraphUpdated(ts) {
+      if (ts == null || !Number.isFinite(ts) || ts <= 0) {
+        return 'pending';
+      }
+      const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
+      if (mins === 0) {
+        return 'just now';
+      }
+      if (mins < 60) {
+        return mins + 'm ago';
+      }
+      const h = Math.floor(mins / 60);
+      return h + 'h ago';
+    }
+
+    function graphStatusClass(status) {
+      const s = String(status || '').toUpperCase();
+      if (s === 'ACTIVE') {
+        return 'cr-graph-status--active';
+      }
+      if (s === 'WEAKENING') {
+        return 'cr-graph-status--weakening';
+      }
+      return 'cr-graph-status--partial';
+    }
+
+    function truncateGraphText(text, max) {
+      const t = String(text || '').trim();
+      if (t.length <= max) {
+        return t;
+      }
+      return t.slice(0, max - 1) + '…';
+    }
+
+    function paintGraphPanel(panel) {
+      if (!graphMetaEl || !graphEmptyEl) {
+        return;
+      }
+      const g = panel || null;
+      const empty = !g || g.empty;
+      const hasIntents = !!(g && g.intents && g.intents.length > 0);
+      const hasUnderstanding = !!(g && (g.projectIntent || g.problemArea || (g.domains && g.domains.length)));
+
+      if (empty && !hasIntents && !hasUnderstanding) {
+        graphMetaEl.textContent = 'building…';
+        if (graphUnderstandingEl) {
+          graphUnderstandingEl.hidden = true;
+          graphUnderstandingEl.textContent = '';
+        }
+        if (graphProblemEl) {
+          graphProblemEl.hidden = true;
+          graphProblemEl.textContent = '';
+        }
+        if (graphDomainsEl) {
+          graphDomainsEl.hidden = true;
+          graphDomainsEl.innerHTML = '';
+        }
+        if (graphIntentListEl) {
+          graphIntentListEl.hidden = true;
+          graphIntentListEl.innerHTML = '';
+        }
+        graphEmptyEl.hidden = false;
+        return;
+      }
+
+      graphEmptyEl.hidden = hasIntents || hasUnderstanding;
+      const confPct = g && Number.isFinite(g.summaryConfidence)
+        ? Math.round(g.summaryConfidence * 100)
+        : null;
+      graphMetaEl.textContent =
+        (confPct != null ? confPct + '% · ' : '') + 'updated ' + formatGraphUpdated(g && g.updatedAt);
+
+      if (graphUnderstandingEl) {
+        if (g && g.projectIntent) {
+          graphUnderstandingEl.hidden = false;
+          graphUnderstandingEl.textContent = truncateGraphText(g.projectIntent, 160);
+        } else {
+          graphUnderstandingEl.hidden = true;
+          graphUnderstandingEl.textContent = '';
+        }
+      }
+
+      if (graphProblemEl) {
+        const parts = [];
+        if (g && g.problemArea) {
+          parts.push(g.problemArea);
+        }
+        if (g && g.hotspot) {
+          parts.push('hotspot: ' + g.hotspot);
+        }
+        if (parts.length) {
+          graphProblemEl.hidden = false;
+          graphProblemEl.textContent = parts.join(' · ');
+        } else {
+          graphProblemEl.hidden = true;
+          graphProblemEl.textContent = '';
+        }
+      }
+
+      if (graphDomainsEl) {
+        graphDomainsEl.innerHTML = '';
+        const domains = (g && g.domains) || [];
+        if (domains.length) {
+          graphDomainsEl.hidden = false;
+          for (let di = 0; di < Math.min(domains.length, 5); di++) {
+            const span = document.createElement('span');
+            span.className = 'cr-graph-domain';
+            span.textContent = domains[di];
+            graphDomainsEl.appendChild(span);
+          }
+        } else {
+          graphDomainsEl.hidden = true;
+        }
+      }
+
+      if (graphIntentListEl) {
+        graphIntentListEl.innerHTML = '';
+        if (hasIntents) {
+          graphIntentListEl.hidden = false;
+          const items = g.intents.slice(0, 6);
+          for (let ii = 0; ii < items.length; ii++) {
+            const item = items[ii];
+            const li = document.createElement('li');
+            const badge = document.createElement('span');
+            badge.className = 'cr-graph-status ' + graphStatusClass(item.status);
+            badge.textContent = String(item.status || 'PARTIAL').toLowerCase();
+            const text = document.createElement('span');
+            text.className = 'cr-graph-text';
+            text.textContent = truncateGraphText(item.text, 88);
+            const conf = document.createElement('span');
+            conf.className = 'cr-graph-conf';
+            conf.textContent = Math.round((item.confidence || 0) * 100) + '%';
+            li.appendChild(badge);
+            li.appendChild(text);
+            li.appendChild(conf);
+            graphIntentListEl.appendChild(li);
+          }
+        } else {
+          graphIntentListEl.hidden = true;
+        }
+      }
+    }
+
+    function fillPsbList(el, items) {
+      if (!el) {
+        return;
+      }
+      el.innerHTML = '';
+      for (let i = 0; i < items.length; i++) {
+        const li = document.createElement('li');
+        li.textContent = truncateGraphText(items[i], 120);
+        el.appendChild(li);
+      }
+    }
+
+    function paintConflictsPanel(conflicts) {
+      if (!confSecEl || !confListEl) {
+        return;
+      }
+      const c = conflicts || null;
+      if (!c || c.empty || !c.count) {
+        confSecEl.hidden = true;
+        confListEl.innerHTML = '';
+        return;
+      }
+      confSecEl.hidden = false;
+      if (confMetaEl) {
+        confMetaEl.textContent = c.count + ' UNRESOLVED';
+      }
+      confListEl.innerHTML = '';
+      const items = c.items || [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const li = document.createElement('li');
+        li.className = 'cr-conf-item';
+        const title = document.createElement('div');
+        title.className = 'cr-conf-item-k';
+        title.textContent = (item.title || item.type || 'conflict') + ' · ' + (item.status || 'UNRESOLVED');
+        li.appendChild(title);
+        const srcs = item.sources || [];
+        for (let si = 0; si < Math.min(srcs.length, 4); si++) {
+          const p = document.createElement('div');
+          p.className = 'cr-graph-muted';
+          p.style.marginTop = '2px';
+          p.textContent = truncateGraphText(srcs[si], 140);
+          li.appendChild(p);
+        }
+        confListEl.appendChild(li);
+      }
+    }
+
+    function paintProjectStatePanel(panel) {
+      if (!psbMetaEl || !psbEmptyEl) {
+        return;
+      }
+      const p = panel || null;
+      const empty = !p || p.empty;
+      if (empty) {
+        psbMetaEl.textContent = 'building…';
+        if (psbGoalEl) psbGoalEl.textContent = '—';
+        if (psbStageEl) psbStageEl.textContent = '—';
+        if (psbModulesEl) { psbModulesEl.hidden = true; psbModulesEl.innerHTML = ''; }
+        if (psbDecisionsBlock) psbDecisionsBlock.hidden = true;
+        if (psbProblemsBlock) psbProblemsBlock.hidden = true;
+        if (psbNextBlock) psbNextBlock.hidden = true;
+        psbEmptyEl.hidden = false;
+        return;
+      }
+      psbEmptyEl.hidden = true;
+      const confPct = Number.isFinite(p.confidence) ? Math.round(p.confidence * 100) : null;
+      psbMetaEl.textContent =
+        (confPct != null ? confPct + '% · ' : '') + 'updated ' + formatGraphUpdated(p.updatedAt);
+      if (psbGoalEl) psbGoalEl.textContent = truncateGraphText(p.projectGoal || '—', 200);
+      if (psbStageEl) psbStageEl.textContent = truncateGraphText(p.currentStage || '—', 160);
+      if (psbModulesEl) {
+        psbModulesEl.innerHTML = '';
+        const mods = p.activeModules || [];
+        if (mods.length) {
+          psbModulesEl.hidden = false;
+          for (let mi = 0; mi < Math.min(mods.length, 8); mi++) {
+            const span = document.createElement('span');
+            span.className = 'cr-graph-domain';
+            span.textContent = mods[mi];
+            psbModulesEl.appendChild(span);
+          }
+        } else {
+          psbModulesEl.hidden = true;
+        }
+      }
+      const decisions = p.recentDecisions || [];
+      if (psbDecisionsBlock && psbDecisionsEl) {
+        if (decisions.length) {
+          psbDecisionsBlock.hidden = false;
+          fillPsbList(psbDecisionsEl, decisions);
+        } else {
+          psbDecisionsBlock.hidden = true;
+        }
+      }
+      const problems = p.openProblems || [];
+      if (psbProblemsBlock && psbProblemsEl) {
+        if (problems.length) {
+          psbProblemsBlock.hidden = false;
+          fillPsbList(psbProblemsEl, problems);
+        } else {
+          psbProblemsBlock.hidden = true;
+        }
+      }
+      const next = p.nextActions || [];
+      if (psbNextBlock && psbNextEl) {
+        if (next.length) {
+          psbNextBlock.hidden = false;
+          fillPsbList(psbNextEl, next);
+        } else {
+          psbNextBlock.hidden = true;
+        }
+      }
     }
 
     function paintAiIntentPanel(aiIntent, activityGoals) {
@@ -1628,6 +2283,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         secRecent: document.getElementById('crSecRecent'),
         gitDetails: document.getElementById('crGitDetails'),
         secAiGoals: document.getElementById('crSecAiGoals'),
+        secIntentGraph: document.getElementById('crSecIntentGraph'),
+        secProjectState: document.getElementById('crSecProjectState'),
+        secConflicts: document.getElementById('crSecConflicts'),
       };
     }
 
@@ -1675,6 +2333,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintSummary(s, { silent: true });
       paintLists(s);
       paintAiRibbon(byok, aiIntent, activityGoals);
+      paintGraphPanel(s.intentGraph || null);
+      paintProjectStatePanel(s.projectState || null);
+      paintConflictsPanel(s.stateConflicts || null);
 
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
@@ -1694,6 +2355,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       rdel(480, function () {
         reveal(t.sumActive);
         reveal(t.secRecent);
+        reveal(t.secIntentGraph);
+        reveal(t.secProjectState);
+        reveal(t.secConflicts);
       });
       rdel(860, function () {
         reveal(t.secAiGoals);
@@ -1740,6 +2404,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         lastSumActivity = '';
         lastRecentTop = '';
         paintAiRibbon(byokPayload, null, []);
+        paintGraphPanel(null);
+        paintProjectStatePanel(null);
+        paintConflictsPanel(null);
         bumpTrackStatus(null);
         return;
       }
@@ -1751,8 +2418,15 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintTaskMeta();
       crVersion.textContent = '${PRODUCT_DISPLAY_NAME} v' + (s.extensionVersion || '?');
 
-      if (prevState === null) {
-        runPhasedWorkspaceRestore(s, byokPayload, aiIntent);
+      if (prevState === null || msg.instant) {
+        clearPhasedRestoreFull();
+        paintLists(s);
+        paintSummary(s);
+        paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
+        paintGraphPanel(s.intentGraph || null);
+        paintProjectStatePanel(s.projectState || null);
+        paintConflictsPanel(s.stateConflicts || null);
+        bumpTrackStatus(s);
         return;
       }
       if (phasedRestoreInProgress) {
@@ -1761,12 +2435,26 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintLists(s);
       paintSummary(s);
       paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
+      paintGraphPanel(s.intentGraph || null);
+      paintProjectStatePanel(s.projectState || null);
+      paintConflictsPanel(s.stateConflicts || null);
       bumpTrackStatus(s);
     });
 
     paintTaskMeta();
-    // Defer so extension host has finished resolveWebviewView (listener + html assignment).
     setTimeout(() => vscode.postMessage({ type: 'ready' }), 0);
+    } catch (err) {
+      document.body.innerHTML =
+        '<div style="padding:12px;font-family:var(--vscode-font-family);color:var(--vscode-errorForeground)">' +
+        '<p><strong>Contorium sidebar script error</strong></p>' +
+        '<pre style="font-size:11px;white-space:pre-wrap">' +
+        String(err && err.message ? err.message : err) +
+        '</pre></div>';
+      try {
+        acquireVsCodeApi().postMessage({ type: 'ready' });
+      } catch (_) { /* ignore */ }
+    }
+    })();
   </script>
 </body>
 </html>`;

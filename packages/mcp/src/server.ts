@@ -7,7 +7,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { getMemory, searchMemory, storeMemory } from './memoryStore.js';
+import { loadProjectIntelligence } from './intelligence.js';
+import { activeIntentNodes, loadIntentGraph } from './intentGraph.js';
+import { loadStateConflicts } from './conflicts.js';
+import { loadProjectBuiltState, loadProjectSnapshotMarkdown } from './stateBuilder.js';
 import { findWorkspaceRoot, resolveWorkspaceRoot } from './paths.js';
+import { ensureWorkspaceBootstrapped, startMcpLightSync } from './mcpBootstrap.js';
 import { loadWorkspaceSnapshot } from './workspace.js';
 
 function mcpPackageVersion(): string {
@@ -89,19 +94,186 @@ server.registerTool(
   },
   async ({ workspaceRoot: override }) => {
     const root = override ? path.resolve(override) : await workspaceRootForTools();
+    await ensureWorkspaceBootstrapped(root);
     const snapshot = await loadWorkspaceSnapshot(root);
     if (!snapshot) {
       return textResult({
         workspaceRoot: root,
         found: false,
-        hint: 'Open the project in VS Code/Cursor with Contorium extension, or create .contora/state.json.',
+        hint: 'Workspace scan bootstrap failed — check workspace path and permissions.',
       });
     }
     return textResult({ workspaceRoot: root, found: true, snapshot });
   },
 );
 
+server.registerTool(
+  'get_project_intelligence',
+  {
+    description:
+      'Read Contorium v0.7 derived project understanding from .contora/intelligence/state-summary.json (written by the extension cognition layer).',
+    inputSchema: z.object({
+      workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+  },
+  async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const intelligence = await loadProjectIntelligence(root);
+    if (!intelligence) {
+      return textResult({
+        workspaceRoot: root,
+        found: false,
+        hint: 'Open the workspace with Contorium extension active to generate state-summary.json.',
+      });
+    }
+    return textResult({ workspaceRoot: root, found: true, intelligence });
+  },
+);
+
+server.registerTool(
+  'get_intent_graph',
+  {
+    description:
+      'Read the full Contorium intent graph from .contora/intent-graph/graph.json (multi-intent cognition layer).',
+    inputSchema: z.object({
+      workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+  },
+  async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const graph = await loadIntentGraph(root);
+    if (!graph) {
+      return textResult({
+        workspaceRoot: root,
+        found: false,
+        hint: 'Intent graph not generated yet — use Contorium extension in this workspace.',
+      });
+    }
+    return textResult({ workspaceRoot: root, found: true, graph });
+  },
+);
+
+server.registerTool(
+  'get_active_intents',
+  {
+    description:
+      'Return ACTIVE / WEAKENING / PARTIAL intent nodes from the Contorium intent graph (compact summary for agents).',
+    inputSchema: z.object({
+      workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+      max: z.number().int().min(1).max(24).optional().describe('Max intent nodes (default 8)'),
+    }),
+  },
+  async ({ workspaceRoot: override, max }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const graph = await loadIntentGraph(root);
+    if (!graph) {
+      return textResult({
+        workspaceRoot: root,
+        found: false,
+        intents: [],
+        hint: 'Intent graph not generated yet.',
+      });
+    }
+    const intents = activeIntentNodes(graph, max ?? 8);
+    return textResult({ workspaceRoot: root, found: true, intents, graphUpdatedAt: graph.updatedAt });
+  },
+);
+
+server.registerTool(
+  'get_project_state',
+  {
+    description:
+      'Read Contorium State Builder structured project state from .contora/state-builder/project-state.json (goal, stage, decisions, problems, next actions).',
+    inputSchema: z.object({
+      workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+  },
+  async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const projectState = await loadProjectBuiltState(root);
+    if (!projectState) {
+      return textResult({
+        workspaceRoot: root,
+        found: false,
+        hint: 'State Builder not generated yet — use Contorium extension in this workspace.',
+      });
+    }
+    return textResult({ workspaceRoot: root, found: true, projectState });
+  },
+);
+
+server.registerTool(
+  'get_project_snapshot',
+  {
+    description:
+      'Read Contorium PROJECT SNAPSHOT markdown from .contora/state-builder/project-snapshot.md for cross-AI project continuity.',
+    inputSchema: z.object({
+      workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+      format: z.enum(['markdown', 'json']).optional().describe('Return markdown (default) or structured JSON state'),
+    }),
+  },
+  async ({ workspaceRoot: override, format }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const projectState = await loadProjectBuiltState(root);
+    const markdown = await loadProjectSnapshotMarkdown(root);
+    if (!projectState && !markdown) {
+      return textResult({
+        workspaceRoot: root,
+        found: false,
+        hint: 'Project snapshot not generated yet.',
+      });
+    }
+    if (format === 'json') {
+      return textResult({ workspaceRoot: root, found: true, projectState });
+    }
+    return textResult({
+      workspaceRoot: root,
+      found: true,
+      markdown: markdown ?? '',
+      projectState,
+    });
+  },
+);
+
+server.registerTool(
+  'get_state_conflicts',
+  {
+    description:
+      'Read Contorium v2 unresolved state conflicts from .contora/state-engine/conflicts.json (audit only — system does not auto-resolve).',
+    inputSchema: z.object({
+      workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+  },
+  async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const artifact = await loadStateConflicts(root);
+    if (!artifact || !artifact.conflicts.length) {
+      return textResult({
+        workspaceRoot: root,
+        found: false,
+        conflicts: [],
+        hint: 'No unresolved conflicts — or cognition pipeline has not run yet.',
+      });
+    }
+    return textResult({
+      workspaceRoot: root,
+      found: true,
+      count: artifact.conflicts.length,
+      generatedAt: artifact.generatedAt,
+      conflicts: artifact.conflicts,
+    });
+  },
+);
+
 async function main(): Promise<void> {
+  try {
+    const root = await workspaceRootForTools();
+    const boot = await ensureWorkspaceBootstrapped(root);
+    startMcpLightSync(root);
+    console.error(`[contorium-mcp] workspace ${root} (mode: ${boot.mode})`);
+  } catch (err) {
+    console.error('[contorium-mcp] bootstrap skipped:', err instanceof Error ? err.message : err);
+  }
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('[contorium-mcp] ready on stdio');

@@ -42,8 +42,10 @@ function syncLockfile(rel, names) {
   if (rootEntry && names.includes(rootEntry.name)) {
     rootEntry.version = version;
   }
-  if (lock.packages?.['packages/runtime']?.name === '@contora/runtime') {
-    lock.packages['packages/runtime'].version = version;
+  for (const pkgPath of ['packages/runtime', 'packages/state-core']) {
+    if (lock.packages?.[pkgPath]?.name?.startsWith('@contora/')) {
+      lock.packages[pkgPath].version = version;
+    }
   }
   writeJson(rel, lock);
 }
@@ -56,7 +58,12 @@ for (const rel of ['.cursor-plugin/plugin.json', '.claude-plugin/plugin.json', '
   });
 }
 
-for (const rel of ['packages/mcp/package.json', 'packages/runtime/package.json']) {
+for (const rel of [
+  'packages/mcp/package.json',
+  'packages/runtime/package.json',
+  'packages/state-core/package.json',
+  'packages/cli/package.json',
+]) {
   patchJson(rel, (d) => {
     d.version = version;
   });

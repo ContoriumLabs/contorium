@@ -1,0 +1,1 @@
+{"version":3,"file":"buildFromScan.d.ts","sourceRoot":"","sources":["../../src/state-builder/buildFromScan.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,kBAAkB,EAAE,kBAAkB,EAAE,MAAM,aAAa,CAAC;AAC1E,OAAO,KAAK,EAAE,iBAAiB,EAAE,MAAM,YAAY,CAAC;AAEpD,kEAAkE;AAClE,wBAAgB,yBAAyB,CACvC,IAAI,EAAE,kBAAkB,EACxB,KAAK,CAAC,EAAE,kBAAkB,GACzB,iBAAiB,CA8BnB"}

@@ -41,6 +41,8 @@ import { registerPhase3AiRuntime } from './ai/registerPhase3';
 import { clearLastIntentStore } from './ai/runtime/intent/lastIntentStore';
 import { clearSemanticSummaryCache } from './ai/runtime/semanticSummary/summaryCache';
 import { loadUsableIntentFocusLines } from './core/memory/intentStore';
+import { CognitionPipeline } from './cognition/cognitionPipeline';
+import { loadCognitionExportContext } from './cognition/loaders';
 
 let scanners: WorkspaceScanner[] = [];
 let workspaceIgnoreMatcher: IgnoreMatcher | undefined;
@@ -122,6 +124,7 @@ function applyIgnoreToMemory(memory: WorkspaceMemory, ig: (p: string) => boolean
 }
 
 let globalEventStore: EventStore | undefined;
+let cognitionPipeline: CognitionPipeline | undefined;
 
 /** Baseline for “session shift” detection (Current focus + top paths). Reset on workspace sync / Start fresh. */
 let sessionBoundaryBaseline: { focus: string; paths: string[] } | undefined;
@@ -181,6 +184,7 @@ async function handleSessionBoundaryAfterTaskEdit(
 
 function createEventStore(stateManager: StateManager): EventStore {
   return new EventStore(eventBufferCap(), (ev) => {
+    cognitionPipeline?.ingestEvent(ev);
     const persist = vscode.workspace.getConfiguration(CONTORA_CONFIG_SECTION).get<boolean>('persistEventLog');
     if (persist === false) {
       return;
@@ -282,6 +286,20 @@ function scheduleSidebarRefresh(sidebar: ContoraSidebarProvider): () => void {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  try {
+    // Extension is CommonJS — state-core must expose "require" (see packages/state-core).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('@contora/state-core');
+  } catch (err) {
+    console.error(
+      `[${PRODUCT_DISPLAY_NAME}] Failed to load @contora/state-core — run "npm run compile" and Reload Window:`,
+      err,
+    );
+    void vscode.window.showErrorMessage(
+      `${PRODUCT_DISPLAY_NAME}: state-core failed to load. Run npm run compile in the repo, then Developer: Reload Window.`,
+    );
+  }
+
   const stateManager = new StateManager();
   const memoryBuilder = new MemoryBuilder();
   const modeEngine = new ModeEngine();
@@ -292,15 +310,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void sidebar.refresh();
     });
   };
-  sidebar = new ContoraSidebarProvider(context, stateManager, undefined, onAfterTaskUpdated);
+  sidebar = new ContoraSidebarProvider(
+    context,
+    stateManager,
+    undefined,
+    onAfterTaskUpdated,
+  );
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ContoraSidebarProvider.viewId, sidebar, {
-      webviewOptions: { retainContextWhenHidden: true },
+      // false = fresh HTML on reopen; avoids stale/crashed webview showing blank forever
+      webviewOptions: { retainContextWhenHidden: false },
     }),
   );
 
   const refreshSidebarDebounced = scheduleSidebarRefresh(sidebar);
+
+  cognitionPipeline = new CognitionPipeline(stateManager);
+
+  const onAfterScannerPersist = (): void => {
+    refreshSidebarDebounced();
+    cognitionPipeline?.scheduleUpdate(globalEventStore);
+  };
 
   const syncWorkspace = async (): Promise<void> => {
     globalEventStore = createEventStore(stateManager);
@@ -316,12 +347,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     const st0 = await stateManager.load(folder);
+    void sidebar.refresh();
+
     const [, matcher] = await Promise.all([
       mergeDiskIfEnabled(stateManager, globalEventStore),
       ensureIgnoreMatcher(folder),
     ]);
+    const eventCount = globalEventStore?.getAll().length ?? 0;
+
     bindIgnoreFileWatcher(folder, matcher);
-    startScanners(stateManager, globalEventStore, refreshSidebarDebounced, { deferInitialScan: true });
+    startScanners(stateManager, globalEventStore, onAfterScannerPersist, { deferInitialScan: true });
+
+    // Background: dual-mode scan must not block scanners or sidebar first paint.
+    void (async () => {
+      try {
+        const { applyDualModeWorkspaceInput } = await import('./adapters/workspaceBootstrap');
+        const stMerged = await applyDualModeWorkspaceInput(folder, st0, eventCount);
+        if (JSON.stringify(stMerged) !== JSON.stringify(st0)) {
+          await stateManager.replace(folder, stMerged);
+          refreshSidebarDebounced();
+        }
+      } catch (err) {
+        console.warn(`[${PRODUCT_DISPLAY_NAME}] dual-mode background merge failed:`, err);
+      }
+    })();
+
+    cognitionPipeline?.scheduleUpdate(globalEventStore);
     sessionBoundaryBaseline = {
       focus: (st0.currentTask ?? '').trim(),
       paths: topWorkspacePathsFromState(st0),
@@ -425,6 +476,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     for (const s of scanners) {
       await s.flushNow();
     }
+    await cognitionPipeline?.flushNow(es);
     const state = await stateManager.load(folder);
     const taskTrim = (state.currentTask ?? '').trim();
     const sessionId = state.sessionId ?? 'unknown';
@@ -438,6 +490,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const analysis = analyzeActivity(evRank, state, ig);
     const instruction = modeEngine.getInstruction(mode);
     const confirmedAiIntentGoals = await loadUsableIntentFocusLines(folder, state, es);
+    const cognition = await loadCognitionExportContext(folder, state, confirmedAiIntentGoals);
 
     const baseMd = buildAiReadyMarkdownExport({
       state,
@@ -445,7 +498,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       analysis,
       instruction,
       shouldIgnore: ig,
-      confirmedAiIntentGoals,
+      projectSnapshot: cognition.projectSnapshot,
+      summary: cognition.summary,
     });
 
     const budget = exportTokenBudget();
@@ -460,7 +514,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         analysis,
         instruction,
         shouldIgnore: ig,
-        confirmedAiIntentGoals,
+        projectSnapshot: cognition.projectSnapshot,
+        summary: cognition.summary,
       });
       if (budget > 0) {
         obj = compressExportJsonForBudget(obj, budget);
@@ -541,6 +596,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     clearLastIntentStore();
     clearSemanticSummaryCache();
+    await cognitionPipeline?.clearDerivedArtifacts(folder);
     es.clear();
     await stateManager.update(folder, { sessionId: newSessionId() });
     await mergeDiskIfEnabled(stateManager, es);
@@ -577,6 +633,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       shouldIgnore,
       refreshSidebar: () => {
         void sidebar.refresh();
+      },
+      flushCognition: async () => {
+        await cognitionPipeline?.flushNow(globalEventStore);
       },
     },
     { keys: contoraKeys, providers: aiProviders },
@@ -687,6 +746,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push({ dispose: () => disposeScanners() });
   context.subscriptions.push({ dispose: () => disposeIgnoreWatchers() });
+  context.subscriptions.push({ dispose: () => cognitionPipeline?.dispose() });
 
   // Return quickly from activate; bootstrap scanners / disk replay in the background.
   void runWorkspaceBootstrap();
@@ -695,4 +755,5 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 export function deactivate(): void {
   disposeScanners();
   disposeIgnoreWatchers();
+  cognitionPipeline?.dispose();
 }

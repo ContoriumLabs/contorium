@@ -31,3 +31,29 @@ export const CONTORA_IGNORE_FILE = '.contoraignore';
 
 /** Legacy ignore file — still loaded if present */
 export const CONTORA_LEGACY_IGNORE_FILE = '.contextrecallignore';
+
+/** v0.7 Context Intelligence Layer output directory under `.contora/` */
+export const CONTORA_INTELLIGENCE_DIR = 'intelligence';
+
+/** v0.7 Intent Graph Layer output directory under `.contora/` */
+export const CONTORA_INTENT_GRAPH_DIR = 'intent-graph';
+
+/** Derived semantic summary written by intelligence layer */
+export const CONTORA_STATE_SUMMARY_FILE = 'state-summary.json';
+
+/** Intent graph persistence file */
+export const CONTORA_INTENT_GRAPH_FILE = 'graph.json';
+
+/** v0.7+ State Builder output directory under `.contora/` */
+export const CONTORA_STATE_BUILDER_DIR = 'state-builder';
+
+/** Structured project state JSON */
+export const CONTORA_PROJECT_STATE_FILE = 'project-state.json';
+
+/** Markdown PROJECT SNAPSHOT for cross-AI handoff */
+export const CONTORA_PROJECT_SNAPSHOT_FILE = 'project-snapshot.md';
+
+/** v2 State Engine — conflict audit artifacts */
+export const CONTORA_STATE_ENGINE_DIR = 'state-engine';
+
+export const CONTORA_CONFLICTS_FILE = 'conflicts.json';

@@ -30,6 +30,8 @@ export interface Phase3RegisterDeps {
   shouldIgnore: () => (p: string) => boolean;
   /** Refresh ${PRODUCT_DISPLAY_NAME} sidebar after AI intent is written so goals list updates. */
   refreshSidebar?: () => void | Promise<void>;
+  /** v0.7: refresh derived intelligence + intent graph after BYOK intent write. */
+  flushCognition?: () => void | Promise<void>;
 }
 
 async function openMarkdownPreview(title: string, body: string): Promise<void> {
@@ -152,6 +154,7 @@ export function registerPhase3AiRuntime(
         const intent = await runWorkspaceIntentAnalysis(snap.memory, providers);
         const relatedFiles = (snap.memory.priorityFiles ?? []).map((p) => p.path);
         await writePersistedIntent(folder, intent, relatedFiles);
+        await deps.flushCognition?.();
         await openMarkdownPreview(`${PRODUCT_DISPLAY_NAME} — Workspace intent snapshot (JSON)`, JSON.stringify(intent, null, 2));
         await deps.refreshSidebar?.();
       } catch (e) {

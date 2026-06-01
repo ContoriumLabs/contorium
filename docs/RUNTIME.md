@@ -1,5 +1,7 @@
 # `@contora/runtime` (packages/runtime)
 
+End-user install: [IDE_EXTENSION.md](./IDE_EXTENSION.md) · [MCP.md](./MCP.md)
+
 
 
 The extension depends on a **single** workspace package, **`@contora/runtime`**, for:

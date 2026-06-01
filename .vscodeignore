@@ -5,18 +5,26 @@ src/**
 **/tsconfig.json
 .gitignore
 插件开发文档.md
+升级方案.md
+信息收敛.md
+优化v2.md
 .project-recall/**
 .contora/**
 .context-recall/**
 
 # Dev-only (packaging); not needed inside the installed extension.
 scripts/**
+.vscode-pack/**
+
+# Large README asset — keep on GitHub only (VSIX size + install reliability).
+demo.gif
 
 # Cursor Marketplace plugin bundle (Git repo submission — not VS Code runtime).
 .cursor-plugin/**
 .claude-plugin/**
 .codex-plugin/**
-.bin/**
+.agents/**
+bin/**
 .mcp.claude.json
 assets/**
 commands/**
@@ -24,11 +32,14 @@ skills/**
 rules/**
 schemas/**
 
+# Monorepo packages — runtime is copied into node_modules at pack time (see package-vsix.cjs).
+packages/**
+
 # MCP server package (Claude Code — not part of VS Code extension runtime).
-packages/mcp/**
 mcp.json
 .mcp.json
 docs/MCP.md
+docs/UPGRADE_PLAN_2.x.md
 
 # Do not ship TypeScript compiler or type packages inside the VSIX (runtime never needs them).
 node_modules/typescript/**

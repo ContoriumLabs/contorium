@@ -1,0 +1,1 @@
+{"version":3,"file":"normalization.d.ts","sourceRoot":"","sources":["../../src/state-builder/normalization.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,iBAAiB,EAAE,MAAM,YAAY,CAAC;AA2EpD,kEAAkE;AAClE,wBAAgB,0BAA0B,CACxC,GAAG,EAAE,iBAAiB,EACtB,UAAU,EAAE,MAAM,GACjB,iBAAiB,CAsCnB;AAED,wBAAgB,wBAAwB,CAAC,KAAK,EAAE,SAAS,MAAM,EAAE,EAAE,UAAU,EAAE,MAAM,GAAG,MAAM,EAAE,CAc/F"}

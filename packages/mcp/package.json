@@ -1,6 +1,6 @@
 {
   "name": "@contorium/mcp",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Contorium MCP server for Claude Code and Cursor (stdio tools over workspace memory).",
   "type": "module",
   "license": "MIT",
@@ -16,6 +16,7 @@
     "start": "node ./dist/server.js"
   },
   "dependencies": {
+    "@contora/state-core": "file:../state-core",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.24.2"
   },

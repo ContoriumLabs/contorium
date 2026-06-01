@@ -2,7 +2,7 @@
   "name": "contorium",
   "displayName": "Contorium",
   "description": "Contorium: local workspace memory (task, notes, editors, Git), event JSONL, heuristic intent/ranking, ignore rules, token budget, optional BYOK (OpenAI / Claude / Gemini / DeepSeek) — export AI-ready context to clipboard (markdown, JSON, etc.).",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -40,6 +40,9 @@
     "onCommand:contora.startFreshAiSession"
   ],
   "main": "./out/extension.js",
+  "bin": {
+    "contorium": "./packages/cli/bin/contorium.cjs"
+  },
   "contributes": {
     "commands": [
       {
@@ -112,13 +115,24 @@
         },
         "contora.defaultAIMode": {
           "type": "string",
-          "enum": ["debug", "feature", "refactor", "review"],
+          "enum": [
+            "debug",
+            "feature",
+            "refactor",
+            "review"
+          ],
           "default": "feature",
           "description": "Default AI mode for structured export (# MODE / instruction)."
         },
         "contora.exportFormat": {
           "type": "string",
-          "enum": ["markdown", "cursor", "json", "claude", "openai"],
+          "enum": [
+            "markdown",
+            "cursor",
+            "json",
+            "claude",
+            "openai"
+          ],
           "default": "markdown",
           "description": "Export: markdown / cursor fences / JSON (schema v2 Lite) / Claude framing / OpenAI messages JSON."
         },
@@ -168,7 +182,9 @@
         "contora.extraIgnoreSubstrings": {
           "type": "array",
           "default": [],
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Extra path substrings to exclude (case-insensitive substring match on workspace-relative paths)."
         },
         "contora.mergeDiskEventLog": {
@@ -183,7 +199,13 @@
         },
         "contora.aiProvider": {
           "type": "string",
-          "enum": ["off", "openai", "anthropic", "google", "deepseek"],
+          "enum": [
+            "off",
+            "openai",
+            "anthropic",
+            "google",
+            "deepseek"
+          ],
           "default": "deepseek",
           "description": "Phase 3 BYOK: which LLM provider to use for on-demand semantic summary / intent / compression. Keys via \"Contorium: Configure API key…\" (SecretStorage only)."
         },
@@ -251,12 +273,15 @@
     "vsix": "node scripts/package-vsix.cjs",
     "validate:plugin": "node scripts/validate-plugin.mjs",
     "version:sync": "node scripts/sync-version.mjs",
-    "build:runtime": "npm --prefix packages/runtime run build",
+    "build:runtime": "node scripts/run-tsc.mjs packages/runtime",
+    "build:state-core": "node scripts/run-tsc.mjs packages/state-core",
+    "install:cli": "npm install --prefix packages/cli --no-fund --no-audit",
+    "build:cli": "npm run install:cli && node scripts/run-tsc.mjs packages/cli",
     "install:mcp": "npm install --prefix packages/mcp --no-fund --no-audit",
-    "build:mcp": "npm run install:mcp && npm --prefix packages/mcp run build",
-    "compile": "npm run version:sync && npm run build:runtime && npm run build:mcp && tsc -p ./",
+    "build:mcp": "npm run install:mcp && node scripts/run-tsc.mjs packages/mcp",
+    "compile": "node scripts/ensure-dev-deps.mjs && npm run version:sync && npm run build:runtime && npm run build:state-core && npm run build:cli && npm run build:mcp && node scripts/run-tsc.mjs .",
     "postversion": "node scripts/sync-version.mjs",
-    "watch": "tsc -watch -p ./"
+    "watch": "node scripts/ensure-dev-deps.mjs && node scripts/run-tsc.mjs . -watch"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -264,7 +289,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@contora/runtime": "file:packages/runtime",
+    "@contora/runtime": "file:.vscode-pack/contora-runtime-0.7.0.tgz",
+    "@contora/state-core": "file:.vscode-pack/contora-state-core-0.7.0.tgz",
     "simple-git": "^3.22.0"
   }
 }

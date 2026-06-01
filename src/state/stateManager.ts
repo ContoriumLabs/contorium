@@ -58,6 +58,20 @@ async function readJson(uri: vscode.Uri): Promise<ProjectState | undefined> {
       gitWorking: Array.isArray(o.gitWorking) ? o.gitWorking.filter((x): x is string => typeof x === 'string') : [],
     };
     merged = migrateLegacy(o, merged);
+    if (o.source && typeof o.source === 'object') {
+      const s = o.source as Record<string, unknown>;
+      if (
+        (s.mode === 'event-driven' || s.mode === 'scan-driven' || s.mode === 'merged') &&
+        (s.lastWriter === 'ide' || s.lastWriter === 'mcp' || s.lastWriter === 'cli') &&
+        typeof s.lastUpdated === 'string'
+      ) {
+        merged.source = {
+          mode: s.mode,
+          lastWriter: s.lastWriter,
+          lastUpdated: s.lastUpdated,
+        };
+      }
+    }
     return merged;
   } catch {
     return undefined;
