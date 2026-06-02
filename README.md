@@ -1,12 +1,13 @@
 ![Contorium demo](./demo.gif)
 
-
 # Contorium
 ## Git for AI Collaboration
+
 Switch between Cursor, Claude Code, Gemini CLI, VS Code, Codex, or any MCP-compatible AI tool  
 without losing project context.
 ---
 ## What is Contorium?
+
 Contorium creates a persistent shared workspace state inside your project that can be used across IDEs, MCP agents, CLI tools, and AI coding assistants.
 It allows AI tools to understand the same project — even when they are different models, different sessions, or different environments.
 Not chat memory.  
@@ -15,6 +16,7 @@ Not agent orchestration.
 Contorium is a Git-like state layer for AI collaboration.
 ---
 ## Why Contorium?
+
 Modern AI coding tools are powerful, but isolated.
 They lose project understanding when you switch tools or sessions:
 Cursor → Claude Code  
@@ -24,6 +26,7 @@ One AI model → Another AI model
 Contorium solves this by maintaining a structured, persistent workspace state inside your repository.
 ---
 ## Core Concept
+
 Instead of relying on chat history, Contorium maintains a structured project state:
 - Current project goal
 - Active modules
