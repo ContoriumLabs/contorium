@@ -2,235 +2,177 @@
 
 
 # Contorium
-
-**Shared Workspace State Layer for AI Tools**
-
-Contorium creates a persistent project state inside your workspace that can be shared across IDEs, MCP agents, CLI tools, and AI coding assistants.
-
-Switch between Cursor, Claude Code, Gemini CLI, VS Code, Codex, or any MCP-compatible agent without losing project understanding.
-
-**Not chat memory.**
-**Not prompt stuffing.**
-**Not agent orchestration.**
-
-Contorium acts as a shared workspace state layer that keeps your project context portable across tools, sessions, and models.
-
+## Git for AI Collaboration
+Switch between Cursor, Claude Code, Gemini CLI, VS Code, Codex, or any MCP-compatible AI tool  
+without losing project context.
 ---
-
+## What is Contorium?
+Contorium creates a persistent shared workspace state inside your project that can be used across IDEs, MCP agents, CLI tools, and AI coding assistants.
+It allows AI tools to understand the same project — even when they are different models, different sessions, or different environments.
+Not chat memory.  
+Not prompt stuffing.  
+Not agent orchestration.
+Contorium is a Git-like state layer for AI collaboration.
+---
 ## Why Contorium?
-
-Modern AI coding tools are powerful, but they all suffer from the same problem:
-
-They lose project understanding when you switch tools, sessions, or conversations.
-
-Examples:
-
-* Cursor → Claude Code
-* Claude Code → Gemini CLI
-* VS Code → Terminal
-* One AI model → Another AI model
-
-Contorium solves this by maintaining a structured project state inside your repository.
-
-Instead of relying on chat history, it continuously builds and updates:
-
-* Current project goal
-* Active modules
-* Open problems
-* Recent work
-* Next actions
-
-Every compatible tool can read the same state.
-
+Modern AI coding tools are powerful, but isolated.
+They lose project understanding when you switch tools or sessions:
+Cursor → Claude Code  
+Claude Code → Gemini CLI  
+VS Code → Terminal  
+One AI model → Another AI model  
+Contorium solves this by maintaining a structured, persistent workspace state inside your repository.
 ---
-
+## Core Concept
+Instead of relying on chat history, Contorium maintains a structured project state:
+- Current project goal
+- Active modules
+- Open problems
+- Recent work
+- Next actions
+Every AI tool reads and updates the same state.
+---
 ## Architecture
 
-```text
 Workspace
-      │
-      ▼
+│
+▼
 Contorium State Layer (.contora/)
-      │
-      ├── IDE Extension
-      ├── MCP Server
-      ├── CLI
-      └── AI Agents
-```
+│
+├── IDE Extension
+├── MCP Server
+├── CLI
+└── AI Agents
 
 The workspace is the source of truth.
-
-IDEs, MCP servers, CLI tools, and AI agents all interact with the same shared state layer.
-
+IDE, MCP servers, CLI tools, and AI agents all interact with the same shared state layer.
 ---
-
 ## Features
-
-### 🧠 Shared Project State
-
+🧠 Shared Project State  
 Persistent project understanding stored inside your workspace.
-
-### 🔄 Cross-Tool Continuity
-
-Move between Cursor, Claude Code, Gemini CLI, Codex, VS Code, and MCP agents without rebuilding context.
-
-### 📋 AI-Ready Context Export
-
+🔄 Cross-Tool Continuity  
+Switch between Cursor, Claude Code, Gemini CLI, Codex, VS Code, and MCP agents without rebuilding context.
+📋 AI-Ready Context Export  
 Generate clean, structured context for any AI assistant.
-
-### ⚡ Tool-Independent Design
-
-IDE, MCP, and CLI workflows can operate independently while sharing the same project state.
-
-### 🏗 Workspace-Aware
-
+⚡ Tool-Independent Design  
+IDE, MCP, and CLI workflows operate independently while sharing the same state.
+🏗 Workspace-Aware System  
 Tracks:
-
-* File activity
-* Git changes
-* Active modules
-* Project evolution
-
-### 🔍 Structured Snapshots
-
+- File activity
+- Git changes
+- Active modules
+- Project evolution
+🔍 Structured Snapshots  
 Produces stable project snapshots instead of raw chat logs.
-
 ---
-
 ## Quick Start
-
-### IDE
-
+### IDE (VS Code / Cursor Extension)
 Build and install the VSIX extension:
-
 ```bash
 npm install
 npm run compile
 npm run vsix
-```
 
 Install the generated VSIX into VS Code or Cursor.
 
-Open a workspace and use:
+Open a workspace and run:
 
-```text
 Contorium: Copy AI-ready context
-```
 
----
+⸻
 
-### MCP
+MCP Server
 
 Build the MCP server:
 
-```bash
 npm install
 npm run compile
-```
 
-Configure your MCP host and set:
+Configure your MCP host:
 
-```text
 CONTORIUM_WORKSPACE=/absolute/path/to/project
-```
 
-Typical usage:
+Available tools:
 
-```text
 get_project_snapshot
 get_workspace_context
 get_project_state
-```
 
----
+⸻
 
-### CLI
+CLI
 
 Initialize a workspace:
 
-```bash
 npx contorium init .
-```
 
 Generate a snapshot:
 
-```bash
 npx contorium snapshot .
-```
 
 View state:
 
-```bash
 npx contorium state .
-```
 
----
+⸻
 
-## Example Snapshot
+Example Snapshot
 
-```text
 Goal:
 Develop documentation and authentication system
-
 Current Stage:
 Documentation work
-
 Active Modules:
 - app
 - stream_session
 - configuration
-
 Open Problems:
 - documentation consistency
-
 Next Actions:
 - update documentation
 - validate authentication flow
-```
 
----
+⸻
 
-## Documentation
+Documentation
 
-| Guide                                            | Description                        |
-| ------------------------------------------------ | ---------------------------------- |
-| [Install Guide](./docs/INSTALL.md)               | Installation, usage, and uninstall |
-| [IDE Extension](./docs/IDE_EXTENSION.md)         | VS Code and Cursor integration     |
-| [MCP Server](./docs/MCP.md)                      | Claude Code, Cursor, Codex, Gemini |
-| [CLI](./docs/CLI.md)                             | Terminal workflows                 |
-| [State Engine](./docs/STATE_ENGINE.md)           | State generation and export        |
-| [Architecture v2.2](./docs/ARCHITECTURE_V2_2.md) | Full system architecture           |
-| [Runtime Package](./docs/RUNTIME.md)             | Runtime package documentation      |
+Guide	Description
+Install Guide	Installation, usage, and uninstall
+IDE Extension	VS Code and Cursor integration
+MCP Server	Claude Code, Codex, Gemini integration
+CLI	Terminal workflows
+State Engine	State generation and export
+Architecture v2.2	Full system design
+Runtime Package	Runtime documentation
 
----
+⸻
 
-## Design Principles
+Design Principles
 
-### Workspace First
+Workspace First
 
 The workspace is the source of truth.
 
-### Tool Independence
+Tool Independence
 
-IDE, MCP, and CLI workflows can operate independently.
+IDE, MCP, and CLI can operate independently.
 
-### Stable State
+Stable State
 
 Project state is deterministic and reproducible.
 
-### Minimal Context
+Minimal Context
 
-Exports remain concise and AI-friendly.
+Exports remain compact and AI-friendly.
 
-### Transparency
+Transparency
 
-Conflicts are surfaced rather than automatically resolved.
+Conflicts are surfaced, not hidden.
 
----
+⸻
 
-## Repository Structure
+Repository Structure
 
-```text
 src/
 ├── scanner/
 ├── state/
@@ -239,62 +181,60 @@ src/
 ├── cognition/
 ├── ai/
 └── ui/
-
 packages/
 ├── state-core/
 ├── mcp/
 └── runtime/
-```
 
----
+⸻
 
-## Supported Workflows
+Supported Workflows
 
-### IDE Only
+IDE Only
 
-VS Code / Cursor extension.
+VS Code / Cursor extension workflow.
 
-### MCP Only
+MCP Only
 
 Claude Code, Codex, Gemini, and other MCP-compatible agents.
 
-### CLI Only
+CLI Only
 
 Terminal-based workflows and CI environments.
 
-### Hybrid
+Hybrid
 
 Use IDE, MCP, and CLI together while sharing the same workspace state.
 
----
+⸻
 
-## Version
+Why It Matters
 
-```text
-Version: 0.7.x
-State Engine: v2.2
-Architecture: Shared Workspace State Layer
-```
+AI tools are not the problem.
 
----
+Context fragmentation is.
 
-## Why It Matters
-
-AI tools will continue to evolve.
-
-Your project understanding should not be locked to any single tool.
-
-Contorium keeps project state portable across:
+Contorium makes project understanding portable across:
 
 * Tools
 * Sessions
 * Agents
 * Models
 
----
+⸻
 
-**Website:** https://www.contorium.dev
+Version
+
+Version: 0.7.x
+State Engine: v2.2
+Architecture: Shared Workspace State Layer
+
+⸻
+
+Final Idea
+
+Contorium = Git for AI Collaboration
 
 Build once.
-Switch tools freely.
-Keep your project state.
+Switch AI tools freely.
+Never lose project context.
