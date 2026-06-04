@@ -1,32 +1,37 @@
 # Contorium CLI
 
-CLI 是与 **IDE、MCP 平级**的 Runtime Adapter，共用 `@contora/state-core`，读写同一 `.contora/`。  
-三端总览：[INSTALL.md](./INSTALL.md) · [README](../README.md#安装--使用--卸载三端)。
+The CLI is a **peer Runtime Adapter** with IDE and MCP, sharing `@contora/state-core` and `.contora/`.  
+Overview: [INSTALL.md](./INSTALL.md) · [README](../README.md)
 
 ---
 
-## 命令速查
+## Command cheat sheet
 
-| 阶段 | 命令 |
-|------|------|
-| **安装** | `npm install && npm run compile`（在 contorium 仓库根） |
-| **验证** | `npx contorium status .` 或 `npx contorium --help` |
-| **全局命令（可选）** | 仓库根 `npm link` → 任意目录 `contorium status .` |
-| **初始化** | `npx contorium init [path]` |
-| **刷新状态** | `npx contorium sync [path]` |
-| **读 snapshot** | `npx contorium snapshot [path]` |
-| **读摘要** | `npx contorium status [path]` |
-| **读 state.json** | `npx contorium state [path]` |
-| **卸载** | `npm unlink -g contorium`（若曾 link）；无后台进程 |
-| **清除数据（可选）** | 项目根 `Remove-Item -Recurse -Force .contora`（PowerShell） |
+| Phase | Command |
+|-------|---------|
+| **Install** | `npm install && npm run compile` (contorium repo root) |
+| **Verify** | `npx contorium status .` or `npx contorium --help` |
+| **Global (optional)** | Repo root `npm link` → `contorium status .` anywhere |
+| **Init** | `npx contorium init [path]` |
+| **Refresh** | `npx contorium sync [path]` |
+| **L4 snapshot** | `npx contorium snapshot [path]` |
+| **Handoff (V3.1)** | `npx contorium handoff [path]` |
+| **Cognitive summary** | `npx contorium graph-snapshot [path]` |
+| **Knowledge graph** | `npx contorium knowledge [path]` |
+| **Change / graph / timeline** | `npx contorium change\|graph\|timeline [path]` |
+| **AI-ready export** | `npx contorium export [path]` or `--format json` |
+| **Status** | `npx contorium status [path]` |
+| **state.json** | `npx contorium state [path]` |
+| **Uninstall** | `npm unlink -g contorium` (if linked); no daemon |
+| **Clear data (optional)** | `Remove-Item -Recurse -Force .contora` (PowerShell) |
 
-默认 `[path]` 为当前目录。
+Default `[path]` is the current directory.
 
 ---
 
-## 一、安装
+## Install
 
-### 从源码（与 MCP 同一仓库）
+### From source (same repo as MCP)
 
 ```bash
 git clone https://github.com/ContoriumLabs/contorium.git
@@ -35,80 +40,110 @@ npm install
 npm run compile
 ```
 
-验证：
+Verify:
 
 ```powershell
 npx contorium status .
-# 或
 npx contorium init .
 ```
 
-### 全局命令（可选）
+### Global command (optional)
 
-在 **contorium 仓库根目录**：
+From contorium repo root:
 
 ```bash
 npm link
-```
-
-之后在任意目录：
-
-```bash
 contorium status E:\path\to\your-project
 ```
 
 ---
 
-## 二、使用
+## Commands
 
-| 命令 | 作用 |
-|------|------|
-| `contorium init [path]` | 创建或合并 `state.json`，生成 L4 snapshot |
-| `contorium sync [path]` | 重新扫描 git + 最近文件并合并 |
-| `contorium snapshot [path]` | 输出 `PROJECT SNAPSHOT` markdown |
-| `contorium status [path]` | JSON 摘要（mode、source、git 计数、eventCount） |
-| `contorium state [path]` | 打印完整 `state.json` |
+### Basics
 
-**PowerShell 示例：**
+| Command | Purpose | MCP equivalent |
+|---------|---------|----------------|
+| `contorium init [path]` | Create/merge `state.json`, L4 snapshot | bootstrap |
+| `contorium sync [path]` | Rescan git + recent files | light sync |
+| `contorium snapshot [path]` | Print PROJECT SNAPSHOT markdown | `get_project_snapshot` |
+| `contorium status [path]` | JSON summary (mode, source, git counts) | — |
+| `contorium state [path]` | Full `state.json` | `get_workspace_context` |
+
+### V3.1 understanding layer
+
+| Command | Purpose | MCP equivalent |
+|---------|---------|----------------|
+| `contorium handoff [path] [--format json\|markdown]` | AI handoff (**recommended execution entry**) | `get_project_handoff` |
+| `contorium graph-snapshot [path]` | Cognitive summary | `get_project_graph_snapshot` |
+| `contorium knowledge [path] [--min-confidence N]` | Knowledge graph (default filter 0.7) | `get_project_knowledge_graph` |
+| `contorium change [path]` | `change.json` | `get_project_change` |
+| `contorium graph [path]` | Change neighborhood `graph.json` | `get_project_graph` |
+| `contorium timeline [path]` | `timeline.json` | `get_project_timeline` |
+| `contorium export [path] [--format json\|markdown]` | Canonical export (aligned with IDE Copy) | combined tools |
+
+**PowerShell:**
 
 ```powershell
 cd E:\your-project
 npx contorium init .
 npx contorium sync .
-npx contorium snapshot . | Out-File -Encoding utf8 .contora\snapshot-export.md
-npx contorium status .
-npx contorium state .
+npx contorium handoff .
+npx contorium graph-snapshot .
+npx contorium knowledge . --min-confidence 0.7
+npx contorium export . | Out-File -Encoding utf8 ai-context.md
+npx contorium export . --format json | Out-File -Encoding utf8 ai-context.json
 ```
 
-**bash 示例：**
+**bash:**
 
 ```bash
 cd /path/to/project
 npx contorium init .
 npx contorium sync .
-npx contorium snapshot . > .contora/snapshot-export.md
-npx contorium status .
-npx contorium state .
+npx contorium handoff .
+npx contorium graph-snapshot .
+npx contorium knowledge . --min-confidence 0.7
+npx contorium export . > ai-context.md
+npx contorium export . --format json > ai-context.json
 ```
 
-写入时标记 `state.json` → `source.lastWriter: "cli"`。
+Writes set `state.json` → `source.lastWriter: "cli"`.
 
-### 与 IDE / MCP 的关系
+### `contorium export` sections (markdown)
 
-- **不依赖** IDE 扩展或 MCP 进程
-- 与 IDE 同时使用时：IDE 写 events；CLI `sync` 只补 git/路径，**不覆盖** `currentTask` / `notes`
-- 与 MCP 同时使用时：共用 `syncWorkspaceState()`，逻辑一致
+Uses the same `formatCanonicalAiMarkdown` as IDE **Copy AI-ready context**:
+
+```text
+# TASK ANCHOR
+# PROJECT SNAPSHOT
+# WORKING CONTEXT
+# COGNITIVE SNAPSHOT
+# CHANGE SET / IMPACT SET
+# AI HANDOFF (V3.1)
+# CODE EVOLUTION
+# NOTES
+# INSTRUCTION
+```
+
+JSON format includes `cognitiveSnapshot` when the knowledge graph exists.
 
 ---
 
-## 三、卸载
+## Relationship to IDE / MCP
 
-CLI 无常驻服务：
+- Does **not** require IDE extension or MCP process  
+- With IDE: IDE writes events; CLI `sync` supplements git/paths only — **does not overwrite** `currentTask` / `notes`  
+- With MCP: shares `syncWorkspaceState()` logic  
 
-1. 若执行过 `npm link`：`npm unlink -g contorium`
-2. 不再调用 `contorium` 即可；**不会**删除 `.contora/`
+---
 
-清除工作区数据（三端共用，可选）：
+## Uninstall
+
+1. If you ran `npm link`: `npm unlink -g contorium`  
+2. Stop calling `contorium`; `.contora/` is **not** removed  
+
+Clear shared workspace data:
 
 ```powershell
 Remove-Item -Recurse -Force .contora
@@ -116,21 +151,24 @@ Remove-Item -Recurse -Force .contora
 
 ---
 
-## 四、故障排除
+## Troubleshooting
 
-| 现象 | 处理 |
-|------|------|
-| `command not found: contorium` | 仓库根 `npm run compile` 后用 `npx contorium` |
-| `init` 显示 `created: false` | **正常** — 已有 state；看 `updated` 与 `source` |
-| `snapshot` 内容偏泛 | 无 IDE events 时为 scan 推断；装扩展编码后会更准 |
-| `state: no state.json` | 先 `npx contorium init .` |
+| Symptom | Fix |
+|---------|-----|
+| `command not found: contorium` | Run `npm run compile`, use `npx contorium` |
+| `init` shows `created: false` | **Normal** — existing state; check `updated` and `source` |
+| Generic snapshot | Without IDE events, scan-only inference; use extension for precision |
+| `knowledge` / `graph-snapshot` missing | Needs code changes; run `sync` or save files in IDE |
+| `state: no state.json` | Run `npx contorium init .` first |
 
 ---
 
-## 五、相关文档
+## Related docs
 
 - [README](../README.md)
-- [三端安装总览](./INSTALL.md)
-- [IDE 扩展](./IDE_EXTENSION.md)
+- [Install overview](./INSTALL.md)
+- [IDE Extension](./IDE_EXTENSION.md)
 - [MCP Server](./MCP.md)
-- [Architecture v2.2](./ARCHITECTURE_V2_2.md)
+- [Architecture V3.1](./ARCHITECTURE_V3.md)
+- [Engineering Closure](./ENGINEERING_CLOSURE.md)
+- [State Engine](./STATE_ENGINE.md)

@@ -42,6 +42,7 @@ import { clearLastIntentStore } from './ai/runtime/intent/lastIntentStore';
 import { clearSemanticSummaryCache } from './ai/runtime/semanticSummary/summaryCache';
 import { loadUsableIntentFocusLines } from './core/memory/intentStore';
 import { CognitionPipeline } from './cognition/cognitionPipeline';
+import { CodeGraphParserService } from './cognition/codeGraphParserService';
 import { loadCognitionExportContext } from './cognition/loaders';
 
 let scanners: WorkspaceScanner[] = [];
@@ -125,6 +126,7 @@ function applyIgnoreToMemory(memory: WorkspaceMemory, ig: (p: string) => boolean
 
 let globalEventStore: EventStore | undefined;
 let cognitionPipeline: CognitionPipeline | undefined;
+let codeGraphParser: CodeGraphParserService | undefined;
 
 /** Baseline for “session shift” detection (Current focus + top paths). Reset on workspace sync / Start fresh. */
 let sessionBoundaryBaseline: { focus: string; paths: string[] } | undefined;
@@ -301,6 +303,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const stateManager = new StateManager();
+  void (async () => {
+    const folder = stateManager.getPrimaryFolder();
+    if (folder) {
+      try {
+        await stateManager.load(folder);
+      } catch {
+        /* warm cache for sidebar first paint */
+      }
+    }
+  })();
   const memoryBuilder = new MemoryBuilder();
   const modeEngine = new ModeEngine();
 
@@ -327,6 +339,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const refreshSidebarDebounced = scheduleSidebarRefresh(sidebar);
 
   cognitionPipeline = new CognitionPipeline(stateManager);
+  codeGraphParser = new CodeGraphParserService(cognitionPipeline, () => stateManager.getPrimaryFolder());
+  codeGraphParser.activate(context);
 
   const onAfterScannerPersist = (): void => {
     refreshSidebarDebounced();
@@ -499,7 +513,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       instruction,
       shouldIgnore: ig,
       projectSnapshot: cognition.projectSnapshot,
+      builtState: cognition.builtState,
       summary: cognition.summary,
+      handoff: cognition.handoff,
+      timeline: cognition.timeline,
+      knowledgeSnapshot: cognition.knowledgeSnapshot,
     });
 
     const budget = exportTokenBudget();
@@ -515,7 +533,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         instruction,
         shouldIgnore: ig,
         projectSnapshot: cognition.projectSnapshot,
+        builtState: cognition.builtState,
         summary: cognition.summary,
+        handoff: cognition.handoff,
+        timeline: cognition.timeline,
+        knowledgeSnapshot: cognition.knowledgeSnapshot,
       });
       if (budget > 0) {
         obj = compressExportJsonForBudget(obj, budget);
@@ -747,6 +769,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push({ dispose: () => disposeScanners() });
   context.subscriptions.push({ dispose: () => disposeIgnoreWatchers() });
   context.subscriptions.push({ dispose: () => cognitionPipeline?.dispose() });
+  context.subscriptions.push({ dispose: () => codeGraphParser?.dispose() });
 
   // Return quickly from activate; bootstrap scanners / disk replay in the background.
   void runWorkspaceBootstrap();
@@ -756,4 +779,5 @@ export function deactivate(): void {
   disposeScanners();
   disposeIgnoreWatchers();
   cognitionPipeline?.dispose();
+  codeGraphParser?.dispose();
 }

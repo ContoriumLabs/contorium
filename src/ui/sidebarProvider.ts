@@ -5,11 +5,19 @@ import { CONTORA_CONFIG_SECTION, PRODUCT_DISPLAY_NAME } from '../constants';
 import { readResolvedExportTokenBudget } from '../ai/exportBudget';
 import type { EventStore } from '../core/engine/eventStore';
 import { intentToGoals, readAndEvaluatePersistedIntent } from '../core/memory/intentStore';
-import { buildSidebarGraphPanel } from '../cognition/sidebarGraphPanel';
-import { buildSidebarConflictsPanel } from '../cognition/sidebarConflictsPanel';
-import { buildSidebarProjectStatePanel } from '../cognition/sidebarStateBuilderPanel';
+import { buildSidebarGraphPanel, type SidebarIntentGraphPanel } from '../cognition/sidebarGraphPanel';
+import { buildSidebarConflictsPanel, type SidebarConflictsPanel } from '../cognition/sidebarConflictsPanel';
+import {
+  buildSidebarProjectStatePanel,
+  type SidebarProjectStatePanel,
+} from '../cognition/sidebarStateBuilderPanel';
+import {
+  buildSidebarUnderstandingPanel,
+  type SidebarUnderstandingPanel,
+} from '../cognition/sidebarHandoffPanel';
 import { StateManager } from '../state/stateManager';
 import type { ProjectState } from '../types/state';
+import { defaultProjectState } from '../types/state';
 import {
   buildSidebarWebviewState,
   type SidebarAiIntentPanel,
@@ -33,8 +41,59 @@ type WebviewToExt =
 
 const TASK_MAX = 500;
 
+const EMPTY_INTENT_GRAPH: SidebarIntentGraphPanel = {
+  projectIntent: '',
+  problemArea: '',
+  domains: [],
+  hotspot: '',
+  summaryConfidence: 0,
+  intents: [],
+  updatedAt: 0,
+  empty: true,
+};
+
+const EMPTY_PROJECT_STATE: SidebarProjectStatePanel = {
+  projectGoal: '',
+  currentStage: '',
+  activeModules: [],
+  recentDecisions: [],
+  openProblems: [],
+  completedMilestones: [],
+  nextActions: [],
+  confidence: 0,
+  updatedAt: 0,
+  empty: true,
+};
+
+const EMPTY_CONFLICTS: SidebarConflictsPanel = {
+  count: 0,
+  items: [],
+  updatedAt: 0,
+  empty: true,
+};
+
+const EMPTY_UNDERSTANDING: SidebarUnderstandingPanel = {
+  handoff: {
+    summary: '',
+    goal: '',
+    currentFocus: '',
+    riskLevel: '',
+    changedCount: 0,
+    impactCount: 0,
+    nextActions: [],
+    updatedAt: 0,
+    empty: true,
+  },
+  impact: { modules: [], empty: true },
+  graph: { nodes: [], empty: true },
+  timeline: { entries: [], empty: true },
+  functionGraph: { trees: [], fileFlows: [], impactLines: [], empty: true },
+  knowledgeGraph: { intentTrees: [], reasonTraces: [], inferenceTraces: [], impactDetails: [], hotspots: [], avgConfidence: 0, closureVersion: '—', schemaVersion: '—', parserBackend: '—', empty: true },
+};
+
 export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'contora.sidebar';
+  private static htmlTemplateCache: string | undefined;
 
   private view?: vscode.WebviewView;
   private folder: vscode.WorkspaceFolder | undefined;
@@ -158,6 +217,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
     try {
       webviewView.webview.html = this.getHtml(webviewView.webview);
+      void this.pushStateToWebview();
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar HTML failed:`, err);
       webviewView.webview.html = this.getFallbackHtml(
@@ -183,6 +243,61 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
   async refresh(): Promise<void> {
     await this.pushStateToWebview();
+  }
+
+  private defaultByokPanelState(): SidebarByokPanelState {
+    const cfg = vscode.workspace.getConfiguration(CONTORA_CONFIG_SECTION);
+    const ai = readAiRuntimeSettings();
+    let activeModelId = '—';
+    if (ai.aiProvider === 'openai') {
+      activeModelId = ai.openaiModel;
+    } else if (ai.aiProvider === 'anthropic') {
+      activeModelId = ai.anthropicModel;
+    } else if (ai.aiProvider === 'google') {
+      activeModelId = ai.googleModel;
+    } else if (ai.aiProvider === 'deepseek') {
+      activeModelId = ai.deepseekModel;
+    }
+    return {
+      aiProvider: ai.aiProvider,
+      keyOpenAI: false,
+      keyAnthropic: false,
+      keyGoogle: false,
+      keyDeepseek: false,
+      activeModelId,
+      exportFormat: cfg.get<string>('exportFormat') ?? 'markdown',
+      exportTokenBudget: readResolvedExportTokenBudget(cfg),
+      appendAiOnExport: cfg.get<boolean>('appendAiSummaryOnExport') === true,
+      defaultAIMode: cfg.get<string>('defaultAIMode') ?? 'feature',
+      needsActiveProviderKey:
+        ai.aiProvider === 'openai' ||
+        ai.aiProvider === 'anthropic' ||
+        ai.aiProvider === 'google' ||
+        ai.aiProvider === 'deepseek',
+    };
+  }
+
+  private emptyCognitionState() {
+    return {
+      aiIntent: { goals: [] } as SidebarAiIntentPanel,
+      intentGraph: { ...EMPTY_INTENT_GRAPH },
+      projectState: { ...EMPTY_PROJECT_STATE },
+      stateConflicts: { ...EMPTY_CONFLICTS },
+      understandingPanel: { ...EMPTY_UNDERSTANDING },
+    };
+  }
+
+  private postWebviewState(
+    seq: number,
+    state: Record<string, unknown> | null,
+    byok: SidebarByokPanelState | null,
+    instant = false,
+  ): boolean {
+    if (seq !== this.pushStateSeq || !this.view) {
+      return false;
+    }
+    this.view.webview.postMessage({ type: 'state', state, byok, instant: instant || undefined });
+    return true;
   }
 
   private async loadByokPanelState(): Promise<SidebarByokPanelState> {
@@ -275,65 +390,54 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const seq = ++this.pushStateSeq;
     try {
       const folder = this.folder ?? this.stateManager.getPrimaryFolder();
-      const byok = await this.loadByokPanelState();
+      const ver = String((this.ctx.extension.packageJSON as { version?: string }).version ?? '');
+      const emptyCog = this.emptyCognitionState();
+      const byokDefault = this.defaultByokPanelState();
+
       if (!folder) {
-        this.view.webview.postMessage({ type: 'state', state: null, byok });
+        this.postWebviewState(seq, null, byokDefault, true);
         return;
       }
-      const state = await this.stateManager.load(folder);
-      const ver = String((this.ctx.extension.packageJSON as { version?: string }).version ?? '');
-      const base = buildSidebarWebviewState(state, this.events, ver);
 
-      // Fast first paint — avoid waiting on cognition disk reads.
-      if (seq === this.pushStateSeq) {
-        this.view.webview.postMessage({
-          type: 'state',
-          state: {
-            ...base,
-            aiIntent: { goals: [] },
-            intentGraph: {
-              projectIntent: '',
-              problemArea: '',
-              domains: [],
-              hotspot: '',
-              summaryConfidence: 0,
-              intents: [],
-              updatedAt: 0,
-              empty: true,
-            },
-            projectState: {
-              projectGoal: '',
-              currentStage: '',
-              activeModules: [],
-              recentDecisions: [],
-              openProblems: [],
-              completedMilestones: [],
-              nextActions: [],
-              confidence: 0,
-              updatedAt: 0,
-              empty: true,
-            },
-            stateConflicts: { count: 0, items: [], updatedAt: 0, empty: true },
-          },
-          byok,
-          instant: true,
-        });
+      const cached = this.stateManager.getCached(folder) ?? defaultProjectState();
+      const baseInstant = buildSidebarWebviewState(cached, this.events, ver);
+      this.postWebviewState(
+        seq,
+        { ...baseInstant, ...emptyCog },
+        byokDefault,
+        true,
+      );
+
+      const [byok, state] = await Promise.all([
+        this.loadByokPanelState(),
+        this.stateManager.load(folder),
+      ]);
+      if (seq !== this.pushStateSeq || !this.view) {
+        return;
       }
+      const base = buildSidebarWebviewState(state, this.events, ver);
+      let merged: Record<string, unknown> = { ...base, ...emptyCog };
+      this.postWebviewState(seq, merged, byok, true);
 
-      const [aiIntent, intentGraph, projectState, stateConflicts] = await Promise.all([
-        this.readAiIntentForFolder(folder, state),
-        buildSidebarGraphPanel(folder),
+      const [projectState, intentGraph, stateConflicts] = await Promise.all([
         buildSidebarProjectStatePanel(folder),
+        buildSidebarGraphPanel(folder),
         buildSidebarConflictsPanel(folder),
       ]);
       if (seq !== this.pushStateSeq || !this.view) {
         return;
       }
-      this.view.webview.postMessage({
-        type: 'state',
-        state: { ...base, aiIntent, intentGraph, projectState, stateConflicts },
-        byok,
-      });
+      merged = { ...merged, projectState, intentGraph, stateConflicts };
+      this.postWebviewState(seq, merged, byok);
+
+      const [understandingPanel, aiIntent] = await Promise.all([
+        buildSidebarUnderstandingPanel(folder),
+        this.readAiIntentForFolder(folder, state),
+      ]);
+      if (seq !== this.pushStateSeq || !this.view) {
+        return;
+      }
+      this.postWebviewState(seq, { ...merged, understandingPanel, aiIntent }, byok);
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar state push failed:`, err);
       try {
@@ -355,8 +459,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private getHtml(webview: vscode.Webview): string {
-    const nonce = String(Math.random()).slice(2);
+  private buildCspAttr(webview: vscode.Webview, nonce: string): string {
     const cspSource = webview.cspSource;
     const csp = [
       `default-src 'none'`,
@@ -365,7 +468,17 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       `img-src ${cspSource} https: data:`,
       `script-src 'nonce-${nonce}' ${cspSource}`,
     ].join('; ');
-    const cspAttr = csp.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    return csp.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  }
+
+  private getHtml(webview: vscode.Webview): string {
+    const nonce = String(Math.random()).slice(2);
+    const cspAttr = this.buildCspAttr(webview, nonce);
+    if (ContoraSidebarProvider.htmlTemplateCache) {
+      return ContoraSidebarProvider.htmlTemplateCache
+        .replace(/__NONCE__/g, nonce)
+        .replace(/__CSP_ATTR__/g, cspAttr);
+    }
     /* Inline SVGs (currentColor) — no extra assets; icons are decorative except primary actions. */
     const svg = (paths: string, w = 14, h = 14) =>
       `<svg class="cr-ico-svg" xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">${paths}</svg>`;
@@ -424,11 +537,11 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       plus: svg('<path d="M8 3v5h5v1H8v5H7V9H2V8h5V3h1z"/>', 12, 12),
       jumpDown: svg('<path d="M8 11.5L3.5 7h9L8 11.5zm0 2L3.5 9h9l-4.5 4.5z"/>', 14, 14),
     };
-    return `<!DOCTYPE html>
+    const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="${cspAttr}" />
+  <meta http-equiv="Content-Security-Policy" content="__CSP_ATTR__" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${PRODUCT_DISPLAY_NAME}</title>
   <style>
@@ -996,6 +1109,226 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       margin: 0;
       padding: 2px 0 0;
     }
+    .cr-module-card--handoff {
+      border-left: 3px solid var(--vscode-charts-orange, #d18616);
+      background: linear-gradient(
+        165deg,
+        rgba(209, 134, 22, 0.1) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.1)) 50%
+      );
+    }
+    .cr-stack { margin-top: 10px; }
+    .cr-stack:first-of-type { margin-top: 14px; }
+    .cr-stack-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.85;
+      margin: 0 0 6px 2px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.2));
+    }
+    .cr-stack-fold {
+      margin-top: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.12));
+      background: var(--vscode-input-background, rgba(0, 0, 0, 0.04));
+    }
+    .cr-stack-fold > summary {
+      cursor: pointer;
+      padding: 6px 8px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--vscode-descriptionForeground);
+      list-style: none;
+      user-select: none;
+    }
+    .cr-stack-fold > summary::-webkit-details-marker { display: none; }
+    .cr-stack-fold > summary::before {
+      content: '▸ ';
+      display: inline-block;
+      transition: transform 0.15s ease;
+    }
+    .cr-stack-fold[open] > summary::before { transform: rotate(90deg); }
+    .cr-stack-fold-body { padding: 0 8px 8px; }
+    details.cr-cortex {
+      margin-top: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.22));
+      background: var(--vscode-sideBar-background, transparent);
+    }
+    details.cr-cortex > summary.cr-cortex-summary {
+      cursor: pointer;
+      padding: 10px 10px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
+      list-style: none;
+      user-select: none;
+      border-bottom: 1px solid transparent;
+    }
+    details.cr-cortex[open] > summary.cr-cortex-summary {
+      border-bottom-color: var(--vscode-widget-border, rgba(127, 127, 127, 0.18));
+      margin-bottom: 4px;
+    }
+    details.cr-cortex > summary.cr-cortex-summary::-webkit-details-marker { display: none; }
+    details.cr-cortex > summary.cr-cortex-summary::before {
+      content: '▸ ';
+      margin-right: 4px;
+      opacity: 0.7;
+    }
+    details.cr-cortex[open] > summary.cr-cortex-summary::before { content: '▾ '; }
+    .cr-cortex-body { padding: 4px 6px 8px; }
+    .cr-cortex-body .cr-section { margin-top: 8px; }
+    .cr-cortex-body .cr-section:first-child { margin-top: 4px; }
+    .cr-cortex-body .cr-git { margin-top: 8px; }
+    .cr-cortex-body #crByokSection { margin-top: 10px !important; }
+    .cr-module-card--fngraph {
+      border-left: 3px solid var(--vscode-symbolIcon-functionForeground, #b180d7);
+      background: linear-gradient(
+        165deg,
+        rgba(177, 128, 215, 0.08) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.08)) 55%
+      );
+    }
+    .cr-module-card--depimpact {
+      border-left: 3px solid var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+    }
+    .cr-fn-flows { margin: 0 0 10px; }
+    .cr-fn-flow-line {
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--vscode-descriptionForeground);
+      margin: 0 0 6px;
+      font-family: var(--vscode-editor-font-family, Consolas, monospace);
+    }
+    .cr-fn-flow-chain { color: var(--vscode-foreground); }
+    .cr-fn-flow-arrow { opacity: 0.55; margin: 0 4px; }
+    ul.cr-fn-tree-root {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-family: var(--vscode-editor-font-family, Consolas, 'Courier New', monospace);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    ul.cr-fn-tree-children {
+      list-style: none;
+      margin: 0;
+      padding: 0 0 0 2px;
+    }
+    .cr-fn-tree-item { margin: 0; padding: 0; }
+    .cr-fn-tree-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0;
+      padding: 1px 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    .cr-fn-tree-branch {
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.75;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .cr-fn-tree-label {
+      color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
+    }
+    .cr-fn-tree-label--root {
+      font-weight: 600;
+      color: var(--vscode-foreground);
+    }
+    .cr-fn-tree-label--class { color: var(--vscode-symbolIcon-classForeground, #4ec9b0); }
+    .cr-fn-tree-file {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      margin-left: 4px;
+      opacity: 0.85;
+    }
+    ul.cr-fn-impact-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-size: 11px;
+    }
+    ul.cr-fn-impact-list li {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: baseline;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.1));
+    }
+    ul.cr-fn-impact-list li:last-child { border-bottom: none; }
+    .cr-fn-impact-target { font-weight: 600; color: var(--vscode-foreground); }
+    .cr-fn-impact-effect { color: var(--vscode-descriptionForeground); flex: 1; min-width: 0; }
+    .cr-fn-impact-badge {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    .cr-fn-impact-badge--high {
+      color: var(--vscode-inputValidation-errorForeground, #f48771);
+      background: rgba(244, 135, 113, 0.12);
+    }
+    .cr-fn-impact-badge--medium {
+      color: var(--vscode-inputValidation-warningForeground, #cca700);
+      background: rgba(204, 167, 0, 0.1);
+    }
+    .cr-fn-impact-badge--low {
+      color: var(--vscode-descriptionForeground);
+      background: rgba(127, 127, 127, 0.1);
+    }
+    .cr-module-card--kg {
+      border-left: 3px solid var(--vscode-charts-purple, #b180d7);
+    }
+    details.cr-kg-intent {
+      margin: 0 0 6px;
+      border-radius: 5px;
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.12));
+      background: rgba(127, 127, 127, 0.04);
+    }
+    details.cr-kg-intent > summary {
+      cursor: pointer;
+      padding: 6px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--vscode-foreground);
+      list-style: none;
+    }
+    details.cr-kg-intent > summary::-webkit-details-marker { display: none; }
+    details.cr-kg-intent[open] > summary { border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.12)); }
+    ul.cr-kg-tree {
+      list-style: none;
+      margin: 0;
+      padding: 4px 8px 8px 12px;
+      font-family: var(--vscode-editor-font-family, Consolas, monospace);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .cr-kg-node { margin: 2px 0; }
+    .cr-kg-type-intent { color: var(--vscode-charts-purple, #b180d7); font-weight: 600; }
+    .cr-kg-type-module { color: var(--vscode-charts-blue, #3794ff); }
+    .cr-kg-type-file { color: var(--vscode-symbolIcon-fileForeground, #cccccc); }
+    .cr-kg-type-function { color: var(--vscode-symbolIcon-functionForeground, #dcdcaa); }
+    .cr-kg-arrow { opacity: 0.5; margin: 0 4px; }
+    ul.cr-reason-list { list-style: none; margin: 0; padding: 0; font-size: 11px; }
+    ul.cr-reason-list li { padding: 6px 0; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.1)); }
+    ul.cr-reason-list li:last-child { border-bottom: none; }
+    .cr-reason-target { font-weight: 600; color: var(--vscode-foreground); }
+    .cr-reason-why { color: var(--vscode-descriptionForeground); margin-top: 2px; }
     .cr-module-card--workspace .cr-sum-line:first-child { padding-top: 2px; }
     .cr-section-head {
       display: flex;
@@ -1289,7 +1622,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     html.cr-restore-hydrating #crGitDetails.cr-restore-hidden,
     html.cr-restore-hydrating #crSecAiGoals.cr-restore-hidden,
     html.cr-restore-hydrating #crSecIntentGraph.cr-restore-hidden,
-    html.cr-restore-hydrating #crSecProjectState.cr-restore-hidden {
+    html.cr-restore-hydrating #crSecProjectState.cr-restore-hidden,
+    html.cr-restore-hydrating #crCortexDetails.cr-restore-hidden {
       transition: none !important;
     }
     .cr-sum-line,
@@ -1297,7 +1631,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     #crGitDetails,
     #crSecAiGoals,
     #crSecIntentGraph,
-    #crSecProjectState {
+    #crSecProjectState,
+    #crCortexDetails {
       transition: opacity 0.42s ease-out;
     }
     .cr-sum-line.cr-restore-hidden,
@@ -1305,7 +1640,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     #crGitDetails.cr-restore-hidden,
     #crSecAiGoals.cr-restore-hidden,
     #crSecIntentGraph.cr-restore-hidden,
-    #crSecProjectState.cr-restore-hidden {
+    #crSecProjectState.cr-restore-hidden,
+    #crCortexDetails.cr-restore-hidden {
       opacity: 0;
       pointer-events: none;
     }
@@ -1376,6 +1712,79 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     </div>
   </div>
 
+  <div class="cr-stack" aria-label="Workflow layer">
+    <div class="cr-stack-label">Workflow</div>
+  <section class="cr-section" id="crSecProjectState" aria-label="Project state (State Builder)">
+    <div class="cr-module-card cr-module-card--state">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>Project state</span></span>
+        <span class="cr-graph-meta" id="psbMeta">—</span>
+      </div>
+      <div class="cr-module-card-body">
+    <div class="cr-psb-block">
+      <span class="cr-psb-k">Goal</span>
+      <p id="psbGoal" class="cr-graph-line">—</p>
+    </div>
+    <div class="cr-psb-block">
+      <span class="cr-psb-k">Current stage</span>
+      <p id="psbStage" class="cr-graph-muted">—</p>
+    </div>
+    <div class="cr-psb-panel" id="psbNextBlock" hidden>
+      <span class="cr-psb-k">Next actions</span>
+      <ul id="psbNext" class="cr-psb-list"></ul>
+    </div>
+    <p id="psbEmpty" class="cr-graph-empty">Building project state from workspace activity…</p>
+    <details class="cr-stack-fold">
+      <summary>More detail</summary>
+      <div class="cr-stack-fold-body">
+    <div id="psbModules" class="cr-graph-domains" hidden></div>
+    <div class="cr-psb-panel" id="psbDecisionsBlock" hidden>
+      <span class="cr-psb-k">Recent decisions</span>
+      <ul id="psbDecisions" class="cr-psb-list"></ul>
+    </div>
+    <div class="cr-psb-panel cr-psb-panel--warn" id="psbProblemsBlock" hidden>
+      <span class="cr-psb-k">Open problems</span>
+      <ul id="psbProblems" class="cr-psb-list cr-psb-list--warn"></ul>
+    </div>
+      </div>
+    </details>
+      </div>
+    </div>
+  </section>
+  </div>
+
+  <div class="cr-stack" aria-label="Intent layer">
+    <div class="cr-stack-label">Intent</div>
+  <section class="cr-section" id="crSecHandoff" aria-label="V3.1 understanding">
+    <div class="cr-module-card cr-module-card--handoff">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>AI handoff</span></span>
+        <span class="cr-graph-meta" id="handoffMeta">—</span>
+      </div>
+      <div class="cr-module-card-body">
+        <p id="handoffSummary" class="cr-graph-line">—</p>
+        <p id="handoffIntent" class="cr-graph-muted" hidden></p>
+        <details class="cr-stack-fold">
+          <summary>Impact modules</summary>
+          <div class="cr-stack-fold-body">
+        <div id="uImpactBlock" class="cr-psb-panel" hidden>
+          <span class="cr-psb-k">Affected modules</span>
+          <div id="uImpactModules" class="cr-graph-domains"></div>
+        </div>
+          </div>
+        </details>
+        <details id="uTimelineDetails" class="cr-stack-fold" hidden>
+          <summary>Timeline (recent commits)</summary>
+          <ul id="uTimelineList" class="cr-psb-list"></ul>
+        </details>
+        <p id="handoffEmpty" class="cr-graph-empty">Analyzing recent code changes…</p>
+      </div>
+    </div>
+  </section>
+  </div>
+
+  <div class="cr-stack" aria-label="Sync layer">
+    <div class="cr-stack-label">Sync</div>
   <section class="cr-section" id="crSecSnapshot">
     <div class="cr-module-card cr-module-card--workspace">
       <div class="cr-module-card-head">
@@ -1397,19 +1806,55 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           <div class="cr-sum-body" id="sumGitBody">—</div>
         </div>
       </div>
+      <details class="cr-stack-fold">
+        <summary>Recent activity</summary>
+        <div class="cr-stack-fold-body">
       <div class="cr-sum-line" id="sumActivity">
         <span class="cr-sum-ico cr-sum-ico--clock">${ico.clock}</span>
         <div class="cr-sum-main">
-          <span class="cr-sum-muted">Recent activity</span>
+          <span class="cr-sum-muted">Activity stream</span>
           <div class="cr-sum-body" id="sumActivityBody">—</div>
           <ul id="activityStreamList" class="cr-activity-feed" hidden aria-label="Recent workspace activity"></ul>
         </div>
       </div>
+        </div>
+      </details>
     </div>
     </div>
   </section>
+  </div>
 
-  <section class="cr-section" id="crSecIntentGraph" aria-label="Intent graph summary">
+  <details class="cr-stack cr-cortex" id="crCortexDetails" aria-label="AI Cortex layer">
+    <summary class="cr-cortex-summary">AI Cortex</summary>
+    <div class="cr-cortex-body">
+
+  <section class="cr-section" id="crSecKnowledgeGraph" aria-label="Project knowledge graph">
+    <div class="cr-module-card cr-module-card--kg">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Project Knowledge Graph</span></span>
+        <span class="cr-graph-meta" id="kgMeta">—</span>
+      </div>
+      <div class="cr-module-card-body">
+        <div id="kgIntentTrees" class="cr-kg-roots" aria-label="Intent to module to file to function"></div>
+        <p id="kgEmpty" class="cr-graph-empty">Save code changes to build project cognitive graph…</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cr-section" id="crSecHotspots" aria-label="Project hotspots">
+    <div class="cr-module-card cr-module-card--kg">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>Hotspots</span></span>
+        <span class="cr-graph-meta" id="kgHotspotsMeta">—</span>
+      </div>
+      <div class="cr-module-card-body">
+        <ul id="kgHotspotsList" class="cr-fn-impact-list" hidden aria-label="Active project hotspots"></ul>
+        <p id="kgHotspotsEmpty" class="cr-graph-empty">Hotspots appear after code edits and intent mapping…</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cr-section" id="crSecIntentGraph" aria-label="Intent graph summary" hidden>
     <div class="cr-module-card cr-module-card--intent">
       <div class="cr-module-card-head">
         <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Intent graph</span></span>
@@ -1425,36 +1870,40 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     </div>
   </section>
 
-  <section class="cr-section" id="crSecProjectState" aria-label="Project state (State Builder)">
-    <div class="cr-module-card cr-module-card--state">
+  <section class="cr-section" id="crSecFunctionGraph" aria-label="Function graph">
+    <div class="cr-module-card cr-module-card--fngraph">
       <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>Project state</span></span>
-        <span class="cr-graph-meta" id="psbMeta">—</span>
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.code}</span><span>Function graph</span></span>
+        <span class="cr-graph-meta" id="fnGraphMeta">—</span>
       </div>
       <div class="cr-module-card-body">
-    <p class="cr-graph-muted" style="margin:0 0 8px">L4 preview — <strong>Copy AI-ready context</strong> exports a converged 4-layer handoff (pure snapshot, no source tags).</p>
-    <div class="cr-psb-block">
-      <span class="cr-psb-k">Goal</span>
-      <p id="psbGoal" class="cr-graph-line">—</p>
+        <div id="fnFileFlows" class="cr-fn-flows" hidden aria-label="File to function flow"></div>
+        <ul id="fnGraphTrees" class="cr-fn-tree-root" hidden aria-label="Function call tree"></ul>
+        <p id="fnGraphEmpty" class="cr-graph-empty">Save code changes to build function call graph…</p>
+      </div>
     </div>
-    <div class="cr-psb-block">
-      <span class="cr-psb-k">Current stage</span>
-      <p id="psbStage" class="cr-graph-muted">—</p>
+  </section>
+
+  <section class="cr-section" id="crSecDepImpact" aria-label="Dependency impact" hidden>
+    <div class="cr-module-card cr-module-card--depimpact">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>Impact analysis</span></span>
+      </div>
+      <div class="cr-module-card-body">
+        <ul id="fnImpactList" class="cr-fn-impact-list" aria-label="Affected symbols"></ul>
+        <ul id="kgImpactDetail" class="cr-fn-impact-list" hidden aria-label="Intent-linked impact"></ul>
+      </div>
     </div>
-    <div id="psbModules" class="cr-graph-domains" hidden></div>
-    <div class="cr-psb-panel" id="psbDecisionsBlock" hidden>
-      <span class="cr-psb-k">Recent decisions</span>
-      <ul id="psbDecisions" class="cr-psb-list"></ul>
-    </div>
-    <div class="cr-psb-panel cr-psb-panel--warn" id="psbProblemsBlock" hidden>
-      <span class="cr-psb-k">Open problems</span>
-      <ul id="psbProblems" class="cr-psb-list cr-psb-list--warn"></ul>
-    </div>
-    <div class="cr-psb-panel" id="psbNextBlock" hidden>
-      <span class="cr-psb-k">Next actions</span>
-      <ul id="psbNext" class="cr-psb-list"></ul>
-    </div>
-    <p id="psbEmpty" class="cr-graph-empty">Building project state from workspace activity…</p>
+  </section>
+
+  <section class="cr-section" id="crSecReasonTrace" aria-label="Reason trace" hidden>
+    <div class="cr-module-card cr-module-card--depimpact">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Reason trace</span></span>
+      </div>
+      <div class="cr-module-card-body">
+        <ul id="reasonTraceList" class="cr-reason-list" aria-label="Why symbols matter"></ul>
+        <p id="reasonTraceEmpty" class="cr-graph-empty">Reason traces appear after intent ↔ function mapping.</p>
       </div>
     </div>
   </section>
@@ -1466,7 +1915,6 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         <span class="cr-graph-meta cr-conf-meta" id="confMeta">—</span>
       </div>
       <div class="cr-module-card-body">
-        <p class="cr-graph-muted" style="margin:0 0 8px">v2 audit — shown only when unresolved; system does not auto-pick a winner.</p>
         <ul id="confList" class="cr-psb-list cr-psb-list--warn" aria-label="Unresolved state conflicts"></ul>
       </div>
     </div>
@@ -1483,7 +1931,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     </div>
   </section>
 
-  <details class="cr-git" open id="crGitDetails">
+  <details class="cr-git" id="crGitDetails">
     <summary><span class="cr-sec-ico" style="margin-right:2px">${ico.branch}</span> Git changes (synced)</summary>
     <div class="cr-git-sub">
       <div class="cr-git-label"><span class="cr-git-ico">${ico.check}</span> Staged</div>
@@ -1495,12 +1943,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     </div>
   </details>
 
-  <label class="cr-notes-label" for="notes"><span class="cr-sec-ico">${ico.note}</span> Context notes</label>
-  <textarea id="notes" rows="4" placeholder="Notes for export — kept locally in workspace state."></textarea>
-
-  <section class="cr-section" id="crByokSection" style="margin-top:16px">
+  <section class="cr-section" id="crByokSection">
     <div class="cr-section-head">
-      <span class="cr-sec-left"><span class="cr-sec-ico">${ico.gear}</span><span>BYOK / Cloud AI (v3)</span></span>
+      <span class="cr-sec-left"><span class="cr-sec-ico">${ico.gear}</span><span>BYOK / Cloud AI</span></span>
     </div>
     <div class="cr-byok">
       <p class="cr-byok-line cr-byok-muted" id="byokRuntime">—</p>
@@ -1521,6 +1966,12 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     </div>
   </section>
 
+    </div>
+  </details>
+
+  <label class="cr-notes-label" for="notes"><span class="cr-sec-ico">${ico.note}</span> Context notes</label>
+  <textarea id="notes" rows="3" placeholder="Notes for export — kept locally in workspace state."></textarea>
+
   <footer class="cr-footer">
     <span id="crVersion">${PRODUCT_DISPLAY_NAME}</span>
     <span class="cr-local">
@@ -1531,7 +1982,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
   <template id="tpl-file-ico">${ico.file}</template>
 
-  <script nonce="${nonce}">
+  <script nonce="__NONCE__">
     (function () {
     try {
     const vscode = acquireVsCodeApi();
@@ -1583,6 +2034,31 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const psbNextBlock = document.getElementById('psbNextBlock');
     const psbNextEl = document.getElementById('psbNext');
     const psbEmptyEl = document.getElementById('psbEmpty');
+    const handoffMetaEl = document.getElementById('handoffMeta');
+    const handoffSummaryEl = document.getElementById('handoffSummary');
+    const handoffIntentEl = document.getElementById('handoffIntent');
+    const handoffEmptyEl = document.getElementById('handoffEmpty');
+    const uImpactBlock = document.getElementById('uImpactBlock');
+    const uImpactModules = document.getElementById('uImpactModules');
+    const uTimelineDetails = document.getElementById('uTimelineDetails');
+    const uTimelineList = document.getElementById('uTimelineList');
+    const fnGraphMetaEl = document.getElementById('fnGraphMeta');
+    const fnGraphTreesEl = document.getElementById('fnGraphTrees');
+    const fnFileFlowsEl = document.getElementById('fnFileFlows');
+    const fnGraphEmptyEl = document.getElementById('fnGraphEmpty');
+    const fnImpactListEl = document.getElementById('fnImpactList');
+    const fnDepImpactSec = document.getElementById('crSecDepImpact');
+    const kgMetaEl = document.getElementById('kgMeta');
+    const kgIntentTreesEl = document.getElementById('kgIntentTrees');
+    const kgEmptyEl = document.getElementById('kgEmpty');
+    const kgImpactDetailEl = document.getElementById('kgImpactDetail');
+    const kgHotspotsSec = document.getElementById('crSecHotspots');
+    const kgHotspotsMetaEl = document.getElementById('kgHotspotsMeta');
+    const kgHotspotsListEl = document.getElementById('kgHotspotsList');
+    const kgHotspotsEmptyEl = document.getElementById('kgHotspotsEmpty');
+    const reasonTraceSec = document.getElementById('crSecReasonTrace');
+    const reasonTraceListEl = document.getElementById('reasonTraceList');
+    const reasonTraceEmptyEl = document.getElementById('reasonTraceEmpty');
     const confSecEl = document.getElementById('crSecConflicts');
     const confMetaEl = document.getElementById('confMeta');
     const confListEl = document.getElementById('confList');
@@ -2057,6 +2533,377 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    function renderFnTreeNode(node, depth, isLast, prefix) {
+      const li = document.createElement('li');
+      li.className = 'cr-fn-tree-item';
+      const line = document.createElement('div');
+      line.className = 'cr-fn-tree-line';
+      if (depth > 0) {
+        const branch = document.createElement('span');
+        branch.className = 'cr-fn-tree-branch';
+        branch.textContent = prefix + (isLast ? '└── ' : '├── ');
+        line.appendChild(branch);
+      }
+      const label = document.createElement('span');
+      label.className = 'cr-fn-tree-label' + (depth === 0 ? ' cr-fn-tree-label--root' : '') +
+        (node.kind === 'class' ? ' cr-fn-tree-label--class' : '');
+      label.textContent = node.name;
+      line.appendChild(label);
+      if (depth === 0 && node.file) {
+        const f = document.createElement('span');
+        f.className = 'cr-fn-tree-file';
+        const parts = node.file.replace(/\\\\/g, '/').split('/');
+        f.textContent = parts[parts.length - 1] || node.file;
+        line.appendChild(f);
+      }
+      li.appendChild(line);
+      if (node.children && node.children.length) {
+        const ul = document.createElement('ul');
+        ul.className = 'cr-fn-tree-children';
+        const childPrefix = depth === 0 ? '' : prefix + (isLast ? '    ' : '│   ');
+        for (let ci = 0; ci < node.children.length; ci++) {
+          ul.appendChild(renderFnTreeNode(
+            node.children[ci],
+            depth + 1,
+            ci === node.children.length - 1,
+            childPrefix,
+          ));
+        }
+        li.appendChild(ul);
+      }
+      return li;
+    }
+
+    function renderKgNode(node, depth) {
+      const li = document.createElement('li');
+      li.className = 'cr-kg-node';
+      const typeClass = 'cr-kg-type-' + (node.type || 'function');
+      const line = document.createElement('div');
+      if (depth > 0) {
+        line.innerHTML = '<span class="cr-kg-arrow">↓</span>';
+      }
+      const label = document.createElement('span');
+      label.className = typeClass;
+      let labelText = node.name;
+      if (typeof node.confidence === 'number' && node.confidence > 0) {
+        labelText += ' · ' + Math.round(node.confidence * 100) + '%';
+      }
+      label.textContent = labelText;
+      line.appendChild(label);
+      li.appendChild(line);
+      if (node.children && node.children.length) {
+        const ul = document.createElement('ul');
+        ul.className = 'cr-kg-tree';
+        for (let i = 0; i < node.children.length; i++) {
+          ul.appendChild(renderKgNode(node.children[i], depth + 1));
+        }
+        li.appendChild(ul);
+      }
+      return li;
+    }
+
+    function paintKnowledgeGraphPanel(kg) {
+      const view = kg || { intentTrees: [], reasonTraces: [], inferenceTraces: [], impactDetails: [], hotspots: [], avgConfidence: 0, closureVersion: '—', schemaVersion: '—', parserBackend: '—', empty: true };
+      const trees = view.intentTrees || [];
+      const hasTrees = trees.length > 0;
+      if (kgMetaEl) {
+        const conf = typeof view.avgConfidence === 'number' && view.avgConfidence > 0
+          ? ' · conf ' + Math.round(view.avgConfidence * 100) + '%'
+          : '';
+        const schema = view.schemaVersion && view.schemaVersion !== '—' ? ' · v' + view.schemaVersion : '';
+        kgMetaEl.textContent = hasTrees
+          ? trees.length + ' intents · ' + (view.parserBackend || 'regex') + schema + conf
+          : '—';
+      }
+      if (kgIntentTreesEl && kgEmptyEl) {
+        kgIntentTreesEl.innerHTML = '';
+        if (hasTrees) {
+          kgEmptyEl.hidden = true;
+          for (let ti = 0; ti < trees.length; ti++) {
+            const intent = trees[ti];
+            const det = document.createElement('details');
+            det.className = 'cr-kg-intent';
+            if (ti === 0 || intent.expanded) {
+              det.open = true;
+            }
+            const sum = document.createElement('summary');
+            sum.textContent = intent.name;
+            det.appendChild(sum);
+            const rootUl = document.createElement('ul');
+            rootUl.className = 'cr-kg-tree';
+            const kids = intent.children || [];
+            for (let ci = 0; ci < kids.length; ci++) {
+              rootUl.appendChild(renderKgNode(kids[ci], 0));
+            }
+            det.appendChild(rootUl);
+            kgIntentTreesEl.appendChild(det);
+          }
+        } else {
+          kgEmptyEl.hidden = false;
+        }
+      }
+      if (kgImpactDetailEl && fnDepImpactSec) {
+        kgImpactDetailEl.innerHTML = '';
+        const details = view.impactDetails || [];
+        if (details.length) {
+          fnDepImpactSec.hidden = false;
+          kgImpactDetailEl.hidden = false;
+          for (let di = 0; di < details.length; di++) {
+            const row = details[di];
+            const li = document.createElement('li');
+            const target = document.createElement('span');
+            target.className = 'cr-fn-impact-target';
+            target.textContent = row.symbol;
+            const effect = document.createElement('span');
+            effect.className = 'cr-fn-impact-effect';
+            const parts = [];
+            if (row.affectedIntent) {
+              parts.push('intent: ' + row.affectedIntent);
+            }
+            if (row.affectedFunctions && row.affectedFunctions.length) {
+              parts.push('calls: ' + row.affectedFunctions.slice(0, 3).join(', '));
+            }
+            effect.textContent = parts.length ? '→ ' + parts.join(' · ') : '→ linked symbol';
+            li.appendChild(target);
+            li.appendChild(effect);
+            kgImpactDetailEl.appendChild(li);
+          }
+        } else {
+          kgImpactDetailEl.hidden = true;
+        }
+      }
+      if (kgHotspotsListEl && kgHotspotsEmptyEl) {
+        kgHotspotsListEl.innerHTML = '';
+        const hotspots = view.hotspots || [];
+        if (hotspots.length) {
+          kgHotspotsListEl.hidden = false;
+          kgHotspotsEmptyEl.hidden = true;
+          if (kgHotspotsMetaEl) {
+            kgHotspotsMetaEl.textContent = hotspots.length + ' active';
+          }
+          if (kgHotspotsSec) {
+            kgHotspotsSec.hidden = false;
+          }
+          for (let hi = 0; hi < hotspots.length; hi++) {
+            const h = hotspots[hi];
+            const li = document.createElement('li');
+            const target = document.createElement('span');
+            target.className = 'cr-fn-impact-target';
+            target.textContent = h.name + (h.kind === 'function' ? '()' : '');
+            const effect = document.createElement('span');
+            effect.className = 'cr-fn-impact-effect';
+            effect.textContent = '→ ' + (h.lifecycle || 'active') + ' · score ' + Math.round((h.score || 0) * 100) + '%';
+            li.appendChild(target);
+            li.appendChild(effect);
+            kgHotspotsListEl.appendChild(li);
+          }
+        } else {
+          kgHotspotsListEl.hidden = true;
+          kgHotspotsEmptyEl.hidden = false;
+          if (kgHotspotsMetaEl) {
+            kgHotspotsMetaEl.textContent = '—';
+          }
+        }
+      }
+    }
+
+    function paintReasonTracePanel(kg) {
+      const view = kg || { reasonTraces: [], inferenceTraces: [], empty: true };
+      const traces = (view.reasonTraces || []).concat(view.inferenceTraces || []);
+      if (!reasonTraceSec || !reasonTraceListEl || !reasonTraceEmptyEl) {
+        return;
+      }
+      reasonTraceListEl.innerHTML = '';
+      if (!traces.length) {
+        reasonTraceSec.hidden = true;
+        reasonTraceEmptyEl.hidden = false;
+        return;
+      }
+      reasonTraceSec.hidden = false;
+      reasonTraceEmptyEl.hidden = true;
+      for (let i = 0; i < traces.length; i++) {
+        const t = traces[i];
+        const li = document.createElement('li');
+        const target = document.createElement('div');
+        target.className = 'cr-reason-target';
+        target.textContent = t.targetName + (t.targetType === 'function' ? '()' : '');
+        li.appendChild(target);
+        if (t.linkedIntent) {
+          const intent = document.createElement('div');
+          intent.className = 'cr-reason-why';
+          intent.textContent = 'Intent: ' + t.linkedIntent;
+          li.appendChild(intent);
+        }
+        if (typeof t.confidence === 'number' && t.confidence > 0) {
+          const conf = document.createElement('div');
+          conf.className = 'cr-reason-why';
+          conf.textContent = 'Confidence: ' + Math.round(t.confidence * 100) + '%';
+          li.appendChild(conf);
+        }
+        for (let ri = 0; ri < (t.reasons || []).length; ri++) {
+          const why = document.createElement('div');
+          why.className = 'cr-reason-why';
+          why.textContent = '• ' + t.reasons[ri];
+          li.appendChild(why);
+        }
+        reasonTraceListEl.appendChild(li);
+      }
+    }
+
+    function paintFunctionGraphPanel(fg) {
+      const view = fg || { trees: [], fileFlows: [], impactLines: [], empty: true };
+      const hasTrees = view.trees && view.trees.length > 0;
+      const hasFlows = view.fileFlows && view.fileFlows.length > 0;
+      const hasImpact = view.impactLines && view.impactLines.length > 0;
+
+      if (fnGraphMetaEl) {
+        const roots = hasTrees ? view.trees.length : 0;
+        const calls = hasTrees
+          ? view.trees.reduce(function (n, t) {
+              function countKids(node) {
+                let c = node.children ? node.children.length : 0;
+                for (let i = 0; i < (node.children || []).length; i++) {
+                  c += countKids(node.children[i]);
+                }
+                return c;
+              }
+              return n + countKids(t);
+            }, 0)
+          : 0;
+        fnGraphMetaEl.textContent = hasTrees ? roots + ' roots · ' + calls + ' calls' : '—';
+      }
+
+      if (fnFileFlowsEl) {
+        fnFileFlowsEl.innerHTML = '';
+        if (hasFlows) {
+          fnFileFlowsEl.hidden = false;
+          for (let fi = 0; fi < view.fileFlows.length; fi++) {
+            const flow = view.fileFlows[fi];
+            const p = document.createElement('p');
+            p.className = 'cr-fn-flow-line';
+            const chain = flow.chain || [];
+            let html = '';
+            for (let ci = 0; ci < chain.length; ci++) {
+              if (ci > 0) {
+                html += '<span class="cr-fn-flow-arrow">↓</span>';
+              }
+              html += '<span class="cr-fn-flow-chain">' + chain[ci] + '</span>';
+            }
+            p.innerHTML = html;
+            fnFileFlowsEl.appendChild(p);
+          }
+        } else {
+          fnFileFlowsEl.hidden = true;
+        }
+      }
+
+      if (fnGraphTreesEl && fnGraphEmptyEl) {
+        fnGraphTreesEl.innerHTML = '';
+        if (hasTrees) {
+          fnGraphTreesEl.hidden = false;
+          fnGraphEmptyEl.hidden = true;
+          for (let ti = 0; ti < view.trees.length; ti++) {
+            fnGraphTreesEl.appendChild(renderFnTreeNode(view.trees[ti], 0, ti === view.trees.length - 1, ''));
+          }
+        } else {
+          fnGraphTreesEl.hidden = true;
+          if (!hasFlows) {
+            fnGraphEmptyEl.hidden = false;
+          } else {
+            fnGraphEmptyEl.hidden = true;
+          }
+        }
+      }
+
+      if (fnImpactListEl && fnDepImpactSec) {
+        fnImpactListEl.innerHTML = '';
+        if (hasImpact) {
+          fnDepImpactSec.hidden = false;
+          for (let ii = 0; ii < view.impactLines.length; ii++) {
+            const row = view.impactLines[ii];
+            const li = document.createElement('li');
+            const target = document.createElement('span');
+            target.className = 'cr-fn-impact-target';
+            target.textContent = row.target;
+            const effect = document.createElement('span');
+            effect.className = 'cr-fn-impact-effect';
+            effect.textContent = '→ ' + row.effect;
+            const badge = document.createElement('span');
+            badge.className = 'cr-fn-impact-badge cr-fn-impact-badge--' + (row.level || 'low');
+            badge.textContent = row.level || 'low';
+            li.appendChild(target);
+            li.appendChild(effect);
+            li.appendChild(badge);
+            fnImpactListEl.appendChild(li);
+          }
+        } else {
+          fnDepImpactSec.hidden = true;
+        }
+      }
+    }
+
+    function paintUnderstandingPanel(panel) {
+      if (!handoffMetaEl || !handoffSummaryEl || !handoffEmptyEl) {
+        return;
+      }
+      const p = panel || null;
+      const h = p && p.handoff ? p.handoff : null;
+      const fg = p && p.functionGraph ? p.functionGraph : null;
+      const kg = p && p.knowledgeGraph ? p.knowledgeGraph : null;
+      paintKnowledgeGraphPanel(kg);
+      paintFunctionGraphPanel(fg);
+      paintReasonTracePanel(kg);
+      if (!h || h.empty) {
+        handoffMetaEl.textContent = 'building…';
+        handoffSummaryEl.textContent = '—';
+        if (handoffIntentEl) { handoffIntentEl.hidden = true; handoffIntentEl.textContent = ''; }
+        if (uImpactBlock) uImpactBlock.hidden = true;
+        if (uTimelineDetails) uTimelineDetails.hidden = true;
+        handoffEmptyEl.hidden = !!(fg && !fg.empty);
+        return;
+      }
+      handoffEmptyEl.hidden = true;
+      const risk = h.riskLevel ? ' · risk ' + h.riskLevel : '';
+      handoffMetaEl.textContent = h.changedCount + ' changed · ' + h.impactCount + ' impacted' + risk;
+      handoffSummaryEl.textContent = truncateGraphText(h.summary || h.currentFocus || '—', 240);
+      if (handoffIntentEl && h.currentFocus && h.currentFocus !== h.summary) {
+        handoffIntentEl.hidden = false;
+        handoffIntentEl.textContent = truncateGraphText(h.currentFocus, 180);
+      } else if (handoffIntentEl) {
+        handoffIntentEl.hidden = true;
+      }
+      const impact = p.impact || { modules: [], empty: true };
+      if (uImpactBlock && uImpactModules) {
+        uImpactModules.innerHTML = '';
+        if (!impact.empty && impact.modules.length) {
+          uImpactBlock.hidden = false;
+          for (let mi = 0; mi < impact.modules.length; mi++) {
+            const span = document.createElement('span');
+            span.className = 'cr-graph-domain';
+            span.textContent = impact.modules[mi].split('/').pop() || impact.modules[mi];
+            uImpactModules.appendChild(span);
+          }
+        } else {
+          uImpactBlock.hidden = true;
+        }
+      }
+      const tl = p.timeline || { entries: [], empty: true };
+      if (uTimelineDetails && uTimelineList) {
+        uTimelineList.innerHTML = '';
+        if (!tl.empty && tl.entries.length) {
+          uTimelineDetails.hidden = false;
+          for (let ti = 0; ti < tl.entries.length; ti++) {
+            const e = tl.entries[ti];
+            const li = document.createElement('li');
+            li.textContent = e.commit + ' · ' + e.file + ' · ' + e.summary + ' (' + e.impact + ')';
+            uTimelineList.appendChild(li);
+          }
+        } else {
+          uTimelineDetails.hidden = true;
+        }
+      }
+    }
+
     function paintAiIntentPanel(aiIntent, activityGoals) {
       if (!aiIntentGoalsEl || !aiIntentEmptyEl) {
         return;
@@ -2286,6 +3133,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         secIntentGraph: document.getElementById('crSecIntentGraph'),
         secProjectState: document.getElementById('crSecProjectState'),
         secConflicts: document.getElementById('crSecConflicts'),
+        secCortex: document.getElementById('crCortexDetails'),
       };
     }
 
@@ -2335,6 +3183,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintAiRibbon(byok, aiIntent, activityGoals);
       paintGraphPanel(s.intentGraph || null);
       paintProjectStatePanel(s.projectState || null);
+      paintUnderstandingPanel(s.understandingPanel || null);
       paintConflictsPanel(s.stateConflicts || null);
 
       requestAnimationFrame(function () {
@@ -2350,21 +3199,26 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         phasedRestoreTimers.push(setTimeout(fn, ms));
       }
       rdel(160, function () {
+        reveal(t.secProjectState);
+      });
+      rdel(400, function () {
+        reveal(t.sumActive);
+        reveal(t.sumGit);
+      });
+      rdel(640, function () {
         reveal(t.sumActivity);
       });
-      rdel(480, function () {
-        reveal(t.sumActive);
-        reveal(t.secRecent);
+      rdel(880, function () {
+        reveal(t.secCortex);
         reveal(t.secIntentGraph);
-        reveal(t.secProjectState);
+        reveal(t.secRecent);
         reveal(t.secConflicts);
       });
-      rdel(860, function () {
+      rdel(1040, function () {
         reveal(t.secAiGoals);
         paintAiIntentPanel(aiIntent || null, activityGoals);
       });
-      rdel(1220, function () {
-        reveal(t.sumGit);
+      rdel(1280, function () {
         reveal(t.gitDetails);
       });
       rdel(1660, function () {
@@ -2406,6 +3260,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         paintAiRibbon(byokPayload, null, []);
         paintGraphPanel(null);
         paintProjectStatePanel(null);
+        paintUnderstandingPanel(null);
         paintConflictsPanel(null);
         bumpTrackStatus(null);
         return;
@@ -2425,6 +3280,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
         paintGraphPanel(s.intentGraph || null);
         paintProjectStatePanel(s.projectState || null);
+        paintUnderstandingPanel(s.understandingPanel || null);
         paintConflictsPanel(s.stateConflicts || null);
         bumpTrackStatus(s);
         return;
@@ -2437,6 +3293,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
       paintGraphPanel(s.intentGraph || null);
       paintProjectStatePanel(s.projectState || null);
+      paintUnderstandingPanel(s.understandingPanel || null);
       paintConflictsPanel(s.stateConflicts || null);
       bumpTrackStatus(s);
     });
@@ -2458,5 +3315,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   </script>
 </body>
 </html>`;
+    ContoraSidebarProvider.htmlTemplateCache = html;
+    return html.replace(/__NONCE__/g, nonce).replace(/__CSP_ATTR__/g, cspAttr);
   }
 }

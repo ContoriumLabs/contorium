@@ -9,6 +9,7 @@ import { deleteStateSummary } from '../intelligence/store';
 import { deleteIntentGraph } from '../intent-graph/store';
 import { deleteProjectBuiltState } from '../state-builder/store';
 import { deleteConflictsArtifact } from '../state-engine';
+import { deleteUnderstandingArtifacts } from '@contora/state-core';
 import { rebuildProjectStateArtifacts } from '../state-builder/rebuild';
 import type { StateManager } from '../state/stateManager';
 
@@ -23,6 +24,7 @@ export class CognitionPipeline {
   private pendingEvents = 0;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private updateLock = false;
+  private hotPaths: string[] = [];
 
   constructor(private readonly stateManager: StateManager) {}
 
@@ -35,7 +37,12 @@ export class CognitionPipeline {
     this.scheduleDebounce();
   }
 
-  scheduleUpdate(_eventStore?: EventStore): void {
+  scheduleUpdate(_eventStore?: EventStore, hotPaths?: string[]): void {
+    if (hotPaths?.length) {
+      this.hotPaths = [...new Set([...this.hotPaths, ...hotPaths.map((p) => p.replace(/\\/g, '/'))])].slice(
+        -24,
+      );
+    }
     this.scheduleDebounce();
   }
 
@@ -63,6 +70,7 @@ export class CognitionPipeline {
       deleteIntentGraph(folder),
       deleteProjectBuiltState(folder),
       deleteConflictsArtifact(folder),
+      deleteUnderstandingArtifacts(folder.uri.fsPath),
     ]);
     this.pendingEvents = 0;
   }
@@ -132,6 +140,7 @@ export class CognitionPipeline {
         state,
         events: evWindow,
         summary,
+        extraHotPaths: this.hotPaths.splice(0),
       });
     } catch (err) {
       console.error('[Contorium] cognition pipeline update failed:', err);

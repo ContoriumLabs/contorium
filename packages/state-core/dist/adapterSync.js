@@ -38,6 +38,7 @@ exports.readWorkspaceStatus = readWorkspaceStatus;
 const path = __importStar(require("node:path"));
 const bootstrapState_js_1 = require("./bootstrap/bootstrapState.js");
 const rebuildFromScan_js_1 = require("./state-builder/rebuildFromScan.js");
+const buildUnderstanding_js_1 = require("./understanding/buildUnderstanding.js");
 const dualMode_js_1 = require("./dualMode.js");
 const workspaceScanner_js_1 = require("./scanner/workspaceScanner.js");
 async function countEventLines(workspaceRoot) {
@@ -94,6 +95,13 @@ async function syncWorkspaceState(workspaceRoot, writer, options) {
     }
     if (eventCount === 0 && (shouldWrite || options?.forceArtifacts)) {
         await (0, rebuildFromScan_js_1.rebuildArtifactsFromScan)(resolved, scan, dual.state, writer);
+    }
+    if (gitChanged || options?.forceArtifacts) {
+        await (0, buildUnderstanding_js_1.buildAndWriteUnderstandingArtifacts)({
+            workspaceRoot: resolved,
+            state: dual.state,
+            scan,
+        }).catch(() => undefined);
     }
     const written = await (0, bootstrapState_js_1.readStateJson)(resolved);
     return {

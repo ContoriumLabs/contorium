@@ -60,7 +60,7 @@ function problemToAction(problem: string, domains: readonly string[]): string | 
   const workIn = p.match(/active work in\s+(.+?)(?:\s+module)?$/i);
   if (workIn?.[1]) {
     const area = workIn[1].trim().toLowerCase();
-    if (/文档|documentation/.test(area)) {
+    if (/\u6587\u6863|documentation/.test(area)) {
       return 'continue documentation updates';
     }
     if (/auth|authentication|session/.test(area)) {

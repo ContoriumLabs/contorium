@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { AdapterKind, StateEngineMode, StateSourceMetadata } from './types.js';
 import { bootstrapStateFromScan, readStateJson, writeStateJson } from './bootstrap/bootstrapState.js';
 import { rebuildArtifactsFromScan } from './state-builder/rebuildFromScan.js';
+import { buildAndWriteUnderstandingArtifacts } from './understanding/buildUnderstanding.js';
 import { buildDualModeInput } from './dualMode.js';
 import { scanWorkspace } from './scanner/workspaceScanner.js';
 
@@ -79,6 +80,14 @@ export async function syncWorkspaceState(
 
   if (eventCount === 0 && (shouldWrite || options?.forceArtifacts)) {
     await rebuildArtifactsFromScan(resolved, scan, dual.state, writer);
+  }
+
+  if (gitChanged || options?.forceArtifacts) {
+    await buildAndWriteUnderstandingArtifacts({
+      workspaceRoot: resolved,
+      state: dual.state,
+      scan,
+    }).catch(() => undefined);
   }
 
   const written = await readStateJson(resolved);

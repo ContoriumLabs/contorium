@@ -1,44 +1,44 @@
 # Contorium MCP Server
 
-stdio MCP 服务，供 **Claude Code、Cursor Agent、OpenAI Codex、Gemini CLI** 等调用。  
-**v2.2 可独立运行**：无 IDE 时启动即 bootstrap `.contora/`；**5s 轮询 + events/git 变化触发**同步。  
-三端总览：[INSTALL.md](./INSTALL.md) · [README](../README.md#安装--使用--卸载三端) · 架构 [ARCHITECTURE_V2_2.md](./ARCHITECTURE_V2_2.md)。
+stdio MCP server for **Claude Code, Cursor Agent, OpenAI Codex, Gemini CLI**, and other MCP hosts.  
+**v2.2+ standalone:** bootstraps `.contora/` without IDE; **5s polling + events/git triggers** for sync.  
+Overview: [INSTALL.md](./INSTALL.md) · [README](../README.md) · [Architecture V2.2](./ARCHITECTURE_V2_2.md)
 
 ---
 
-## 命令速查
+## Command cheat sheet
 
-| 阶段 | 命令 / 操作 |
-|------|-------------|
-| **安装（构建）** | `git clone … && cd contorium && npm install && npm run compile` |
-| **验证启动** | `set CONTORIUM_WORKSPACE=E:\your-project` 后 `node bin/contorium-mcp-launch.cjs`（应见 `ready on stdio`） |
-| **Cursor 配置** | Settings → MCP → 启用 `contorium`（见下文 JSON） |
+| Phase | Command / action |
+|-------|------------------|
+| **Build** | `git clone … && cd contorium && npm install && npm run compile` |
+| **Verify** | `set CONTORIUM_WORKSPACE=E:\your-project` then `node bin/contorium-mcp-launch.cjs` (expect `ready on stdio`) |
+| **Cursor** | Settings → MCP → enable `contorium` (JSON below) |
 | **Claude Code** | `claude mcp add --scope project contorium -- node E:/path/to/contorium/bin/contorium-mcp-launch.cjs` |
 | **Codex** | `codex mcp add contorium -- node E:/path/to/contorium/bin/contorium-mcp-launch.cjs` |
-| **日常使用** | Agent 调用 `get_workspace_context` / `get_project_snapshot` / `store_memory` |
-| **卸载 Cursor** | Settings → MCP → 删除 `contorium` |
-| **卸载 Claude** | `claude mcp remove contorium` |
-| **卸载 Codex** | `codex mcp remove contorium` |
-| **清除 MCP 记忆（可选）** | `Remove-Item -Recurse -Force .contora\mcp`（PowerShell，项目根） |
+| **Daily use** | Agent calls `get_project_handoff` / `get_project_graph_snapshot` / `store_memory` |
+| **Remove Cursor** | Settings → MCP → delete `contorium` |
+| **Remove Claude** | `claude mcp remove contorium` |
+| **Remove Codex** | `codex mcp remove contorium` |
+| **Clear MCP memory (optional)** | `Remove-Item -Recurse -Force .contora\mcp` (PowerShell, project root) |
 
 ---
 
-## 一、前置条件
+## Prerequisites
 
-| 要求 | 说明 |
-|------|------|
-| Node.js | **18+**（与扩展打包一致） |
-| 工作区 | 已打开的真实项目目录 |
-| 扩展（建议） | 安装 [IDE 扩展](./IDE_EXTENSION.md) 可获得事件驱动 State Engine；无扩展时 MCP 仍可 bootstrap |
-| 构建 | 首次使用前在仓库执行 `npm run compile`（或 `npm run build:mcp`） |
+| Requirement | Notes |
+|-------------|-------|
+| Node.js | **18+** (matches extension build) |
+| Workspace | Real project directory |
+| Extension (recommended) | [IDE extension](./IDE_EXTENSION.md) for event-driven State Engine; MCP bootstraps without it |
+| Build | Run `npm run compile` (or `npm run build:mcp`) before first use |
 
 ---
 
-## 二、安装 MCP
+## Install MCP
 
-### 2.1 构建（从源码）
+### Build from source
 
-在 **contorium 仓库根目录**：
+From **contorium repo root**:
 
 ```bash
 git clone https://github.com/ContoriumLabs/contorium.git
@@ -47,25 +47,25 @@ npm install
 npm run compile
 ```
 
-产物：
+Artifacts:
 
-- 入口：`packages/mcp/dist/server.js`
-- 便携启动器：`bin/contorium-mcp-launch.cjs`（推荐用于插件/绝对路径场景）
+- Entry: `packages/mcp/dist/server.js`
+- Launcher: `bin/contorium-mcp-launch.cjs` (recommended for absolute paths)
 
-验证：
+Verify:
 
 ```bash
 node packages/mcp/dist/server.js
-# 应输出 [contorium-mcp] ready on stdio 后等待（Ctrl+C 退出）
+# Expect [contorium-mcp] ready on stdio, then wait (Ctrl+C to exit)
 ```
 
-### 2.2 Cursor IDE
+### Cursor IDE
 
-**方式 A — 使用仓库根目录 `mcp.json`（开发/本地克隆）**
+**Option A — repo `mcp.json` (local clone)**
 
-1. 用 Cursor 打开 **contorium 仓库** 或把下列配置合并进项目的 `.cursor/mcp.json` / 用户 MCP 设置
-2. 将 `args` 中的路径改为你本机 **绝对路径** 的 `packages/mcp/dist/server.js`
-3. `CONTORIUM_WORKSPACE` 设为 **你正在开发的项目根目录**（不是 contorium 仓库本身，除非你在该仓库内工作）
+1. Open contorium repo in Cursor or merge config into `.cursor/mcp.json` / user MCP settings  
+2. Set `args` to your **absolute path** to `packages/mcp/dist/server.js`  
+3. Set `CONTORIUM_WORKSPACE` to **your project root** (not the contorium repo unless you work there)
 
 ```json
 {
@@ -81,9 +81,9 @@ node packages/mcp/dist/server.js
 }
 ```
 
-4. **Cursor → Settings → MCP** → 启用 `contorium` → 重启 Agent / Reload Window
+4. **Cursor → Settings → MCP** → enable `contorium` → Reload Window / restart Agent
 
-**方式 B — 便携启动器（路径含空格或跨目录时）**
+**Option B — portable launcher (spaces or cross-directory paths)**
 
 ```json
 {
@@ -99,9 +99,9 @@ node packages/mcp/dist/server.js
 }
 ```
 
-### 2.3 Claude Code
+### Claude Code
 
-**插件方式（推荐，使用仓库内 `.mcp.claude.json`）：**
+**Plugin (recommended, uses `.mcp.claude.json`):**
 
 ```bash
 cd /path/to/contorium
@@ -109,19 +109,19 @@ npm run build:mcp
 claude --plugin-dir .
 ```
 
-**仅 MCP（项目作用域）：**
+**MCP only (project scope):**
 
 ```bash
 cd /path/to/your-workspace
 claude mcp add --scope project contorium -- node /path/to/contorium/bin/contorium-mcp-launch.cjs
 ```
 
-环境变量（插件会自动注入部分变量）：
+Environment (plugin may inject):
 
-- `CONTORIUM_WORKSPACE` — 工作区根目录
-- `CLAUDE_PROJECT_DIR` / `CLAUDE_PROJECT_ROOT` — Claude Code 项目目录
+- `CONTORIUM_WORKSPACE` — workspace root  
+- `CLAUDE_PROJECT_DIR` / `CLAUDE_PROJECT_ROOT` — Claude Code project dir  
 
-### 2.4 OpenAI Codex
+### OpenAI Codex
 
 ```bash
 cd /path/to/contorium
@@ -129,11 +129,11 @@ npm run build:mcp
 codex mcp add contorium -- node ./bin/contorium-mcp-launch.cjs
 ```
 
-或使用仓库 [`.mcp.json`](../.mcp.json) 与 [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json) 安装插件后，在 Codex 设置中启用 `contorium` MCP。
+Or use [`.mcp.json`](../.mcp.json) and [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json).
 
-### 2.5 Gemini CLI
+### Gemini CLI
 
-在 `~/.gemini/settings.json` 或项目 `.gemini/settings.json` 中添加（**使用绝对路径**）：
+Add to `~/.gemini/settings.json` or project `.gemini/settings.json` (**absolute paths**):
 
 ```json
 {
@@ -149,147 +149,158 @@ codex mcp add contorium -- node ./bin/contorium-mcp-launch.cjs
 }
 ```
 
-修改后重启 Gemini CLI 会话。
+Restart Gemini CLI session after changes.
 
-### 2.6 MCP Inspector（调试）
+### MCP Inspector (debug)
 
 ```bash
 npx @modelcontextprotocol/inspector node packages/mcp/dist/server.js
 ```
 
-在浏览器中手动调用各 tool，确认 `workspaceRoot` 与返回 JSON。
+Invoke tools in the browser; confirm `workspaceRoot` and JSON responses.
 
 ---
 
-## 三、使用 MCP
+## Using MCP
 
-### 3.1 工具列表
+### Tool list
 
-| Tool | 读/写 | 说明 |
-|------|-------|------|
-| `store_memory` | 写 | 持久化到 `.contora/mcp/memories.json` |
-| `search_memory` | 读 | 关键词搜索 MCP 记忆 |
-| `get_memory` | 读 | 按 key 读取 |
-| `get_workspace_context` | 读 | 扩展写入的 `state.json`（焦点、Git、文件） |
-| `get_project_intelligence` | 读 | L5 `intelligence/state-summary.json` |
-| `get_intent_graph` | 读 | 完整意图图 |
-| `get_active_intents` | 读 | 活跃意图节点摘要 |
-| `get_project_state` | 读 | L4 `state-builder/project-state.json` |
-| `get_project_snapshot` | 读 | L4 Markdown 快照；`format=json` 可选 |
-| `get_state_conflicts` | 读 | v2 未解决冲突（仅审计） |
+| Tool | R/W | Description |
+|------|-----|-------------|
+| `store_memory` | W | Persist to `.contora/mcp/memories.json` |
+| `search_memory` | R | Keyword search MCP memory |
+| `get_memory` | R | Read by key |
+| `get_workspace_context` | R | `state.json` (focus, Git, files) |
+| `get_project_intelligence` | R | L5 `intelligence/state-summary.json` |
+| `get_intent_graph` | R | Full L5 intent graph |
+| `get_active_intents` | R | Active intent node summary |
+| `get_project_state` | R | L4 `state-builder/project-state.json` |
+| `get_project_snapshot` | R | L4 Markdown snapshot; optional `format=json` |
+| `get_state_conflicts` | R | v2 unresolved conflicts (audit only) |
+| `get_project_graph` | R | V3.1 change neighborhood `.contora/graph.json` |
+| `get_project_change` | R | V3.1 change semantics `.contora/change.json` |
+| `get_project_handoff` | R | **V3.1 recommended AI execution entry** `.contora/handoff.json` |
+| `get_project_timeline` | R | V3.1 code evolution `.contora/timeline.json` |
+| `get_project_knowledge_graph` | R | V3.1 cognitive graph; default `minConfidence` 0.7; optional `includeInference` |
+| `get_project_graph_snapshot` | R | **V3.1 cognitive summary** `.contora/graph/snapshot.json` |
+| `get_project_impact` | R | **Deprecated** — reads `handoff.impact_summary` |
+| `get_project_intent` | R | **Deprecated** — reads `handoff.current_focus` |
 
-### 3.2 推荐工作流
+### Recommended workflows
 
-**仅 MCP（无 IDE）：**
+**MCP only (no IDE):**
 
-1. 配置 MCP，`CONTORIUM_WORKSPACE` 指向项目根
-2. 启动 Agent — 首次调用会自动 bootstrap `.contora/`
-3. 使用 `get_project_snapshot` / `get_workspace_context`
+1. Configure MCP with `CONTORIUM_WORKSPACE`  
+2. Start Agent — first call bootstraps `.contora/`  
+3. Use `get_project_handoff` or `get_project_graph_snapshot` / `get_project_snapshot` / `get_workspace_context`  
 
-**扩展 + MCP（最佳精度）：**
+**Extension + MCP (best precision):**
 
-1. 用扩展打开项目，设置 **Current focus**，正常编码
-2. Agent 启用 MCP 读取同一 `.contora/`
-3. 决策跨会话用 `store_memory`
+1. Open project in IDE; set **Current focus**  
+2. Enable MCP in Agent; reads same `.contora/`  
+3. Use `store_memory` for cross-session decisions  
 
-**仅 CLI：**
+**CLI only:**
 
 ```bash
-contorium init . && contorium snapshot .
+contorium init . && contorium export .
 ```
 
-### 3.3 环境变量
+### Environment variables
 
-| 变量 | 作用 |
-|------|------|
-| `CONTORIUM_WORKSPACE` | 显式指定工作区根（优先） |
-| `CODEX_PROJECT_DIR` | Codex 注入 |
-| `CLAUDE_PROJECT_DIR` | Claude Code 注入 |
-| `MCP_WORKSPACE_ROOT` | 部分宿主通用 |
+| Variable | Purpose |
+|----------|---------|
+| `CONTORIUM_WORKSPACE` | Explicit workspace root (preferred) |
+| `CODEX_PROJECT_DIR` | Injected by Codex |
+| `CLAUDE_PROJECT_DIR` | Injected by Claude Code |
+| `MCP_WORKSPACE_ROOT` | Some hosts |
 
-未设置时：从 MCP 进程 `cwd` 向上查找 `.contora/state.json`。
+If unset: walk up from MCP process `cwd` to find `.contora/state.json`.
 
-### 3.4 与一键复制的关系
+### vs one-click copy
 
-| 方式 | 适用场景 |
-|------|----------|
-| **Copy AI-ready context**（扩展） | 粘贴到任意聊天框，4 层收敛 Markdown |
-| **get_project_snapshot**（MCP） | Agent 自动拉取结构化状态 |
-| **get_state_conflicts**（MCP） | 仅当需要看 IDE/MCP 决策冲突 |
+| Method | Use case |
+|--------|----------|
+| **Copy AI-ready context** (extension) | Paste V3.1 canonical Markdown (incl. COGNITIVE SNAPSHOT) |
+| **get_project_graph_snapshot** (MCP) | Compact cognitive summary (preferred over full graph) |
+| **get_project_handoff** (MCP) | Execution handoff |
+| **get_project_snapshot** (MCP) | L4 project snapshot |
+| **get_state_conflicts** (MCP) | When audit conflicts are needed |
 
-复制导出不包含完整冲突块与 Intent 图；侧栏与 MCP 可单独查看。
+Copy export omits full conflict blocks and Intent graph; sidebar/MCP can show those separately.
 
 ---
 
-## 四、卸载 / 禁用 MCP
+## Uninstall / disable
 
-### 4.1 Cursor
+### Cursor
 
-- **Settings → MCP** → 关闭或删除 `contorium` 条目  
-- 或删除项目/用户配置中的 `mcp.json` 对应段
+Settings → MCP → disable or remove `contorium`, or delete the `mcp.json` entry.
 
-### 4.2 Claude Code
+### Claude Code
 
 ```bash
 claude mcp remove contorium
 ```
 
-若通过 `--plugin-dir` 安装，停止加载该插件目录即可。
+If installed via `--plugin-dir`, stop loading that plugin directory.
 
-### 4.3 Codex
+### Codex
 
 ```bash
 codex mcp remove contorium
 ```
 
-### 4.4 Gemini CLI
+### Gemini CLI
 
-从 `settings.json` 的 `mcpServers` 中删除 `contorium` 块，重启 CLI。
+Remove `contorium` from `mcpServers` in settings.json; restart CLI.
 
-### 4.5 清除 MCP 记忆数据（可选）
+### Clear MCP memory (optional)
 
-**PowerShell（项目根）：**
+**PowerShell (project root):**
 
 ```powershell
 Remove-Item -Recurse -Force .contora\mcp -ErrorAction SilentlyContinue
 ```
 
-**macOS / Linux：** `rm -rf .contora/mcp`
+**macOS / Linux:** `rm -rf .contora/mcp`
 
-不影响 `state.json` 与 State Engine 其他文件。
-
----
-
-## 五、故障排除
-
-| 现象 | 处理 |
-|------|------|
-| `found: false` / 无 state.json | 确认 `CONTORIUM_WORKSPACE`；MCP 启动时会 bootstrap；或运行 `contorium init .` |
-| MCP 启动失败 | 确认 `npm run compile`；Node 18+；路径为绝对路径 |
-| 读到旧状态 | 扩展：Save session state；MCP：等 5s 或改 git/events；CLI：`contorium sync .` |
-| Agent 显示 Canceled | 多为 Agent 初始化取消，非 MCP 崩溃；用 Inspector 单独测 |
-| `workspaceRoot` 不对 | 设置 `CONTORIUM_WORKSPACE` 为项目根绝对路径 |
+Does not affect `state.json` or other State Engine files.
 
 ---
 
-## 六、构建说明（维护者）
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `found: false` / no state.json | Set `CONTORIUM_WORKSPACE`; MCP bootstraps on start; or `contorium init .` |
+| MCP fails to start | Run `npm run compile`; Node 18+; use absolute paths |
+| Stale state | IDE: Save session state; MCP: wait 5s or change git/events; CLI: `contorium sync .` |
+| Agent shows Canceled | Often Agent init cancel, not MCP crash; test with Inspector |
+| Wrong `workspaceRoot` | Set `CONTORIUM_WORKSPACE` to project root absolute path |
+
+---
+
+## Build notes (maintainers)
 
 ```bash
 npm run build:mcp
-# 或
+# or
 npm run compile
 ```
 
 Entry: `packages/mcp/dist/server.js`  
 Launcher: `bin/contorium-mcp-launch.cjs`  
-CLI（在 `packages/mcp` 内 install 后）: `contorium-mcp`
+CLI (inside `packages/mcp` after install): `contorium-mcp`
 
 ---
 
-## 七、相关文档
+## Related docs
 
 - [README](../README.md)
-- [三端安装 · 使用 · 卸载](./INSTALL.md)
-- [IDE 扩展安装与使用](./IDE_EXTENSION.md)
+- [Install overview](./INSTALL.md)
+- [IDE Extension](./IDE_EXTENSION.md)
 - [CLI](./CLI.md)
+- [Architecture V3.1](./ARCHITECTURE_V3.md)
+- [Engineering Closure](./ENGINEERING_CLOSURE.md)
 - [State Engine](./STATE_ENGINE.md)

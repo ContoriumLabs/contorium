@@ -10,6 +10,7 @@ import { loadProjectIntelligence } from './intelligence.js';
 import { activeIntentNodes, loadIntentGraph } from './intentGraph.js';
 import { loadStateConflicts } from './conflicts.js';
 import { loadProjectBuiltState, loadProjectSnapshotMarkdown } from './stateBuilder.js';
+import { readChangeArtifact, readHandoffArtifact, readImpactArtifact, readIntentArtifact, readProjectGraph, readProjectKnowledgeGraph, readKnowledgeSnapshot, readProjectTimeline, filterMappingsByConfidence, } from './understanding.js';
 import { findWorkspaceRoot, resolveWorkspaceRoot } from './paths.js';
 import { ensureWorkspaceBootstrapped, startMcpLightSync } from './mcpBootstrap.js';
 import { loadWorkspaceSnapshot } from './workspace.js';
@@ -201,6 +202,171 @@ server.registerTool('get_state_conflicts', {
         generatedAt: artifact.generatedAt,
         conflicts: artifact.conflicts,
     });
+});
+server.registerTool('get_project_change', {
+    description: 'Read Contorium V3.1 change semantics from .contora/change.json (changed files + key symbol changes).',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const change = await readChangeArtifact(root);
+    if (!change) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'Change artifact not generated yet — save code changes or run Contorium sync.',
+        });
+    }
+    return textResult({ workspaceRoot: root, found: true, change });
+});
+server.registerTool('get_project_graph', {
+    description: 'Read Contorium V3 change-neighborhood project graph from .contora/graph.json (functions, classes, imports around recent changes).',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const graph = await readProjectGraph(root);
+    if (!graph) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'Project graph not generated yet — save code changes or run Contorium sync.',
+        });
+    }
+    return textResult({ workspaceRoot: root, found: true, graph });
+});
+server.registerTool('get_project_knowledge_graph', {
+    description: 'Read Contorium V3.1 Project Knowledge Graph from .contora/graph/knowledge.json (Intent → Module → File → Function + intent mappings).',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+        minConfidence: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe('Optional filter — omit intent mappings below this confidence (default: 0.7 canonical threshold)'),
+        includeInference: z
+            .boolean()
+            .optional()
+            .describe('Include Cortex-only inferenceMappings (confidence < 0.7). Default false.'),
+    }),
+}, async ({ workspaceRoot: override, minConfidence, includeInference }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const knowledge = await readProjectKnowledgeGraph(root);
+    if (!knowledge) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'Knowledge graph not generated yet — save code changes or run Contorium sync.',
+        });
+    }
+    const threshold = minConfidence ?? 0.7;
+    const { inferenceMappings, ...canonical } = knowledge;
+    const payload = {
+        ...canonical,
+        intentMappings: filterMappingsByConfidence(knowledge.intentMappings, threshold),
+        ...(includeInference ? { inferenceMappings } : {}),
+    };
+    return textResult({ workspaceRoot: root, found: true, knowledge: payload });
+});
+server.registerTool('get_project_graph_snapshot', {
+    description: 'Read Contorium V3.1 cognitive snapshot from .contora/graph/snapshot.json — compact summary for AI Handoff (top intents, hotspots, functions).',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const snapshot = await readKnowledgeSnapshot(root);
+    if (!snapshot) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'Graph snapshot not generated yet — save code changes or run Contorium sync.',
+        });
+    }
+    return textResult({ workspaceRoot: root, found: true, snapshot });
+});
+server.registerTool('get_project_impact', {
+    description: '[Deprecated V3.1] Impact merged into handoff.json — returns impact_summary from handoff or legacy impact.json.',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const impact = await readImpactArtifact(root);
+    if (!impact) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'Impact not available — run cognition sync or use get_project_handoff.',
+        });
+    }
+    return textResult({
+        workspaceRoot: root,
+        found: true,
+        impact,
+        deprecated: true,
+        prefer: 'get_project_handoff',
+    });
+});
+server.registerTool('get_project_intent', {
+    description: '[Deprecated V3.1] Intent merged into handoff.json — returns current_focus from handoff or legacy intent.json.',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const intent = await readIntentArtifact(root);
+    if (!intent) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'Intent not available — use get_project_handoff.',
+        });
+    }
+    return textResult({
+        workspaceRoot: root,
+        found: true,
+        intent,
+        deprecated: true,
+        prefer: 'get_project_handoff',
+    });
+});
+server.registerTool('get_project_handoff', {
+    description: 'Read Contorium V3.1 AI handoff — sole recommended entry (.contora/handoff.json: goal, focus, changes, impact, next actions).',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const handoff = await readHandoffArtifact(root);
+    if (!handoff) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'Handoff artifact not generated yet.',
+        });
+    }
+    return textResult({ workspaceRoot: root, found: true, handoff });
+});
+server.registerTool('get_project_timeline', {
+    description: 'Read Contorium V3.1 code evolution timeline from .contora/timeline.json (recent commits + symbol changes).',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+    }),
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const timeline = await readProjectTimeline(root);
+    if (!timeline) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'Timeline not generated yet — requires git history and recent code changes.',
+        });
+    }
+    return textResult({ workspaceRoot: root, found: true, timeline });
 });
 async function main() {
     try {

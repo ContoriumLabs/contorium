@@ -1,32 +1,32 @@
 # Contorium v2.2 — Shared Workspace State Layer
 
-Contorium is a **shared workspace state layer** for AI tools. **IDE、MCP、CLI 三个 Adapter 平级**，共同读写同一套 `.contora/` 产物；`state-core` 是唯一状态引擎，**state-builder / normalization / snapshot 均内聚在 state-core**，避免 IDE 与 MCP 各写一套 builder。
+Contorium is a **shared workspace state layer** for AI tools. **IDE, MCP, and CLI are peer adapters** reading and writing the same `.contora/` artifacts. `state-core` is the sole state engine; **state-builder / normalization / snapshot live in state-core** so IDE and MCP do not duplicate builder logic.
 
-## 原则
+## Principles
 
-1. **State first** — `state.json` 向后兼容；v2.2 新增可选字段 `source`（谁写的、什么模式）。
+1. **State first** — `state.json` remains backward compatible; v2.2+ adds optional `source` (writer + mode).
 2. **Dual-mode State Engine**
    - **Mode A (event-driven)** — IDE `events/*.jsonl`
-   - **Mode B (scan-driven)** — workspace 扫描
-   - **Merged** — 有 events 时扫描只补 git/路径，不覆盖 task/notes
-3. **三 Adapter 平级** — IDE / MCP / CLI 均为一等公民，非「CLI 可选」
-4. **对外接口不变** — MCP 工具名、扩展 command ID、原有 `state.json` 字段
+   - **Mode B (scan-driven)** — workspace scan
+   - **Merged** — when events exist, scan only supplements git/paths; does not overwrite task/notes
+3. **Three peer adapters** — IDE / MCP / CLI are first-class, not optional add-ons
+4. **Stable public API** — MCP tool names, extension command IDs, existing `state.json` fields
 
-## 目录结构
+## Directory structure
 
 ```
 packages/state-core/
-  src/scanner/          # workspace + git 扫描
-  src/bootstrap/        # state.json 读写
-  src/state-builder/    # L2/L3/L4：buildFromScan, normalization, snapshot, store
+  src/scanner/          # workspace + git scan
+  src/bootstrap/        # state.json read/write
+  src/state-builder/    # L2/L3/L4: buildFromScan, normalization, snapshot, store
   src/dualMode.ts
   src/sourceMetadata.ts
-packages/cli/           # CLI Adapter（contorium init | snapshot）
-packages/mcp/           # MCP Adapter + 5s 轮询 + events/git 触发
-src/adapters/           # IDE Adapter 桥接
+packages/cli/           # CLI adapter (contorium init | sync | export | …)
+packages/mcp/           # MCP adapter + 5s poll + events/git triggers
+src/adapters/           # IDE adapter bridge
 ```
 
-## state.json `source` 元数据（v2.2 新增）
+## state.json `source` metadata (v2.2+)
 
 ```json
 {
@@ -38,32 +38,36 @@ src/adapters/           # IDE Adapter 桥接
 }
 ```
 
-MCP / CLI 可据此判断状态来自 IDE 还是 bootstrap。
+MCP / CLI can tell whether state came from IDE events or bootstrap scan.
 
-## MCP 同步
+## MCP sync
 
-- **5 秒**轻量轮询（原 30 秒）
-- **事件驱动**：watch `.contora/events/` 与 `.git/HEAD`，有变化 debounce 后刷新
+- **5 second** lightweight poll (was 30s)
+- **Event-driven:** watch `.contora/events/` and `.git/HEAD`, debounce refresh on change
 
-## 命令
+## Commands
 
 ```bash
 npm run compile
 
-# CLI（与 npx contorium 等价，编译后）
 npx contorium init .
 npx contorium snapshot .
+npx contorium export .
 
-# 或
+# or
 node packages/cli/dist/cli.js init .
 ```
 
-## 数据流
+## Data flow
 
-| Adapter | 输入 | 输出 |
-|---------|------|------|
-| IDE | 编辑器/git 事件 | state.json + cognition 产物 |
-| MCP | bootstrap + 5s/事件同步 | state.json + state-builder（无 events 时） |
-| CLI | init / snapshot | 同上 scan 路径 |
+| Adapter | Input | Output |
+|---------|-------|--------|
+| IDE | Editor/git events | state.json + cognition + V3.1 understanding |
+| MCP | Bootstrap + 5s/event sync | state.json + state-builder (scan path when no events) |
+| CLI | init / sync / export | Same scan/sync path as MCP |
 
-Intent graph 与 BYOK 仍为上层能力，不阻塞三 Adapter 独立运行。
+Intent graph and BYOK are upper-layer capabilities; they do not block adapters from running standalone.
+
+## V3.1 extension
+
+See [ARCHITECTURE_V3.md](./ARCHITECTURE_V3.md) and [ENGINEERING_CLOSURE.md](./ENGINEERING_CLOSURE.md) for the cognitive graph layer (Version / Confidence / Hotspot / Snapshot) and frozen boundary rules.

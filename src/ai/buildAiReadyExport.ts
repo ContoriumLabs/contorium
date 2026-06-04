@@ -4,12 +4,13 @@ import type { ActivityAnalysis } from '../core/semantic/activityAnalyzer';
 import { extractTaskAnchor } from '../state-engine';
 import {
   buildLightInsights,
-  formatWorkingContextMarkdown,
   purifySnapshotMarkdown,
 } from './exportConvergence';
 import { filterEngineeringPaths } from '../ui/sidebarPathFilter';
 import { buildActivityStreamItems } from '../ui/sidebarViewModel';
 import type { StateSummary } from '../intelligence/types';
+import type { HandoffArtifact, KnowledgeSnapshot, ProjectBuiltState, ProjectTimeline } from '@contora/state-core';
+import { formatCanonicalAiMarkdown } from '@contora/state-core';
 
 /** v2.1 converged export — 4 layers + notes/instruction (no inferred-behavior stack). */
 export interface AiReadyJsonExport {
@@ -18,8 +19,30 @@ export interface AiReadyJsonExport {
   workingContext: {
     activeFiles: string[];
     recentWork: string[];
+    recentGitActivity: string[];
   };
   insights?: string[];
+  /** V3.1 — handoff is the sole AI entry (intent + impact merged) */
+  handoff?: {
+    summary: string;
+    goal: string;
+    currentFocus: string;
+    riskLevel: string;
+    keyChanges: string[];
+    affectedModules: string[];
+    affectedFunctions: string[];
+    nextActions: Array<{ action: string; target: string; reason: string }>;
+    graphRefs: string[];
+  };
+  /** V3.1 — recent commit evolution (lightweight) */
+  timeline?: Array<{
+    commit: string;
+    file: string;
+    symbols: string[];
+    impactLevel: string;
+  }>;
+  /** V3.1 — compact cognitive snapshot from knowledge graph */
+  cognitiveSnapshot?: KnowledgeSnapshot;
   notes: string;
   instruction: string;
 }
@@ -109,6 +132,31 @@ function pickActiveFileBasenames(
   return out;
 }
 
+function pickRecentGitBasenames(
+  state: ProjectState,
+  shouldIgnore: ((p: string) => boolean) | undefined,
+  max: number,
+): string[] {
+  const paths = filterEngineeringPaths([
+    ...(state.gitStaged ?? []),
+    ...(state.gitWorking ?? []),
+  ]).filter((p) => p && !shouldIgnore?.(p));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of paths) {
+    const b = basenameOf(p.replace(/\\/g, '/'));
+    if (seen.has(b)) {
+      continue;
+    }
+    seen.add(b);
+    out.push(b);
+    if (out.length >= max) {
+      break;
+    }
+  }
+  return out;
+}
+
 function pickRecentWorkLines(eventStore: EventStore | undefined, max: number): string[] {
   if (!eventStore) {
     return [];
@@ -137,10 +185,16 @@ export function buildAiReadyJsonExport(args: {
   shouldIgnore?: (p: string) => boolean;
   projectSnapshot?: string;
   summary?: StateSummary;
+  handoff?: HandoffArtifact;
+  timeline?: ProjectTimeline;
+  builtState?: ProjectBuiltState;
+  knowledgeSnapshot?: KnowledgeSnapshot;
 }): AiReadyJsonExport {
-  const { state, eventStore, analysis, instruction, shouldIgnore, projectSnapshot, summary } = args;
+  const { state, eventStore, analysis, instruction, shouldIgnore, projectSnapshot, summary, handoff, timeline, builtState, knowledgeSnapshot } =
+    args;
   const taskAnchor = extractTaskAnchor(state);
   const active = pickActiveFileBasenames(state, analysis, shouldIgnore, 5);
+  const recentGit = pickRecentGitBasenames(state, shouldIgnore, 5);
   const recent = pickRecentWorkLines(eventStore, 5);
   const notes = (state.notes ?? '').trim();
   const insights = buildLightInsights(summary, taskAnchor);
@@ -150,6 +204,7 @@ export function buildAiReadyJsonExport(args: {
     workingContext: {
       activeFiles: active.length ? active : ['(none above threshold)'],
       recentWork: recent.length ? recent : ['(no recent edits in buffer)'],
+      recentGitActivity: recentGit.length ? recentGit : ['(none)'],
     },
     notes: notes || '(none)',
     instruction: instruction.trim() || '(none)',
@@ -159,6 +214,33 @@ export function buildAiReadyJsonExport(args: {
   }
   if (insights.length) {
     out.insights = insights;
+  }
+  if (handoff?.summary || handoff?.current_focus) {
+    out.handoff = {
+      summary: handoff.summary,
+      goal: handoff.goal,
+      currentFocus: handoff.current_focus,
+      riskLevel: handoff.impact_summary.risk,
+      keyChanges: handoff.key_changes
+        .filter((k) => k.kind === 'function')
+        .map((k) => k.symbol)
+        .slice(0, 8),
+      affectedModules: handoff.impact_summary.affected_modules.slice(0, 8),
+      affectedFunctions: handoff.impact_summary.affected_functions.slice(0, 8),
+      nextActions: handoff.next_actions.slice(0, 6),
+      graphRefs: handoff.context_graph_refs.slice(0, 8),
+    };
+  }
+  if (timeline?.recent?.length) {
+    out.timeline = timeline.recent.slice(0, 5).map((e) => ({
+      commit: e.commit,
+      file: e.file,
+      symbols: e.changes.map((c) => c.symbol).slice(0, 4),
+      impactLevel: e.impact_level,
+    }));
+  }
+  if (knowledgeSnapshot) {
+    out.cognitiveSnapshot = knowledgeSnapshot;
   }
   return out;
 }
@@ -175,39 +257,23 @@ export function buildAiReadyMarkdownExport(args: {
   shouldIgnore?: (p: string) => boolean;
   projectSnapshot?: string;
   summary?: StateSummary;
+  handoff?: HandoffArtifact;
+  timeline?: ProjectTimeline;
+  builtState?: ProjectBuiltState;
+  knowledgeSnapshot?: KnowledgeSnapshot;
 }): string {
   const j = buildAiReadyJsonExport(args);
-  const lines: string[] = [];
-
-  lines.push('# TASK ANCHOR');
-  lines.push(j.taskAnchor);
-  lines.push('');
-
-  if (j.projectSnapshot) {
-    lines.push('# PROJECT SNAPSHOT');
-    lines.push(j.projectSnapshot);
-    lines.push('');
-  }
-
-  lines.push('# WORKING CONTEXT');
-  lines.push(formatWorkingContextMarkdown(j.workingContext.activeFiles, j.workingContext.recentWork));
-  lines.push('');
-
-  if (j.insights?.length) {
-    lines.push('# INSIGHTS');
-    lines.push(j.insights.map((s) => `- ${s}`).join('\n'));
-    lines.push('');
-  }
-
-  if (j.notes !== '(none)') {
-    lines.push('# NOTES');
-    lines.push(j.notes);
-    lines.push('');
-  }
-
-  lines.push('# INSTRUCTION');
-  lines.push(j.instruction);
-  lines.push('');
-
-  return lines.join('\n');
+  return formatCanonicalAiMarkdown({
+    taskAnchor: j.taskAnchor,
+    built: args.builtState,
+    snapshotMarkdown: j.projectSnapshot,
+    activeFiles: j.workingContext.activeFiles,
+    recentGitActivity: j.workingContext.recentGitActivity,
+    handoff: args.handoff,
+    timeline: args.timeline,
+    instruction: j.instruction,
+    notes: j.notes,
+    insights: j.insights,
+    knowledgeSnapshot: args.knowledgeSnapshot,
+  });
 }

@@ -1,270 +1,317 @@
+```md
 ![Contorium demo](./demo.gif)
 
 # Contorium
 
-## Git for AI Collaboration
+**Persistent project memory for AI development** — [contorium.dev](https://www.contorium.dev/)
 
-Switch between Cursor, Claude Code, Gemini CLI, VS Code, Codex, or any MCP-compatible AI tool  
-without losing project context.
+AI models don't remember projects. **Contorium does.**
 
----
+Contorium keeps your project state consistent across Cursor, Claude Code, Gemini CLI, Codex, VS Code, or any MCP-compatible AI tool.
 
-## What is Contorium?
-
-Contorium creates a persistent shared workspace state inside your project that can be used across IDEs, MCP agents, CLI tools, and AI coding assistants.  
-It allows AI tools to understand the same project — even when they are different models, different sessions, or different environments.
-
-Not chat memory.  
-Not prompt stuffing.  
-Not agent orchestration.
-
-Contorium is a Git-like state layer for AI collaboration.
+Not chat history. Not prompts. **Project understanding.**
 
 ---
 
-## Why Contorium?
+# Why this matters (core value)
 
-Modern AI coding tools are powerful, but isolated.  
-They lose project understanding when you switch tools or sessions:
+Modern AI coding tools are powerful — but they all share one critical flaw:
 
-- Cursor → Claude Code
-- Claude Code → Gemini CLI
-- VS Code → Terminal
-- One AI model → Another AI model
+> They forget what your project actually is.
 
-Contorium solves this by maintaining a structured, persistent workspace state inside your repository.
+After a few conversations:
+- context resets  
+- architecture gets re-explained  
+- intent is lost  
+- switching tools breaks understanding  
 
----
+You end up doing the same thing again and again:
 
-## Core Concept
-
-Instead of relying on chat history, Contorium maintains a structured project state:
-
-- Current project goal
-- Active modules
-- Open problems
-- Recent work
-- Next actions
-
-Every AI tool reads and updates the same state.
+> “explaining the project to AI instead of building it”
 
 ---
 
-## Architecture
+# Core idea (what Contorium actually is)
+
+Contorium is a **persistent project memory layer for AI development**.
+
+It maintains a continuously updated understanding of your project:
+
+- what you are building (**Intent**)  
+- what matters right now (**Hotspots**)  
+- how code is structured (**Knowledge Graph**)  
+- how everything connects (**Functions & Dependencies**)  
+
+So AI does not restart from zero every time.
+
+---
+
+# Key benefit (simple version)
+
+Instead of:
+
+> AI = forgets project → re-learns → repeats
+
+You get:
+
+> AI = already understands project → continues work
+
+---
+
+# What you actually get
+
+## 1. Persistent Project Memory
+AI keeps understanding your project across:
+- sessions  
+- tools  
+- model switches  
+- long development cycles  
+
+---
+
+## 2. Cross-tool continuity (IDE / MCP / CLI)
+Switch freely between:
+- Cursor  
+- Claude Code  
+- Gemini CLI  
+- Codex  
+- VS Code  
+
+Without losing project context.
+
+---
+
+## 3. Project Knowledge Graph
+```
+
+Intent → Module → File → Function
 
 ```
-Workspace
-│
-▼
-Contorium State Layer (.contora/)
-│
-├── IDE Extension
-├── MCP Server
-├── CLI
-└── AI Agents
+
+Turns your project into a structured map instead of scattered files.
+
+---
+
+## 4. Hotspot awareness
+Highlights what matters right now:
+- frequently edited files  
+- key logic areas  
+- high-impact code paths  
+
+---
+
+## 5. AI-ready snapshot
+A compact project state used for handoff between AI tools:
+- current intent  
+- important modules  
+- key functions  
+- active focus  
+
+---
+
+# The real problem Contorium solves
+
+Developers today don’t struggle with coding.
+
+They struggle with:
+
+- re-explaining projects to AI  
+- losing context between tools  
+- inconsistent understanding across sessions  
+- restarting project awareness repeatedly  
+
+Contorium removes that friction.
+
+---
+
+# How it works
+
 ```
 
-The workspace is the source of truth.  
-IDE, MCP servers, CLI tools, and AI agents all interact with the same shared state layer.
+Workspace Activity
+↓
+Project Understanding Layer
+↓
+Knowledge Graph + Intent Tracking
+↓
+Hotspot Detection
+↓
+AI-ready Snapshot
+↓
+Any AI Tool
+
+```
+
+The AI no longer works from chat history — it works from **project reality**.
 
 ---
 
-## Features
+# What Contorium is NOT
 
-| | |
-|---|---|
-| 🧠 **Shared Project State** | Persistent project understanding stored inside your workspace. |
-| 🔄 **Cross-Tool Continuity** | Switch between Cursor, Claude Code, Gemini CLI, Codex, VS Code, and MCP agents without rebuilding context. |
-| 📋 **AI-Ready Context Export** | Generate clean, structured context for any AI assistant. |
-| ⚡ **Tool-Independent Design** | IDE, MCP, and CLI workflows operate independently while sharing the same state. |
-| 🏗 **Workspace-Aware System** | Tracks: file activity, Git changes, active modules, project evolution. |
-| 🔍 **Structured Snapshots** | Produces stable project snapshots instead of raw chat logs. |
+Contorium is NOT:
+
+- an autonomous coding agent  
+- a task generator  
+- a system that decides what you should build  
+
+It does NOT replace developers.
+
+It keeps developers in control.
+
+> Contorium preserves understanding — not decisions.
 
 ---
 
-## Quick Start
+# Why developers use it
 
-### IDE (VS Code / Cursor Extension)
+Because without it:
 
-Build and install the VSIX extension:
+- AI forgets what you are building  
+- every tool behaves differently  
+- long projects lose consistency  
+
+With it:
+
+- AI stays aligned with the project  
+- context survives time and tool changes  
+- development becomes continuous instead of restart-based  
+
+---
+
+# Architecture overview
+
+```
+
+Workspace Events → Parser → Function Graph → Knowledge Graph
+→ Intent Mapping → Hotspot Analysis → Snapshot → AI Handoff
+
+````
+
+Local-first storage under `.contora/`.
+
+---
+
+# Key principles
+
+| Principle | Meaning |
+|----------|--------|
+| Project-centric | Repo is the source of truth |
+| Persistent | Understanding survives time |
+| Structured | Relationships > files |
+| Human-led | Developer decides, AI understands |
+
+---
+
+# Vision
+
+AI tools today have context windows.
+
+Future AI tools need memory.
+
+Contorium is the missing layer:
+
+> A persistent memory system for AI software development.
+
+Because AI conversations end.  
+**Project understanding should not.**
+
+---
+
+# 🚀 Quick Start — install · use · uninstall
 
 ```bash
+git clone https://github.com/ContoriumLabs/contorium.git
+cd contorium
 npm install
 npm run compile
-npm run vsix
-```
+````
 
-Install the generated VSIX into VS Code or Cursor.
+---
 
-Open a workspace and run:
+## IDE extension (VS Code / Cursor)
 
-**Contorium: Copy AI-ready context**
+|               | Command / action                                                |
+| ------------- | --------------------------------------------------------------- |
+| **Install**   | `npm run vsix` → Extensions → Install from VSIX → Reload Window |
+| **Use**       | Open folder → set Current focus → Copy AI-ready context         |
+| **Uninstall** | Extensions → Contorium → Uninstall                              |
 
-### MCP Server
+→ Full guide: [docs/IDE_EXTENSION.md](./docs/IDE_EXTENSION.md)
 
-Build the MCP server:
+---
+
+## MCP server (Claude Code / Cursor Agent / Codex / Gemini)
+
+|               | Command / action                                                             |
+| ------------- | ---------------------------------------------------------------------------- |
+| **Install**   | Add MCP config after build                                                   |
+|               | `node /path/to/contorium/bin/contorium-mcp-launch.cjs`                       |
+|               | Set `CONTORIUM_WORKSPACE=/path/to/project`                                   |
+| **Use**       | `get_project_handoff`, `get_project_graph_snapshot`, `get_workspace_context` |
+| **Uninstall** | Remove MCP config                                                            |
 
 ```bash
-npm install
-npm run compile
+# Codex
+codex mcp add contorium -- node ./bin/contorium-mcp-launch.cjs
+
+# Claude Code
+claude --plugin-dir .
 ```
 
-Configure your MCP host:
+→ Full guide: [docs/MCP.md](./docs/MCP.md)
 
-```bash
-CONTORIUM_WORKSPACE=/absolute/path/to/project
-```
+---
 
-Available tools:
+## CLI
 
-- `get_project_snapshot`
-- `get_workspace_context`
-- `get_project_state`
-
-### CLI
-
-Initialize a workspace:
+|               | Command / action          |
+| ------------- | ------------------------- |
+| **Install**   | `npm link` (optional)     |
+| **Use**       | `npx contorium init .`    |
+|               | `npx contorium sync .`    |
+|               | `npx contorium export .`  |
+| **Uninstall** | `npm unlink -g contorium` |
 
 ```bash
 npx contorium init .
+npx contorium sync .
+npx contorium handoff .
+npx contorium graph-snapshot .
+npx contorium export .
+npx contorium status .
 ```
 
-Generate a snapshot:
+→ Full guide: [docs/CLI.md](./docs/CLI.md)
+
+---
+
+## Clear workspace data
 
 ```bash
-npx contorium snapshot .
+rm -rf .contora
 ```
 
-View state:
-
-```bash
-npx contorium state .
-```
-
----
-
-## Example Snapshot
-
-```
-Goal:
-Develop documentation and authentication system
-
-Current Stage:
-Documentation work
-
-Active Modules:
-- app
-- stream_session
-- configuration
-
-Open Problems:
-- documentation consistency
-
-Next Actions:
-- update documentation
-- validate authentication flow
+```powershell
+Remove-Item -Recurse -Force .contora
 ```
 
 ---
 
-## Documentation
+## Links
 
-| Guide | Description |
-|-------|-------------|
-| [Install Guide](./docs/INSTALL.md) | Installation, usage, and uninstall |
-| [IDE Extension](./docs/IDE_EXTENSION.md) | VS Code and Cursor integration |
-| [MCP Server](./docs/MCP.md) | Claude Code, Codex, Gemini integration |
-| [CLI](./docs/CLI.md) | Terminal workflows |
-| [State Engine](./docs/STATE_ENGINE.md) | State generation and export |
-| [Architecture v2.2](./docs/ARCHITECTURE_V2_2.md) | Full system design |
-| [Runtime Package](./docs/RUNTIME.md) | Runtime documentation |
+| Resource      | Link                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| Install guide | [docs/INSTALL.md](./docs/INSTALL.md)                                                     |
+| Docs index    | [docs/README.md](./docs/README.md)                                                       |
+| Architecture  | [docs/ARCHITECTURE_V3.md](./docs/ARCHITECTURE_V3.md)                                     |
+| Website       | [https://www.contorium.dev/](https://www.contorium.dev/)                                 |
+| GitHub        | [https://github.com/ContoriumLabs/contorium](https://github.com/ContoriumLabs/contorium) |
 
 ---
 
-## Design Principles
+## License
 
-### Workspace First
-
-The workspace is the source of truth.
-
-### Tool Independence
-
-IDE, MCP, and CLI can operate independently.
-
-### Stable State
-
-Project state is deterministic and reproducible.
-
-### Minimal Context
-
-Exports remain compact and AI-friendly.
-
-### Transparency
-
-Conflicts are surfaced, not hidden.
-
----
-
-## Repository Structure
+See [LICENSE](./LICENSE)
 
 ```
-src/
-├── scanner/
-├── state/
-├── state-engine/
-├── state-builder/
-├── cognition/
-├── ai/
-└── ui/
-
-packages/
-├── state-core/
-├── mcp/
-└── runtime/
 ```
-
----
-
-## Supported Workflows
-
-| Mode | Description |
-|------|-------------|
-| **IDE Only** | VS Code / Cursor extension workflow. |
-| **MCP Only** | Claude Code, Codex, Gemini, and other MCP-compatible agents. |
-| **CLI Only** | Terminal-based workflows and CI environments. |
-| **Hybrid** | Use IDE, MCP, and CLI together while sharing the same workspace state. |
-
----
-
-## Why It Matters
-
-AI tools are not the problem.
-
-Context fragmentation is.
-
-Contorium makes project understanding portable across:
-
-- Tools
-- Sessions
-- Agents
-- Models
-
----
-
-## Version
-
-| | |
-|---|---|
-| Version | 0.7.x |
-| State Engine | v2.2 |
-| Architecture | Shared Workspace State Layer |
-
----
-
-## Final Idea
-
-**Contorium = Git for AI Collaboration**
-
-Build once.  
-Switch AI tools freely.  
-Never lose project context.

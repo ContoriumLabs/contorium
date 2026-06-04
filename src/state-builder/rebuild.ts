@@ -13,6 +13,22 @@ import {
 import { buildProjectBuiltState, type McpMemoryHint } from './builder';
 import { formatProjectSnapshotMarkdown } from './snapshot';
 import { readProjectBuiltState, writeProjectBuiltState } from './store';
+import { buildAndWriteUnderstandingArtifacts } from '@contora/state-core';
+import type { BootstrapStateJson } from '@contora/state-core';
+
+function toBootstrapState(state: ProjectState): BootstrapStateJson {
+  return {
+    sessionId: state.sessionId ?? '',
+    currentTask: state.currentTask,
+    openFiles: state.openFiles ?? [],
+    recentFiles: state.recentFiles ?? [],
+    gitStaged: state.gitStaged ?? [],
+    gitWorking: state.gitWorking ?? [],
+    notes: state.notes ?? '',
+    lastUpdated: state.lastUpdated,
+    source: state.source,
+  };
+}
 
 async function readReadmeHint(folder: vscode.WorkspaceFolder): Promise<string | undefined> {
   for (const name of ['README.md', 'readme.md', 'Readme.md']) {
@@ -69,6 +85,7 @@ export async function rebuildProjectStateArtifacts(args: {
   state: ProjectState;
   events: readonly WorkspaceEvent[];
   summary: StateSummary;
+  extraHotPaths?: string[];
 }): Promise<void> {
   const previous = await readProjectBuiltState(args.folder);
   const [readmeHint, mcpHints] = await Promise.all([
@@ -106,4 +123,16 @@ export async function rebuildProjectStateArtifacts(args: {
 
   const md = formatProjectSnapshotMarkdown(withAnchor, conflicts);
   await writeProjectBuiltState(args.folder, withAnchor, md);
+
+  await buildAndWriteUnderstandingArtifacts({
+    workspaceRoot: args.folder.uri.fsPath,
+    state: toBootstrapState(args.state),
+    built: withAnchor,
+    extraChangedPaths: [
+      ...ranked.slice(0, 12).map((r) => r.path),
+      ...(args.extraHotPaths ?? []),
+    ],
+  }).catch((err: unknown) => {
+    console.error('[Contorium] understanding layer update failed:', err);
+  });
 }

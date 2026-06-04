@@ -87,7 +87,7 @@ export function deriveTaskOrientedProblem(domains: readonly string[]): string | 
 
 export function domainFromProblemArea(area: string): string | undefined {
   const p = area.trim().toLowerCase();
-  if (/文档|documentation|\bdocs\b/.test(p)) {
+  if (/\u6587\u6863|documentation|\bdocs\b/.test(p)) {
     return 'docs';
   }
   if (/auth|authentication|session|login/.test(p)) {

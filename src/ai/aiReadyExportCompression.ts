@@ -98,32 +98,36 @@ export function compressAiReadyMarkdownLocal(md: string, targetTokens: number): 
     guard++;
     const ctx = findSection(sections, 'WORKING CONTEXT');
     if (ctx) {
-      const recentIdx = ctx.body.toLowerCase().indexOf('recent work:');
+      const bodyLow = ctx.body.toLowerCase();
+      const recentIdx = Math.max(
+        bodyLow.indexOf('recent_git_activity:'),
+        bodyLow.indexOf('recent work:'),
+      );
       const activePart = recentIdx > 0 ? ctx.body.slice(0, recentIdx) : ctx.body;
       const recentPart = recentIdx > 0 ? ctx.body.slice(recentIdx) : '';
       const activeBullets = bulletLines(activePart);
       const recentBullets = bulletLines(recentPart);
       if (recentBullets.length > 2) {
         ctx.body =
-          'Active Files:\n' +
+          'active_files:\n' +
           bulletsMd(activeBullets.length ? activeBullets : ['(none)']) +
-          '\n\nRecent Work:\n' +
+          '\n\nrecent_git_activity:\n' +
           bulletsMd(recentBullets.slice(0, -1));
         continue;
       }
       if (recentBullets.length === 2) {
         ctx.body =
-          'Active Files:\n' +
+          'active_files:\n' +
           bulletsMd(activeBullets.length ? activeBullets : ['(none)']) +
-          '\n\nRecent Work:\n' +
+          '\n\nrecent_git_activity:\n' +
           bulletsMd([recentBullets[0]!]);
         continue;
       }
       if (activeBullets.length > 2) {
         ctx.body =
-          'Active Files:\n' +
+          'active_files:\n' +
           bulletsMd(activeBullets.slice(0, -1)) +
-          '\n\nRecent Work:\n' +
+          '\n\nrecent_git_activity:\n' +
           bulletsMd(recentBullets.length ? recentBullets : ['(none)']);
         continue;
       }
@@ -172,6 +176,7 @@ export function compressAiReadyJsonLocal(obj: AiReadyJsonExport, targetTokens: n
     workingContext: {
       activeFiles: [...obj.workingContext.activeFiles],
       recentWork: [...obj.workingContext.recentWork],
+      recentGitActivity: [...(obj.workingContext.recentGitActivity ?? [])],
     },
     insights: obj.insights ? [...obj.insights] : undefined,
   };
@@ -184,6 +189,10 @@ export function compressAiReadyJsonLocal(obj: AiReadyJsonExport, targetTokens: n
     }
     if (o.workingContext.recentWork.length > 1) {
       o.workingContext.recentWork.pop();
+      continue;
+    }
+    if (o.workingContext.recentGitActivity && o.workingContext.recentGitActivity.length > 1) {
+      o.workingContext.recentGitActivity.pop();
       continue;
     }
     if (o.workingContext.activeFiles.length > 1) {

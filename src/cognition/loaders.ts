@@ -1,13 +1,16 @@
 import type * as vscode from 'vscode';
 import { readStateSummary } from '../intelligence';
 import { activeIntentLines, projectUnderstandingLines, readIntentGraph } from '../intent-graph';
-import { readProjectSnapshotMarkdown } from '../state-builder/store';
+import { readProjectBuiltState, readProjectSnapshotMarkdown } from '../state-builder/store';
+import type { ProjectBuiltState } from '../state-builder/types';
 import {
   extractTaskAnchor,
   filterWeakInferenceLines,
   formatConflictsMarkdown,
   readConflictsArtifact,
 } from '../state-engine';
+import { readHandoffArtifact, readProjectKnowledgeGraph, readProjectTimeline } from '@contora/state-core';
+import type { HandoffArtifact, KnowledgeSnapshot, ProjectTimeline } from '@contora/state-core';
 import type { StateConflict } from '../state-engine/types';
 import type { StateSummary } from '../intelligence/types';
 import type { IntentGraph } from '../intent-graph/types';
@@ -18,11 +21,18 @@ export interface CognitionExportContext {
   graph?: IntentGraph;
   /** L4 — normalized PROJECT SNAPSHOT markdown */
   projectSnapshot?: string;
+  /** L4 — structured built state for canonical export */
+  builtState?: ProjectBuiltState;
   /** v2 — unresolved state conflicts (audit only) */
   stateConflicts: StateConflict[];
   conflictsMarkdown?: string;
   /** L5 — weak inference for export sidebar only; does not modify snapshot */
   weakInferredBehavior: string[];
+  /** V3.1 — AI handoff + evolution timeline for export */
+  handoff?: HandoffArtifact;
+  timeline?: ProjectTimeline;
+  /** V3.1 — compact cognitive snapshot (preferred over full graph) */
+  knowledgeSnapshot?: KnowledgeSnapshot;
 }
 
 export function buildWeakInferredBehaviorLines(args: {
@@ -55,18 +65,24 @@ export async function loadCognitionExportContext(
   state?: ProjectState,
   confirmedAiGoals?: string[],
 ): Promise<CognitionExportContext> {
-  const [summary, graph, projectSnapshot, conflictsArtifact] = await Promise.all([
-    readStateSummary(folder),
-    readIntentGraph(folder),
-    readProjectSnapshotMarkdown(folder),
-    readConflictsArtifact(folder),
-  ]);
+  const [summary, graph, projectSnapshot, builtState, conflictsArtifact, handoff, timeline, knowledge] =
+    await Promise.all([
+      readStateSummary(folder),
+      readIntentGraph(folder),
+      readProjectSnapshotMarkdown(folder),
+      readProjectBuiltState(folder),
+      readConflictsArtifact(folder),
+      readHandoffArtifact(folder.uri.fsPath),
+      readProjectTimeline(folder.uri.fsPath),
+      readProjectKnowledgeGraph(folder.uri.fsPath),
+    ]);
   const stateConflicts = conflictsArtifact?.conflicts ?? [];
   const taskAnchor = state ? extractTaskAnchor(state) : '';
   return {
     summary,
     graph,
     projectSnapshot,
+    builtState,
     stateConflicts,
     conflictsMarkdown: stateConflicts.length
       ? formatConflictsMarkdown(stateConflicts)
@@ -77,5 +93,8 @@ export async function loadCognitionExportContext(
       graph,
       confirmedAiGoals,
     }),
+    handoff,
+    timeline,
+    knowledgeSnapshot: knowledge?.snapshot,
   };
 }

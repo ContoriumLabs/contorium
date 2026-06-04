@@ -2,7 +2,7 @@
   "name": "contorium",
   "displayName": "Contorium",
   "description": "Contorium: local workspace memory (task, notes, editors, Git), event JSONL, heuristic intent/ranking, ignore rules, token budget, optional BYOK (OpenAI / Claude / Gemini / DeepSeek) — export AI-ready context to clipboard (markdown, JSON, etc.).",
-  "version": "0.7.0",
+  "version": "0.8.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -278,8 +278,8 @@
     "install:cli": "npm install --prefix packages/cli --no-fund --no-audit",
     "build:cli": "npm run install:cli && node scripts/run-tsc.mjs packages/cli",
     "install:mcp": "npm install --prefix packages/mcp --no-fund --no-audit",
-    "build:mcp": "npm run install:mcp && node scripts/run-tsc.mjs packages/mcp",
-    "compile": "node scripts/ensure-dev-deps.mjs && npm run version:sync && npm run build:runtime && npm run build:state-core && npm run build:cli && npm run build:mcp && node scripts/run-tsc.mjs .",
+    "build:mcp": "npm run install:mcp && node scripts/clean-dist.mjs packages/mcp && node scripts/run-tsc.mjs packages/mcp",
+    "compile": "node scripts/ensure-dev-deps.mjs && npm run version:sync && npm run build:runtime && npm run build:state-core && node scripts/materialize-deps-for-vsix.mjs && node scripts/ensure-dev-deps.mjs && npm run build:cli && npm run build:mcp && node scripts/run-tsc.mjs .",
     "postversion": "node scripts/sync-version.mjs",
     "watch": "node scripts/ensure-dev-deps.mjs && node scripts/run-tsc.mjs . -watch"
   },
@@ -289,8 +289,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@contora/runtime": "file:.vscode-pack/contora-runtime-0.7.0.tgz",
-    "@contora/state-core": "file:.vscode-pack/contora-state-core-0.7.0.tgz",
+    "@contora/runtime": "file:.vscode-pack/contora-runtime-0.8.1.tgz",
+    "@contora/state-core": "file:.vscode-pack/contora-state-core-0.8.1.tgz",
     "simple-git": "^3.22.0"
   }
 }
