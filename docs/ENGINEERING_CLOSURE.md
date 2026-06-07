@@ -202,7 +202,7 @@ MCP / CLI / IDE adapters
 
 | Field | Value |
 |-------|-------|
-| Product | 0.8.1 |
+| Product | 0.9.1 |
 | Engine | KNOWLEDGE_ENGINE_VERSION 3.1.0 |
 | Closure | closureVersion **1** — see [ENGINEERING_CLOSURE.md](./ENGINEERING_CLOSURE.md) |
 | Schema | schemaVersion **1** |

@@ -44,6 +44,14 @@ import { loadUsableIntentFocusLines } from './core/memory/intentStore';
 import { CognitionPipeline } from './cognition/cognitionPipeline';
 import { CodeGraphParserService } from './cognition/codeGraphParserService';
 import { loadCognitionExportContext } from './cognition/loaders';
+import {
+  endDashboardSession,
+  hideRuntimeDashboard,
+  registerDashboardStatusBar,
+  runInjectRuntimeHandoff,
+  showRuntimeDashboard,
+} from './dashboard/autoAttach';
+import { scheduleDashboardWake, scheduleRuntimeBootstrap } from './dashboard/wakeSpawn';
 
 let scanners: WorkspaceScanner[] = [];
 let workspaceIgnoreMatcher: IgnoreMatcher | undefined;
@@ -184,7 +192,7 @@ async function handleSessionBoundaryAfterTaskEdit(
   }
 }
 
-function createEventStore(stateManager: StateManager): EventStore {
+function createEventStore(stateManager: StateManager, context: vscode.ExtensionContext): EventStore {
   return new EventStore(eventBufferCap(), (ev) => {
     cognitionPipeline?.ingestEvent(ev);
     const persist = vscode.workspace.getConfiguration(CONTORA_CONFIG_SECTION).get<boolean>('persistEventLog');
@@ -200,6 +208,7 @@ function createEventStore(stateManager: StateManager): EventStore {
         const st = stateManager.getCached(folder) ?? (await stateManager.load(folder));
         const sid = st.sessionId ?? 'unknown';
         await appendEventJsonl(folder.uri.fsPath, sid, ev);
+        scheduleDashboardWake(context, folder.uri.fsPath, ev.type);
       } catch {
         /* ignore IO errors */
       }
@@ -329,6 +338,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onAfterTaskUpdated,
   );
 
+  registerDashboardStatusBar(context, () => stateManager.getPrimaryFolder());
+
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ContoraSidebarProvider.viewId, sidebar, {
       // false = fresh HTML on reopen; avoids stale/crashed webview showing blank forever
@@ -345,10 +356,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const onAfterScannerPersist = (): void => {
     refreshSidebarDebounced();
     cognitionPipeline?.scheduleUpdate(globalEventStore);
+    const folder = stateManager.getPrimaryFolder();
+    if (folder) {
+      scheduleDashboardWake(context, folder.uri.fsPath, 'scanner-persist');
+    }
   };
 
   const syncWorkspace = async (): Promise<void> => {
-    globalEventStore = createEventStore(stateManager);
+    globalEventStore = createEventStore(stateManager, context);
     sidebar.setEventStore(globalEventStore);
     const folder = stateManager.getPrimaryFolder();
     sidebar.setWorkspaceFolder(folder);
@@ -391,6 +406,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       focus: (st0.currentTask ?? '').trim(),
       paths: topWorkspacePathsFromState(st0),
     };
+
+    scheduleRuntimeBootstrap(context, folder.uri.fsPath);
   };
 
   const runWorkspaceBootstrap = (): Promise<void> => {
@@ -754,6 +771,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('contora.injectRuntimeHandoff', async () => {
+      const folder = stateManager.getPrimaryFolder();
+      if (!folder) {
+        await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
+        return;
+      }
+      await runInjectRuntimeHandoff(folder.uri.fsPath);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.showDashboard', async () => {
+      const folder = stateManager.getPrimaryFolder();
+      if (!folder) {
+        await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
+        return;
+      }
+      await showRuntimeDashboard(folder);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.hideDashboard', async () => {
+      const folder = stateManager.getPrimaryFolder();
+      if (!folder) {
+        return;
+      }
+      await hideRuntimeDashboard(folder);
+    }),
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('contora.restoreSession', async () => {
       const folder = stateManager.getPrimaryFolder();
       if (!folder) {
@@ -776,6 +825,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (folder) {
+    void endDashboardSession(folder);
+  }
   disposeScanners();
   disposeIgnoreWatchers();
   cognitionPipeline?.dispose();

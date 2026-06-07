@@ -2,7 +2,7 @@
   "name": "contorium",
   "displayName": "Contorium",
   "description": "Contorium: local workspace memory (task, notes, editors, Git), event JSONL, heuristic intent/ranking, ignore rules, token budget, optional BYOK (OpenAI / Claude / Gemini / DeepSeek) — export AI-ready context to clipboard (markdown, JSON, etc.).",
-  "version": "0.8.1",
+  "version": "0.9.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -41,7 +41,8 @@
   ],
   "main": "./out/extension.js",
   "bin": {
-    "contorium": "./packages/cli/bin/contorium.cjs"
+    "contorium": "./packages/cli/bin/contorium.cjs",
+    "contorium-mcp": "./packages/mcp/bin/contorium-mcp.js"
   },
   "contributes": {
     "commands": [
@@ -76,6 +77,26 @@
       {
         "command": "contora.startFreshAiSession",
         "title": "Contorium: Start fresh AI context session (clear session events)"
+      },
+      {
+        "command": "contora.showDashboard",
+        "title": "Contorium: Show Runtime Dashboard"
+      },
+      {
+        "command": "contora.hideDashboard",
+        "title": "Contorium: Hide Runtime Dashboard"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "contora.showDashboard",
+        "key": "ctrl+shift+c",
+        "when": "workspaceFolderCount > 0"
+      },
+      {
+        "command": "contora.hideDashboard",
+        "key": "ctrl+shift+m",
+        "when": "workspaceFolderCount > 0"
       }
     ],
     "viewsContainers": {
@@ -140,6 +161,11 @@
           "type": "boolean",
           "default": true,
           "description": "Append each workspace event to .contora/events/<sessionId>.jsonl (immutable log)."
+        },
+        "contora.autoAttachDashboard": {
+          "type": "boolean",
+          "default": true,
+          "description": "When a folder workspace opens, auto-start the Contorium Dashboard CLI worker in a background terminal tab (Passive mode). Disable to stop auto-attach."
         },
         "contora.maxPriorityFiles": {
           "type": "number",
@@ -280,6 +306,8 @@
     "install:mcp": "npm install --prefix packages/mcp --no-fund --no-audit",
     "build:mcp": "npm run install:mcp && node scripts/clean-dist.mjs packages/mcp && node scripts/run-tsc.mjs packages/mcp",
     "compile": "node scripts/ensure-dev-deps.mjs && npm run version:sync && npm run build:runtime && npm run build:state-core && node scripts/materialize-deps-for-vsix.mjs && node scripts/ensure-dev-deps.mjs && npm run build:cli && npm run build:mcp && node scripts/run-tsc.mjs .",
+    "publish:npm": "npm run compile && node scripts/publish-npm.mjs",
+    "publish:npm:dry-run": "npm run compile && node scripts/publish-npm.mjs --dry-run",
     "postversion": "node scripts/sync-version.mjs",
     "watch": "node scripts/ensure-dev-deps.mjs && node scripts/run-tsc.mjs . -watch"
   },
@@ -289,8 +317,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@contora/runtime": "file:.vscode-pack/contora-runtime-0.8.1.tgz",
-    "@contora/state-core": "file:.vscode-pack/contora-state-core-0.8.1.tgz",
+    "@contora/runtime": "file:.vscode-pack/contora-runtime-0.9.1.tgz",
+    "@contora/state-core": "file:.vscode-pack/contora-state-core-0.9.1.tgz",
     "simple-git": "^3.22.0"
   }
 }

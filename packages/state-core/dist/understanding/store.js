@@ -41,6 +41,7 @@ exports.readHandoffArtifact = readHandoffArtifact;
 exports.readProjectTimeline = readProjectTimeline;
 exports.readImpactArtifact = readImpactArtifact;
 exports.readIntentArtifact = readIntentArtifact;
+exports.readUnderstandingGraph = readUnderstandingGraph;
 exports.writeUnderstandingArtifacts = writeUnderstandingArtifacts;
 exports.deleteUnderstandingArtifacts = deleteUnderstandingArtifacts;
 const fs = __importStar(require("node:fs/promises"));
@@ -216,18 +217,25 @@ async function readIntentArtifact(workspaceRoot) {
         signals: handoff.key_changes.slice(0, 4).map((k) => k.symbol),
     };
 }
+async function readUnderstandingGraph(workspaceRoot) {
+    return readJson(contoraPath(workspaceRoot, 'understanding_graph.json'));
+}
 async function writeUnderstandingArtifacts(workspaceRoot, artifacts) {
     const root = path.resolve(workspaceRoot);
-    await Promise.all([
+    const writes = [
         writeJson(contoraPath(root, 'graph.json'), artifacts.graph),
         writeJson(contoraPath(root, 'change.json'), artifacts.change),
         writeJson(contoraPath(root, 'handoff.json'), artifacts.handoff),
         writeJson(contoraPath(root, 'timeline.json'), artifacts.timeline),
         ...LEGACY_ARTIFACTS.map((name) => unlinkQuiet(contoraPath(root, name))),
-    ]);
+    ];
+    if (artifacts.understandingGraph) {
+        writes.push(writeJson(contoraPath(root, 'understanding_graph.json'), artifacts.understandingGraph));
+    }
+    await Promise.all(writes);
 }
 async function deleteUnderstandingArtifacts(workspaceRoot) {
-    const names = ['graph.json', 'change.json', 'handoff.json', 'timeline.json', ...LEGACY_ARTIFACTS];
+    const names = ['graph.json', 'change.json', 'handoff.json', 'timeline.json', 'understanding_graph.json', ...LEGACY_ARTIFACTS];
     await Promise.all([
         ...names.map((name) => unlinkQuiet(contoraPath(workspaceRoot, name))),
         (0, store_js_1.deleteProjectKnowledgeGraph)(workspaceRoot),

@@ -1,10 +1,11 @@
 {
-  "contorium": {
-    "command": "node",
-    "args": ["./bin/contorium-mcp-launch.cjs"],
-    "cwd": "${PLUGIN_ROOT}",
-    "env": {
-      "CONTORIUM_WORKSPACE": "${CODEX_PROJECT_DIR}"
+  "mcpServers": {
+    "contorium": {
+      "command": "node",
+      "args": ["./packages/mcp/bin/contorium-mcp.js"],
+      "env": {
+        "CONTORIUM_WORKSPACE": "${CODEX_PROJECT_DIR}"
+      }
     }
   }
 }

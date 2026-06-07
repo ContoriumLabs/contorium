@@ -1,18 +1,20 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { resolveMcpStartupConfig, setStartupWorkspace } from './workspaceConfig.js';
 const CONTORA_DATA_DIR = '.contora';
 const LEGACY_DATA_DIR = '.context-recall';
-/** Workspace root for MCP (Claude Code / Cursor spawn cwd or explicit env). */
-export function resolveWorkspaceRoot() {
-    const fromEnv = process.env.CONTORIUM_WORKSPACE?.trim() ||
-        process.env.CODEX_PROJECT_DIR?.trim() ||
-        process.env.CLAUDE_PROJECT_DIR?.trim() ||
-        process.env.CLAUDE_PROJECT_ROOT?.trim() ||
-        process.env.MCP_WORKSPACE_ROOT?.trim();
-    if (fromEnv) {
-        return path.resolve(fromEnv);
+/** Apply CLI --workspace before other resolution (call once at startup). */
+export function initWorkspaceFromArgv(argv = process.argv.slice(2)) {
+    const config = resolveMcpStartupConfig(argv);
+    if (config.workspaceFromArgv) {
+        setStartupWorkspace(config.workspaceHint);
     }
-    return process.cwd();
+    return config.workspaceHint;
+}
+/** Workspace root for MCP (priority: startup override → env → .mcp.json → cwd). */
+export function resolveWorkspaceRoot() {
+    const config = resolveMcpStartupConfig();
+    return config.workspaceHint;
 }
 export function contoraDir(workspaceRoot) {
     return path.join(workspaceRoot, CONTORA_DATA_DIR);

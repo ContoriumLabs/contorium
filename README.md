@@ -1,299 +1,528 @@
 ![Contorium demo](./demo.gif)
 
+![Contorium demo](./demo.gif)
+
 # Contorium
 
-**Persistent project memory for AI development** — [contorium.dev](https://www.contorium.dev/)
+**The Runtime Continuity Layer for AI Coding**
 
-AI models don't remember projects. **Contorium does.**
+AI coding tools have context windows.
 
-Contorium keeps your project state consistent across Cursor, Claude Code, Gemini CLI, Codex, VS Code, or any MCP-compatible AI tool.
+Projects need continuity.
 
-Not chat history. Not prompts. **Project understanding.**
+Contorium provides a persistent runtime and project memory layer that keeps AI aligned with your codebase across sessions, tools, and models.
 
----
+Works with:
 
-## Why this matters (core value)
+* Claude Code
+* Codex
+* Cursor
+* Gemini CLI
+* VS Code
+* Any MCP-compatible AI tool
 
-Modern AI coding tools are powerful — but they all share one critical flaw:
-
-> They forget what your project actually is.
-
-After a few conversations:
-
-- context resets
-- architecture gets re-explained
-- intent is lost
-- switching tools breaks understanding
-
-You end up doing the same thing again and again:
-
-> "explaining the project to AI instead of building it"
+🌐 https://www.contorium.dev/
 
 ---
 
-## Core idea (what Contorium actually is)
+# Why Contorium
 
-Contorium is a **persistent project memory layer for AI development**.
+Modern AI coding tools are powerful.
 
-It maintains a continuously updated understanding of your project:
+But they all share the same limitation:
 
-- what you are building (**Intent**)
-- what matters right now (**Hotspots**)
-- how code is structured (**Knowledge Graph**)
-- how everything connects (**Functions & Dependencies**)
+> Every new conversation starts with less understanding than your project actually contains.
 
-So AI does not restart from zero every time.
+Developers constantly re-explain:
+
+* architecture
+* intent
+* priorities
+* module relationships
+* active work
+
+Switching tools often means losing continuity.
+
+Contorium solves this problem by maintaining a continuously updated understanding of your project and exposing it through IDEs, MCP servers, dashboards, and AI handoffs.
 
 ---
 
-## Key benefit (simple version)
+# What Contorium Does
+
+Contorium creates a shared runtime understanding layer between:
+
+* IDEs
+* MCP agents
+* AI coding tools
+* CLI workflows
 
 Instead of:
 
-> AI = forgets project → re-learns → repeats
+```text
+AI → forgets project
+   → re-learns context
+   → repeats work
+```
 
 You get:
 
-> AI = already understands project → continues work
+```text
+AI → understands project
+   → continues work
+   → stays aligned
+```
 
 ---
 
-## What you actually get
+# What You Get
 
-### 1. Persistent Project Memory
+## Persistent Project Memory
 
-AI keeps understanding your project across:
+Project understanding survives:
 
-- sessions
-- tools
-- model switches
-- long development cycles
+* sessions
+* AI chats
+* model switches
+* tool changes
+* long development cycles
 
-### 2. Cross-tool continuity (IDE / MCP / CLI)
+---
 
-Switch freely between:
+## Runtime Dashboard
 
-- Cursor
-- Claude Code
-- Gemini CLI
-- Codex
-- VS Code
+Live project awareness while you code.
 
-Without losing project context.
-
-### 3. Project Knowledge Graph
+Passive Mode:
 
 ```text
-Intent → Module → File → Function
+[●] task: fix MCP bootstrap | last: calculateRisk() | agent: mcp
 ```
 
-Turns your project into a structured map instead of scattered files.
+Expanded Mode:
 
-### 4. Hotspot awareness
+* Impact Graph
+* Function Call Chains
+* Runtime Handoff
+* Project Status
+* Copy To AI
+
+Available in:
+
+* CLI
+* VS Code
+* Cursor
+
+---
+
+## AI Handoff
+
+Open a new AI conversation.
+
+Contorium detects active runtime context and asks:
+
+```text
+[?] Runtime active.
+Inject current project state? (Y/n)
+```
+
+Choose:
+
+```text
+Enter → Continue current work
+N      → Start fresh
+```
+
+You stay in control.
+
+No automatic prompt injection.
+
+No hidden behavior.
+
+---
+
+## Cross-Tool Continuity
+
+Move freely between:
+
+* Claude Code
+* Codex
+* Cursor
+* Gemini CLI
+* VS Code
+
+Without losing project understanding.
+
+---
+
+## Knowledge Graph
+
+Contorium continuously maps:
+
+```text
+Intent
+  ↓
+Module
+  ↓
+File
+  ↓
+Function
+```
+
+Creating a structured understanding layer rather than isolated files.
+
+---
+
+## Hotspot Detection
 
 Highlights what matters right now:
 
-- frequently edited files
-- key logic areas
-- high-impact code paths
-
-### 5. AI-ready snapshot
-
-A compact project state used for handoff between AI tools:
-
-- current intent
-- important modules
-- key functions
-- active focus
+* frequently edited files
+* active modules
+* critical functions
+* high-impact code paths
 
 ---
 
-## The real problem Contorium solves
+## Runtime Snapshot
 
-Developers today don't struggle with coding.
+AI-ready project state including:
 
-They struggle with:
+* current goal
+* active task
+* recent changes
+* important functions
+* project intent
 
-- re-explaining projects to AI
-- losing context between tools
-- inconsistent understanding across sessions
-- restarting project awareness repeatedly
+Used for:
 
-Contorium removes that friction.
+* AI handoff
+* model switching
+* new chat continuity
 
 ---
 
-## How it works
+# Works With
+
+| Tool        | Support |
+| ----------- | ------- |
+| Claude Code | ✅       |
+| Codex       | ✅       |
+| Cursor      | ✅       |
+| Gemini CLI  | ✅       |
+| VS Code     | ✅       |
+| MCP Hosts   | ✅       |
+
+---
+
+# How It Works
 
 ```text
 Workspace Activity
         ↓
-Project Understanding Layer
+Runtime Understanding Layer
         ↓
-Knowledge Graph + Intent Tracking
+Knowledge Graph
         ↓
 Hotspot Detection
         ↓
-AI-ready Snapshot
+Runtime Snapshot
+        ↓
+AI Handoff
         ↓
 Any AI Tool
 ```
 
-The AI no longer works from chat history — it works from **project reality**.
+Local-first.
 
----
-
-## What Contorium is NOT
-
-Contorium is NOT:
-
-- an autonomous coding agent
-- a task generator
-- a system that decides what you should build
-
-It does NOT replace developers.
-
-It keeps developers in control.
-
-> Contorium preserves understanding — not decisions.
-
----
-
-## Why developers use it
-
-Because without it:
-
-- AI forgets what you are building
-- every tool behaves differently
-- long projects lose consistency
-
-With it:
-
-- AI stays aligned with the project
-- context survives time and tool changes
-- development becomes continuous instead of restart-based
-
----
-
-## Architecture overview
+Everything is stored under:
 
 ```text
-Workspace Events → Parser → Function Graph → Knowledge Graph
-        → Intent Mapping → Hotspot Analysis → Snapshot → AI Handoff
+.contora/
 ```
 
-Local-first storage under `.contora/`.
+---
+
+# Runtime Dashboard
+
+## Passive Mode
+
+Low-interruption status line.
+
+```text
+[●] task: fix MCP bootstrap
+    last: calculateRisk()
+    agent: mcp
+```
+
+Optional mini graph:
+
+```text
+⤷ calculateRisk()
+    → tradeSignal()
+    → decisionEngine()
+```
 
 ---
 
-## Key principles
+## Expanded Mode
 
-| Principle       | Meaning                          |
-| --------------- | -------------------------------- |
-| Project-centric | Repo is the source of truth      |
-| Persistent      | Understanding survives time      |
-| Structured      | Relationships > files            |
-| Human-led       | Developer decides, AI understands |
+Full runtime view:
 
----
+* Impact Graph
+* Function Call Tree
+* Runtime Timeline
+* AI Handoff
+* Copy To AI
 
-## Vision
+Open anytime using:
 
-AI tools today have context windows.
+```text
+Space
+```
 
-Future AI tools need memory.
-
-Contorium is the missing layer:
-
-> A persistent memory system for AI software development.
-
-Because AI conversations end.  
-**Project understanding should not.**
+inside the Contorium dashboard.
 
 ---
 
-## 🚀 Quick Start — install · use · uninstall
+# New Chat Handoff
+
+When a runtime is active and a new AI conversation starts:
+
+```text
+[?] Runtime active.
+Inject current project state? (Y/n)
+```
+
+Options:
+
+```text
+Enter / Y
+```
+
+Inject runtime context.
+
+```text
+N / Esc
+```
+
+Start with a clean conversation.
+
+This gives developers control while preserving continuity.
+
+---
+
+# Architecture Overview
+
+```text
+Workspace Events
+        ↓
+Parser
+        ↓
+Function Graph
+        ↓
+Knowledge Graph
+        ↓
+Intent Mapping
+        ↓
+Hotspot Analysis
+        ↓
+Runtime Snapshot
+        ↓
+AI Handoff
+```
+
+---
+
+# Quick Start
+
+## Install MCP
 
 ```bash
-git clone https://github.com/ContoriumLabs/contorium.git
-cd contorium
-npm install
-npm run compile
+npm install -g @contorium/mcp
 ```
 
-### IDE extension (VS Code / Cursor)
+---
 
-|               | Command / action                                                |
-| ------------- | --------------------------------------------------------------- |
-| **Install**   | `npm run vsix` → Extensions → Install from VSIX → Reload Window |
-| **Use**       | Open folder → set Current focus → Copy AI-ready context         |
-| **Uninstall** | Extensions → Contorium → Uninstall                              |
+## Configure MCP Host
 
-→ Full guide: [docs/IDE_EXTENSION.md](./docs/IDE_EXTENSION.md)
+```json
+{
+  "mcpServers": {
+    "contorium": {
+      "command": "npx",
+      "args": ["@contorium/mcp"],
+      "env": {
+        "CONTORIUM_WORKSPACE": "/path/to/project"
+      }
+    }
+  }
+}
+```
 
-### MCP server (Claude Code / Cursor Agent / Codex / Gemini)
+---
 
-|               | Command / action                                                             |
-| ------------- | ---------------------------------------------------------------------------- |
-| **Install**   | Add MCP config after build                                                   |
-|               | `node /path/to/contorium/bin/contorium-mcp-launch.cjs`                       |
-|               | Set `CONTORIUM_WORKSPACE=/path/to/project`                                   |
-| **Use**       | `get_project_handoff`, `get_project_graph_snapshot`, `get_workspace_context` |
-| **Uninstall** | Remove MCP config                                                            |
+## Open Claude / Codex / Cursor
+
+Contorium starts automatically.
+
+No manual runtime commands required.
+
+---
+
+# Install Options
+
+## MCP
+
+Recommended for:
+
+* Claude Code
+* Codex
+* Cursor Agent
+* Gemini CLI
+
+See:
+
+```text
+docs/MCP.md
+```
+
+---
+
+## IDE Extension
+
+Supported:
+
+* VS Code
+* Cursor
+
+Install:
 
 ```bash
-# Codex
-codex mcp add contorium -- node ./bin/contorium-mcp-launch.cjs
-
-# Claude Code
-claude --plugin-dir .
+npm run vsix
 ```
 
-→ Full guide: [docs/MCP.md](./docs/MCP.md)
+Then:
 
-### CLI
+```text
+Extensions
+→ Install From VSIX
+→ Reload Window
+```
 
-|               | Command / action          |
-| ------------- | ------------------------- |
-| **Install**   | `npm link` (optional)     |
-| **Use**       | `npx contorium init .`    |
-|               | `npx contorium sync .`    |
-|               | `npx contorium export .`  |
-| **Uninstall** | `npm unlink -g contorium` |
+See:
+
+```text
+docs/IDE_EXTENSION.md
+```
+
+---
+
+## CLI
+
+Initialize:
 
 ```bash
 npx contorium init .
-npx contorium sync .
-npx contorium handoff .
-npx contorium graph-snapshot .
-npx contorium export .
-npx contorium status .
 ```
 
-→ Full guide: [docs/CLI.md](./docs/CLI.md)
-
-### Clear workspace data
+Sync:
 
 ```bash
-rm -rf .contora
+npx contorium sync .
 ```
 
-```powershell
-Remove-Item -Recurse -Force .contora
+Generate handoff:
+
+```bash
+npx contorium handoff
 ```
 
-### Links
+Copy runtime to AI:
 
-| Resource      | Link                                                                                     |
-| ------------- | ---------------------------------------------------------------------------------------- |
-| Install guide | [docs/INSTALL.md](./docs/INSTALL.md)                                                     |
-| Docs index    | [docs/README.md](./docs/README.md)                                                       |
-| Architecture  | [docs/ARCHITECTURE_V3.md](./docs/ARCHITECTURE_V3.md)                                     |
-| Website       | [https://www.contorium.dev/](https://www.contorium.dev/)                                 |
-| GitHub        | [https://github.com/ContoriumLabs/contorium](https://github.com/ContoriumLabs/contorium) |
+```bash
+npx contorium handoff --copy-to-ai
+```
+
+See:
+
+```text
+docs/CLI.md
+```
 
 ---
 
-## License
+# Latest Runtime Features
 
-See [LICENSE](./LICENSE)
+| Feature                     | Status |
+| --------------------------- | ------ |
+| Runtime Dashboard           | ✅      |
+| Passive Status Line         | ✅      |
+| Expanded Impact Graph       | ✅      |
+| AI Handoff                  | ✅      |
+| Semi-auto Runtime Injection | ✅      |
+| MCP Integration             | ✅      |
+| Cross-tool Continuity       | ✅      |
+| Knowledge Graph             | ✅      |
+
+---
+
+# Documentation
+
+| Resource      | Link                    |
+| ------------- | ----------------------- |
+| Installation  | docs/INSTALL.md         |
+| MCP Setup     | docs/MCP.md             |
+| CLI Guide     | docs/CLI.md             |
+| Dashboard     | docs/DASHBOARD.md       |
+| IDE Extension | docs/IDE_EXTENSION.md   |
+| Architecture  | docs/ARCHITECTURE_V3.md |
+| Docs Index    | docs/README.md          |
+
+---
+
+# What Contorium Is Not
+
+Contorium is not:
+
+* an autonomous coding agent
+* a task generator
+* an AI replacement
+* a planning system
+
+Contorium does not decide what to build.
+
+Developers stay in control.
+
+> Contorium preserves understanding, not decisions.
+
+---
+
+# Vision
+
+AI tools have context windows.
+
+Projects need continuity.
+
+Contorium provides the missing runtime layer between your project and your AI tools.
+
+Because conversations end.
+
+Project understanding should not.
+
+---
+
+# Links
+
+Website:
+
+https://www.contorium.dev/
+
+GitHub:
+
+https://github.com/ContoriumLabs/contorium
+
+---
+
+# License
+
+See LICENSE.

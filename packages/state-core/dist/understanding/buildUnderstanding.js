@@ -14,6 +14,7 @@ const gitFrequency_js_1 = require("./knowledgeGraph/gitFrequency.js");
 const knowledgeGraphBuilder_js_1 = require("./knowledgeGraph/knowledgeGraphBuilder.js");
 const store_js_2 = require("./knowledgeGraph/store.js");
 const rebuildTrigger_js_1 = require("./knowledgeGraph/rebuildTrigger.js");
+const understandingGraphBuilder_js_1 = require("./understandingGraphBuilder.js");
 const store_js_3 = require("./store.js");
 const version_js_1 = require("../version.js");
 async function buildUnderstandingArtifacts(input) {
@@ -73,7 +74,14 @@ async function buildAndWriteUnderstandingArtifacts(input) {
     if (!result) {
         return undefined;
     }
-    await (0, store_js_3.writeUnderstandingArtifacts)(input.workspaceRoot, result);
+    const understandingGraph = (0, understandingGraphBuilder_js_1.buildUnderstandingGraph)({
+        graph: result.graph,
+        change: result.change,
+        handoff: result.handoff,
+        agent: input.state?.source?.lastWriter ?? 'runtime',
+        now: Date.now(),
+    });
+    await (0, store_js_3.writeUnderstandingArtifacts)(input.workspaceRoot, { ...result, understandingGraph });
     await (0, store_js_2.writeProjectKnowledgeGraph)(input.workspaceRoot, result.knowledge);
     return result;
 }

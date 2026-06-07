@@ -4,6 +4,7 @@ import { bootstrapStateFromScan, readStateJson, writeStateJson } from './bootstr
 import { rebuildArtifactsFromScan } from './state-builder/rebuildFromScan.js';
 import { buildAndWriteUnderstandingArtifacts } from './understanding/buildUnderstanding.js';
 import { buildDualModeInput } from './dualMode.js';
+import { bumpWorkspaceActivity } from './dashboardActivity.js';
 import { scanWorkspace } from './scanner/workspaceScanner.js';
 
 async function countEventLines(workspaceRoot: string): Promise<number> {
@@ -91,10 +92,18 @@ export async function syncWorkspaceState(
   }
 
   const written = await readStateJson(resolved);
+  const updated = shouldWrite || (eventCount === 0 && !!options?.forceArtifacts);
+  if (updated || gitChanged) {
+    await bumpWorkspaceActivity(resolved, {
+      source: writer,
+      kind: gitChanged ? 'git_change' : 'sync',
+      detail: gitChanged ? 'workspace sync' : undefined,
+    }).catch(() => undefined);
+  }
   return {
     mode: dual.mode,
     created: false,
-    updated: shouldWrite || (eventCount === 0 && !!options?.forceArtifacts),
+    updated,
     source: written?.source,
     eventCount,
   };

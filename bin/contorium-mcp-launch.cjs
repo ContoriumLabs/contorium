@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Portable MCP entry for plugin hosts (Codex, Claude Code, Cursor).
- * Resolves server.js from this repo root via __dirname — no ${PLUGIN_ROOT} in args required.
+ * Monorepo launcher — delegates to @contorium/mcp standard bin.
+ * Prefer: npx contorium-mcp  or  npx @contorium/mcp
  */
 'use strict';
 
@@ -9,9 +9,9 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 
 const pluginRoot = path.resolve(__dirname, '..');
-const serverEntry = path.join(pluginRoot, 'packages', 'mcp', 'dist', 'server.js');
+const entry = path.join(pluginRoot, 'packages', 'mcp', 'bin', 'contorium-mcp.js');
 
-const child = spawn(process.execPath, [serverEntry], {
+const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
   stdio: 'inherit',
   env: process.env,
   cwd: pluginRoot,

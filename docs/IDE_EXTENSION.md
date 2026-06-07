@@ -16,7 +16,9 @@ Peer adapters: [MCP](./MCP.md), [CLI](./CLI.md). Overview: [INSTALL.md](./INSTAL
 | **Install (VSIX)** | `npm run vsix` → **Install from VSIX** → **Developer: Reload Window** |
 | **Install (dev)** | `npm install && npm run compile` → **F5** → open project folder in new window |
 | **Verify** | Activity bar **Contorium** → sidebar shows Current focus / Copy button |
-| **Daily use** | **Copy AI-ready context**; `Ctrl+Shift+P` → `Contorium:` commands |
+| **Daily use** | **Copy AI-ready context**; auto Passive line + mini-graph; **Space** → Expanded in terminal |
+| **New AI chat** | Auto inject prompt (notification + status bar `[?]`) — **no command** |
+| **Settings** | `contora.autoAttachDashboard` (default `true`) — auto-start dashboard worker |
 | **Uninstall** | Extensions → Contorium → Uninstall → Reload |
 | **Clear data (optional)** | Project root: `Remove-Item -Recurse -Force .contora` (PowerShell) |
 
@@ -26,7 +28,7 @@ Peer adapters: [MCP](./MCP.md), [CLI](./CLI.md). Overview: [INSTALL.md](./INSTAL
 
 ### Option A: VSIX (recommended)
 
-1. Get `contorium-0.8.1.vsix` (or current version):
+1. Get `contorium-0.9.1.vsix` (or current version):
    - [GitHub Releases](https://github.com/ContoriumLabs/contorium/releases), or
    - Repo root: `npm run vsix` (Node.js 18+)
 2. Open **VS Code** or **Cursor**
@@ -72,7 +74,8 @@ If the sidebar stays blank, see [Troubleshooting](#troubleshooting).
 |--------|-------------|
 | **Current focus** | L0 task anchor → `state.json`; not auto-inferred |
 | **Context notes** | Local notes included in export |
-| **Copy AI-ready context** | V3.1 canonical context to clipboard |
+| **Copy AI-ready context** | V3.1 canonical context to clipboard (legacy full export) |
+| **Runtime dashboard (status bar)** | CHP compact line from `handoff.json` + optional `⤷` mini-graph — click to expand |
 | **AI Cortex** | Collapsible: Knowledge Graph, Hotspots, Function graph, Impact, Reason trace |
 | **Sync state to disk** | Persist `state.json` immediately |
 | **Restore editors** | Reopen editors from saved state |
@@ -94,6 +97,24 @@ If the sidebar stays blank, see [Troubleshooting](#troubleshooting).
 | Learn workspace intent (AI) | BYOK intent learning |
 | Tighten context preview (AI) | BYOK compress preview |
 | Start fresh AI context session | Clear session events + derived cognition |
+| Show Runtime Dashboard | Expand live Webview panel (`Ctrl+Shift+C`) |
+| Hide Runtime Dashboard | Minimize dashboard (`Ctrl+Shift+M`) |
+
+When runtime handoff is pending, the status bar shows **`[?] Inject runtime?`** — click to inject context for your next AI chat (semi-auto; appears automatically on new chat when runtime is active).
+
+### Runtime dashboard (CRBP — automatic)
+
+When `contora.autoAttachDashboard` is enabled (default):
+
+1. Opening a folder → **bootstrap** runs automatically.
+2. **Passive line** on status bar (from `handoff.json` + mini-graph).
+3. **New AI chat** → auto notification: *Inject context?* + status bar **`[?]`** (no command).
+4. **Expanded dashboard** → **Space** in Contorium terminal tab (not `--show`).
+5. Terminal keys: **Space** toggle · **c** copy · **Enter/i** inject · **n** skip · **q** quit.
+
+Optional: **Ctrl+Shift+C** opens IDE Webview panel (secondary view).
+
+See [DASHBOARD.md](./DASHBOARD.md).
 
 ### Copy AI-ready context structure (V3.1 canonical)
 
@@ -128,6 +149,15 @@ All data stays in the project; **not uploaded by default**:
 ├── intent-graph/              # L5 intent graph
 ├── state-builder/             # L4 project state + snapshot.md
 ├── state-engine/              # v2 conflict audit
+├── handoff.json               # CHP v1 AI handoff
+├── understanding_graph.json   # call chains + impact
+├── change.json / graph.json / timeline.json
+├── runtime.bootstrap.json     # runtime_id (session-level)
+├── mcp.auto-context.md        # after user confirms semi-auto injection
+├── mcp.handoff-injection.json
+├── dashboard.status.json      # view mode only (not state source)
+├── dashboard.signal.json
+├── dashboard.session.json
 ├── graph/                     # V3.1 cognitive graph
 │   ├── knowledge.json
 │   ├── snapshot.json
@@ -199,6 +229,7 @@ API keys use VS Code **SecretStorage**; may persist after uninstall depending on
 
 - [README](../README.md)
 - [Install / use / uninstall](./INSTALL.md)
+- [Runtime Dashboard (CRBP)](./DASHBOARD.md)
 - [MCP](./MCP.md)
 - [CLI](./CLI.md)
 - [State Engine](./STATE_ENGINE.md)

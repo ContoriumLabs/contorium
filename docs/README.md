@@ -8,15 +8,24 @@ All project documentation is **English**, except the internal design note [`v3.1
 |-----|-------------|
 | [../README.md](../README.md) | Product overview and quick start |
 | [INSTALL.md](./INSTALL.md) | Install / use / uninstall — IDE, MCP, CLI |
+| [DASHBOARD.md](./DASHBOARD.md) | Runtime dashboard (Passive mini-graph / Expanded fullscreen), semi-auto inject |
 | [ENGINEERING_CLOSURE.md](./ENGINEERING_CLOSURE.md) | **Frozen** V3.1 boundary rules (closure v1) |
+
+## What's new (runtime / MCP v1)
+
+| Feature | Normal use (automatic) | Debug only |
+|---------|------------------------|------------|
+| **Semi-auto handoff** | New AI chat → auto prompt | `handoff --prompt-new-chat` |
+| **Expanded dashboard** | **Space** in terminal | `handoff --show` |
+| **Passive + mini-graph** | Auto on runtime bootstrap | `contorium attach --auto` |
 
 ## Adapters
 
 | Doc | Description |
 |-----|-------------|
 | [IDE_EXTENSION.md](./IDE_EXTENSION.md) | VS Code / Cursor extension |
-| [MCP.md](./MCP.md) | MCP server tools and host setup |
-| [CLI.md](./CLI.md) | Terminal commands |
+| [MCP.md](./MCP.md) | `@contorium/mcp` — install, host setup (Cursor/Codex/Claude/Gemini), CHP v1 tools |
+| [CLI.md](./CLI.md) | Terminal commands, handoff, dashboard |
 
 ## Architecture
 

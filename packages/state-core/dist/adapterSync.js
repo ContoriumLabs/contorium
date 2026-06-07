@@ -40,6 +40,7 @@ const bootstrapState_js_1 = require("./bootstrap/bootstrapState.js");
 const rebuildFromScan_js_1 = require("./state-builder/rebuildFromScan.js");
 const buildUnderstanding_js_1 = require("./understanding/buildUnderstanding.js");
 const dualMode_js_1 = require("./dualMode.js");
+const dashboardActivity_js_1 = require("./dashboardActivity.js");
 const workspaceScanner_js_1 = require("./scanner/workspaceScanner.js");
 async function countEventLines(workspaceRoot) {
     const { readdir, readFile } = await Promise.resolve().then(() => __importStar(require('node:fs/promises')));
@@ -104,10 +105,18 @@ async function syncWorkspaceState(workspaceRoot, writer, options) {
         }).catch(() => undefined);
     }
     const written = await (0, bootstrapState_js_1.readStateJson)(resolved);
+    const updated = shouldWrite || (eventCount === 0 && !!options?.forceArtifacts);
+    if (updated || gitChanged) {
+        await (0, dashboardActivity_js_1.bumpWorkspaceActivity)(resolved, {
+            source: writer,
+            kind: gitChanged ? 'git_change' : 'sync',
+            detail: gitChanged ? 'workspace sync' : undefined,
+        }).catch(() => undefined);
+    }
     return {
         mode: dual.mode,
         created: false,
-        updated: shouldWrite || (eventCount === 0 && !!options?.forceArtifacts),
+        updated,
         source: written?.source,
         eventCount,
     };

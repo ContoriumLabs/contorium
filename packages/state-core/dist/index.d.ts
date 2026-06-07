@@ -4,6 +4,7 @@ export { scanWorkspace } from './scanner/workspaceScanner.js';
 export { buildDualModeInput, mergeStateWithScan, resolveStateEngineMode, } from './dualMode.js';
 export { bootstrapStateFromScan, readStateJson, stateJsonExists, writeStateJson, } from './bootstrap/bootstrapState.js';
 export { attachStateSource, parseStateSource } from './sourceMetadata.js';
+export { bumpWorkspaceActivity, readWorkspaceActivity, type WorkspaceActivityBump, type WorkspaceActivityKind, } from './dashboardActivity.js';
 export { PROJECT_BUILT_STATE_VERSION, emptyProjectBuiltState, type ProjectBuiltState, } from './state-builder/types.js';
 export { normalizeProjectBuiltState, filterWeakInferenceLines, } from './state-builder/normalization.js';
 export { formatProjectSnapshotMarkdown, projectSnapshotBulletLines, } from './state-builder/snapshot.js';
@@ -21,8 +22,11 @@ export { CliAdapter, IdeAdapter, McpAdapter, type ContoriumAdapter, } from './ad
 export type { ChangeArtifact, GraphEdge, GraphNode, HandoffArtifact, HandoffNextAction, KeyChange, ImpactArtifact, IntentArtifact, ProjectGraph, ProjectTimeline, RiskLevel, TimelineEntry, } from './understanding/types.js';
 export { UNDERSTANDING_VERSION } from './understanding/types.js';
 export { buildAndWriteUnderstandingArtifacts, buildUnderstandingArtifacts, type UnderstandingBuildInput, type UnderstandingBuildResult, } from './understanding/buildUnderstanding.js';
-export { readChangeArtifact, readHandoffArtifact, readImpactArtifact, readIntentArtifact, readProjectGraph, readProjectTimeline, normalizeHandoff, writeUnderstandingArtifacts, deleteUnderstandingArtifacts, } from './understanding/store.js';
+export { readChangeArtifact, readHandoffArtifact, readImpactArtifact, readIntentArtifact, readProjectGraph, readProjectTimeline, readUnderstandingGraph, normalizeHandoff, writeUnderstandingArtifacts, deleteUnderstandingArtifacts, } from './understanding/store.js';
 export { formatHandoffMarkdown, formatNextActionBullet, buildUnderstandingExportJson, } from './understanding/formatHandoff.js';
+export { CHP_VERSION, buildChpHandoffState, buildChpHandoffStateSync, formatChpCompact, formatChpMarkdown, getProjectHandoff, type ChpAgentContext, type ChpHandoffFormat, type ChpHandoffState, type ChpRecentChange, type BuildChpHandoffInput, } from './understanding/chpHandoff.js';
+export { buildUnderstandingGraph, type UnderstandingGraph, } from './understanding/understandingGraphBuilder.js';
+export { formatUnderstandingMiniGraph } from './understanding/miniGraph.js';
 export { readProjectKnowledgeGraph, readKnowledgeSnapshot, writeProjectKnowledgeGraph, deleteProjectKnowledgeGraph, } from './understanding/knowledgeGraph/store.js';
 export { buildProjectKnowledgeGraph, type KnowledgeGraphBuildInput, } from './understanding/knowledgeGraph/knowledgeGraphBuilder.js';
 export { normalizeKnowledgeGraph, buildGraphMetadata } from './understanding/knowledgeGraph/normalize.js';
@@ -35,5 +39,6 @@ export type { ProjectKnowledgeGraph, GraphMetadata, KnowledgeNode, KnowledgeEdge
 export { parseFileWithAdapter, IncrementalParseCache, type ParseBackend, type ParseFileOptions, } from './understanding/treeSitterParser.js';
 export { extractFromSource, isCodeFile } from './understanding/extractor.js';
 export { formatCanonicalAiMarkdown, formatAiHandoffExecutionBlock, formatNextActionPlain, normalizeGraphRef, type CanonicalAiExportInput, } from './understanding/formatCanonicalExport.js';
+export { checkActiveRuntime, confirmHandoffInjection, prepareHandoffInjection, readConfirmedHandoffContext, readHandoffInjectionState, skipHandoffInjection, syncInjectionWithRuntime, buildInjectionPromptMessage, type HandoffInjectionState, type HandoffInjectionStatus, type PrepareHandoffOptions, } from './semiAutoHandoff.js';
 export { getContoriumPackageVersion } from './version.js';
 //# sourceMappingURL=index.d.ts.map

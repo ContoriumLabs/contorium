@@ -1,6 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { syncWorkspaceState } from '@contora/state-core';
+import { scheduleMcpDashboardWake, scheduleMcpRuntimeBootstrap } from './dashboardEnsure.js';
+import {
+  checkActiveRuntime,
+  confirmHandoffInjection,
+  readHandoffInjectionState,
+  syncInjectionWithRuntime,
+} from '@contora/state-core';
 
 const CONTORA_EVENTS = '.contora/events';
 const SYNC_MS = 5_000;
@@ -17,7 +24,21 @@ function scheduleReactiveSync(workspaceRoot: string): void {
   }
   debounceTimer = setTimeout(() => {
     debounceTimer = undefined;
-    void syncWorkspaceState(workspaceRoot, 'mcp').catch(() => undefined);
+    void syncWorkspaceState(workspaceRoot, 'mcp')
+      .then(async () => {
+        scheduleMcpDashboardWake(workspaceRoot, 'mcp-reactive-sync');
+        await syncInjectionWithRuntime(workspaceRoot);
+        const { runtime_id } = await checkActiveRuntime(workspaceRoot);
+        const injection = await readHandoffInjectionState(workspaceRoot);
+        if (
+          runtime_id &&
+          injection?.runtime_id === runtime_id &&
+          injection.status === 'injected'
+        ) {
+          await confirmHandoffInjection(workspaceRoot, injection.format ?? 'markdown');
+        }
+      })
+      .catch(() => undefined);
   }, DEBOUNCE_MS);
 }
 

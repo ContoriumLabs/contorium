@@ -1,8 +1,30 @@
 {
   "name": "@contora/state-core",
-  "version": "0.8.1",
+  "version": "0.9.1",
   "description": "Tool-agnostic Contorium workspace scan, bootstrap, and dual-mode state inputs (IDE + MCP + CLI).",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ContoriumLabs/contorium.git",
+    "directory": "packages/state-core"
+  },
+  "homepage": "https://github.com/ContoriumLabs/contorium#readme",
+  "bugs": {
+    "url": "https://github.com/ContoriumLabs/contorium/issues"
+  },
+  "keywords": [
+    "contorium",
+    "workspace",
+    "handoff",
+    "mcp",
+    "cli"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -17,7 +39,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p ./"
+    "build": "tsc -p ./",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

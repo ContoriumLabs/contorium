@@ -7,5 +7,10 @@ export {
   readProjectKnowledgeGraph,
   readKnowledgeSnapshot,
   readProjectTimeline,
+  readUnderstandingGraph,
+  readStateJson,
+  readWorkspaceStatus,
   filterMappingsByConfidence,
+  getProjectHandoff,
+  type ChpHandoffFormat,
 } from '@contora/state-core';

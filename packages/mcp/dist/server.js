@@ -10,10 +10,15 @@ import { loadProjectIntelligence } from './intelligence.js';
 import { activeIntentNodes, loadIntentGraph } from './intentGraph.js';
 import { loadStateConflicts } from './conflicts.js';
 import { loadProjectBuiltState, loadProjectSnapshotMarkdown } from './stateBuilder.js';
-import { readChangeArtifact, readHandoffArtifact, readImpactArtifact, readIntentArtifact, readProjectGraph, readProjectKnowledgeGraph, readKnowledgeSnapshot, readProjectTimeline, filterMappingsByConfidence, } from './understanding.js';
-import { findWorkspaceRoot, resolveWorkspaceRoot } from './paths.js';
+import { readChangeArtifact, readHandoffArtifact, readImpactArtifact, readIntentArtifact, readProjectGraph, readProjectKnowledgeGraph, readKnowledgeSnapshot, readProjectTimeline, readUnderstandingGraph, filterMappingsByConfidence, getProjectHandoff, } from './understanding.js';
+import { findWorkspaceRoot, initWorkspaceFromArgv, resolveWorkspaceRoot } from './paths.js';
 import { ensureWorkspaceBootstrapped, startMcpLightSync } from './mcpBootstrap.js';
+import { scheduleMcpRuntimeBootstrap } from './dashboardEnsure.js';
+import { readMcpAutoContext } from './autoContext.js';
+import { confirmHandoffInjection, prepareHandoffInjection, readHandoffInjectionState, skipHandoffInjection, syncInjectionWithRuntime, } from '@contora/state-core';
 import { loadWorkspaceSnapshot } from './workspace.js';
+import { readRuntimeState } from './runtimeState.js';
+import { resolveMcpStartupConfig } from './workspaceConfig.js';
 function mcpPackageVersion() {
     const pkgPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
     return JSON.parse(readFileSync(pkgPath, 'utf8')).version;
@@ -27,9 +32,21 @@ function textResult(data) {
         content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
     };
 }
+const MCP_SERVER_INSTRUCTIONS = `Contorium MCP — persistent project memory for AI coding.
+
+On every NEW chat when a runtime is active:
+1. Call get_handoff_injection_status first.
+2. If pending is true, ask the user: "Contorium has active project context. Inject it? (Y/n)"
+3. On Y → confirm_handoff_injection. On N → skip_handoff_injection.
+Do NOT inject without user confirmation.
+
+For ongoing work use get_project_handoff, get_understanding_graph, get_recent_changes.`;
 const server = new McpServer({
     name: 'contorium',
     version: mcpPackageVersion(),
+}, { instructions: MCP_SERVER_INSTRUCTIONS });
+const workspaceRootSchema = z.object({
+    workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
 });
 server.registerTool('store_memory', {
     description: 'Store important coding context into Contorium memory (persisted under .contora/mcp/).',
@@ -72,6 +89,8 @@ server.registerTool('get_workspace_context', {
     const root = override ? path.resolve(override) : await workspaceRootForTools();
     await ensureWorkspaceBootstrapped(root);
     const snapshot = await loadWorkspaceSnapshot(root);
+    const injection = await readHandoffInjectionState(root);
+    const confirmedContext = await readMcpAutoContext(root);
     if (!snapshot) {
         return textResult({
             workspaceRoot: root,
@@ -79,7 +98,13 @@ server.registerTool('get_workspace_context', {
             hint: 'Workspace scan bootstrap failed — check workspace path and permissions.',
         });
     }
-    return textResult({ workspaceRoot: root, found: true, snapshot });
+    return textResult({
+        workspaceRoot: root,
+        found: true,
+        snapshot,
+        handoffInjection: injection ?? undefined,
+        confirmedContext: confirmedContext ?? undefined,
+    });
 });
 server.registerTool('get_project_intelligence', {
     description: 'Read Contorium v0.7 derived project understanding from .contora/intelligence/state-summary.json (written by the extension cognition layer).',
@@ -334,22 +359,106 @@ server.registerTool('get_project_intent', {
         prefer: 'get_project_handoff',
     });
 });
-server.registerTool('get_project_handoff', {
-    description: 'Read Contorium V3.1 AI handoff — sole recommended entry (.contora/handoff.json: goal, focus, changes, impact, next actions).',
-    inputSchema: z.object({
-        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
-    }),
+server.registerTool('get_handoff_injection_status', {
+    description: 'At the START of each new chat: check if Contorium runtime is active and user should be asked to inject context. Call automatically — no CLI command needed.',
+    inputSchema: workspaceRootSchema,
 }, async ({ workspaceRoot: override }) => {
     const root = override ? path.resolve(override) : await workspaceRootForTools();
+    await syncInjectionWithRuntime(root);
+    const prep = await prepareHandoffInjection(root);
+    const state = await readHandoffInjectionState(root);
+    const confirmedContext = await readMcpAutoContext(root);
+    return textResult({
+        workspaceRoot: root,
+        pending: prep.shouldPrompt,
+        alreadyInjected: prep.alreadyInjected,
+        prompt: prep.prompt,
+        compact: prep.compact,
+        state,
+        confirmedContext: confirmedContext ? true : false,
+        next: prep.shouldPrompt
+            ? 'Ask the user, then call confirm_handoff_injection (Y) or skip_handoff_injection (N).'
+            : prep.alreadyInjected
+                ? 'Context already injected for this runtime — read .contora/mcp.auto-context.md or get_project_handoff.'
+                : 'No active runtime or user skipped injection.',
+    });
+});
+server.registerTool('confirm_handoff_injection', {
+    description: 'After user confirms (Y), write .contora/mcp.auto-context.md and mark runtime handoff as injected for this session.',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+        format: z
+            .enum(['json', 'markdown', 'compact'])
+            .optional()
+            .describe('Handoff format written to mcp.auto-context.md (default markdown)'),
+    }),
+}, async ({ workspaceRoot: override, format }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const result = await confirmHandoffInjection(root, format ?? 'markdown');
+    if (!result.ok) {
+        return textResult({ workspaceRoot: root, ok: false, hint: result.hint });
+    }
+    return textResult({
+        workspaceRoot: root,
+        ok: true,
+        filePath: result.filePath,
+        contextFile: `.contora/mcp.auto-context.md`,
+        hint: 'Injected — AI can read the context file or call get_project_handoff.',
+        preview: result.text?.slice(0, 400),
+    });
+});
+server.registerTool('skip_handoff_injection', {
+    description: 'User declined runtime handoff injection for the current runtime session (N).',
+    inputSchema: workspaceRootSchema,
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const result = await skipHandoffInjection(root);
+    return textResult({
+        workspaceRoot: root,
+        ok: result.ok,
+        hint: 'Skipped — start chat without injected context; get_project_handoff remains available.',
+    });
+});
+server.registerTool('get_project_handoff', {
+    description: 'CHP v1 get_handoff — read unified AI handoff from Contorium Runtime (.contora/handoff.json + state). For new chats prefer get_handoff_injection_status → user confirm → confirm_handoff_injection.',
+    inputSchema: z.object({
+        workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
+        format: z
+            .enum(['json', 'markdown', 'compact'])
+            .optional()
+            .describe('Output format: compact (default), markdown (AI chat), json (systems)'),
+        filter: z.string().optional().describe('Optional symbol/file filter'),
+    }),
+}, async ({ workspaceRoot: override, format, filter }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
     const handoff = await readHandoffArtifact(root);
-    if (!handoff) {
+    const result = await getProjectHandoff(root, format ?? 'compact', filter);
+    if (!result.found) {
         return textResult({
             workspaceRoot: root,
             found: false,
-            hint: 'Handoff artifact not generated yet.',
+            hint: 'Handoff artifact not generated yet — save code changes or run contorium sync.',
         });
     }
-    return textResult({ workspaceRoot: root, found: true, handoff });
+    if (format === 'markdown' || format === 'compact') {
+        return textResult({
+            workspaceRoot: root,
+            found: true,
+            format,
+            text: result.text,
+            state: result.state,
+        });
+    }
+    if (format === 'json') {
+        return textResult({ workspaceRoot: root, found: true, chp: result.state });
+    }
+    return textResult({
+        workspaceRoot: root,
+        found: true,
+        handoff,
+        chp: result.state,
+        compact: result.text,
+    });
 });
 server.registerTool('get_project_timeline', {
     description: 'Read Contorium V3.1 code evolution timeline from .contora/timeline.json (recent commits + symbol changes).',
@@ -368,12 +477,72 @@ server.registerTool('get_project_timeline', {
     }
     return textResult({ workspaceRoot: root, found: true, timeline });
 });
-async function main() {
+// ── MCP v1 standard tools (aliases + runtime graph) ──────────────────────────
+server.registerTool('get_recent_changes', {
+    description: '[MCP v1 standard] Recent file/function changes from .contora/change.json — alias of get_project_change.',
+    inputSchema: workspaceRootSchema,
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const change = await readChangeArtifact(root);
+    if (!change) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'No recent changes — save code or run: contorium sync',
+        });
+    }
+    return textResult({ workspaceRoot: root, found: true, recent_changes: change });
+});
+server.registerTool('get_understanding_graph', {
+    description: '[MCP v1 standard] Runtime understanding graph — call chains + impact from .contora/understanding_graph.json.',
+    inputSchema: workspaceRootSchema,
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const graph = await readUnderstandingGraph(root);
+    if (!graph) {
+        return textResult({
+            workspaceRoot: root,
+            found: false,
+            hint: 'Understanding graph pending — save code changes or run contorium sync.',
+            fallback: 'Try get_project_graph for change-neighborhood graph.json',
+        });
+    }
+    return textResult({ workspaceRoot: root, found: true, understanding_graph: graph });
+});
+server.registerTool('get_runtime_state', {
+    description: '[MCP v1 standard] Runtime session view — bootstrap, dashboard worker, session marker (read-only).',
+    inputSchema: workspaceRootSchema,
+}, async ({ workspaceRoot: override }) => {
+    const root = override ? path.resolve(override) : await workspaceRootForTools();
+    const runtime = await readRuntimeState(root);
+    return textResult({ workspaceRoot: root, found: true, runtime });
+});
+/** Standard MCP server startup — used by bin/contorium-mcp.js and direct server.js entry. */
+export async function startMcpServer(argv = process.argv.slice(2)) {
+    const startup = resolveMcpStartupConfig(argv);
+    initWorkspaceFromArgv(argv);
+    console.error(`[contorium-mcp] workspace: ${startup.workspaceHint}`);
     try {
         const root = await workspaceRootForTools();
         const boot = await ensureWorkspaceBootstrapped(root);
         startMcpLightSync(root);
-        console.error(`[contorium-mcp] workspace ${root} (mode: ${boot.mode})`);
+        scheduleMcpRuntimeBootstrap(root);
+        console.error(`[contorium-mcp] runtime bootstrap scheduled (mode: ${boot.mode})`);
+        setTimeout(() => {
+            void (async () => {
+                await syncInjectionWithRuntime(root);
+                const prep = await prepareHandoffInjection(root, { newChat: true });
+                if (prep.shouldPrompt && prep.prompt) {
+                    console.error('[contorium-mcp:handoff] ── New chat · semi-auto injection ──');
+                    for (const line of prep.prompt.split('\n')) {
+                        console.error(`[contorium-mcp:handoff] ${line}`);
+                    }
+                }
+                else if (prep.alreadyInjected) {
+                    console.error('[contorium-mcp:handoff] Context already confirmed for this chat.');
+                }
+            })();
+        }, 1200);
     }
     catch (err) {
         console.error('[contorium-mcp] bootstrap skipped:', err instanceof Error ? err.message : err);
@@ -382,7 +551,17 @@ async function main() {
     await server.connect(transport);
     console.error('[contorium-mcp] ready on stdio');
 }
-main().catch((err) => {
-    console.error('[contorium-mcp] fatal:', err);
-    process.exit(1);
-});
+function isDirectServerEntry() {
+    const entry = process.argv[1];
+    if (!entry) {
+        return false;
+    }
+    const base = path.basename(entry);
+    return base === 'server.js' || base === 'server.ts';
+}
+if (isDirectServerEntry()) {
+    startMcpServer().catch((err) => {
+        console.error('[contorium-mcp] fatal:', err);
+        process.exit(1);
+    });
+}

@@ -10,6 +10,7 @@ import type {
   ProjectGraph,
   ProjectTimeline,
 } from './types.js';
+import type { UnderstandingGraph } from './understandingGraphBuilder.js';
 import { deleteProjectKnowledgeGraph, readProjectKnowledgeGraph } from './knowledgeGraph/store.js';
 
 const LEGACY_ARTIFACTS = ['impact.json', 'intent.json'] as const;
@@ -201,6 +202,12 @@ export async function readIntentArtifact(workspaceRoot: string): Promise<IntentA
   };
 }
 
+export async function readUnderstandingGraph(
+  workspaceRoot: string,
+): Promise<UnderstandingGraph | undefined> {
+  return readJson<UnderstandingGraph>(contoraPath(workspaceRoot, 'understanding_graph.json'));
+}
+
 export async function writeUnderstandingArtifacts(
   workspaceRoot: string,
   artifacts: {
@@ -208,20 +215,27 @@ export async function writeUnderstandingArtifacts(
     change: ChangeArtifact;
     handoff: HandoffArtifact;
     timeline: ProjectTimeline;
+    understandingGraph?: UnderstandingGraph;
   },
 ): Promise<void> {
   const root = path.resolve(workspaceRoot);
-  await Promise.all([
+  const writes: Promise<void>[] = [
     writeJson(contoraPath(root, 'graph.json'), artifacts.graph),
     writeJson(contoraPath(root, 'change.json'), artifacts.change),
     writeJson(contoraPath(root, 'handoff.json'), artifacts.handoff),
     writeJson(contoraPath(root, 'timeline.json'), artifacts.timeline),
     ...LEGACY_ARTIFACTS.map((name) => unlinkQuiet(contoraPath(root, name))),
-  ]);
+  ];
+  if (artifacts.understandingGraph) {
+    writes.push(
+      writeJson(contoraPath(root, 'understanding_graph.json'), artifacts.understandingGraph),
+    );
+  }
+  await Promise.all(writes);
 }
 
 export async function deleteUnderstandingArtifacts(workspaceRoot: string): Promise<void> {
-  const names = ['graph.json', 'change.json', 'handoff.json', 'timeline.json', ...LEGACY_ARTIFACTS];
+  const names = ['graph.json', 'change.json', 'handoff.json', 'timeline.json', 'understanding_graph.json', ...LEGACY_ARTIFACTS];
   await Promise.all([
     ...names.map((name) => unlinkQuiet(contoraPath(workspaceRoot, name))),
     deleteProjectKnowledgeGraph(workspaceRoot),

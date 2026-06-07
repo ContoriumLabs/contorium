@@ -13,6 +13,7 @@ import { buildProjectKnowledgeGraph } from './knowledgeGraph/knowledgeGraphBuild
 import type { ProjectKnowledgeGraph } from './knowledgeGraph/types.js';
 import { writeProjectKnowledgeGraph, readProjectKnowledgeGraph } from './knowledgeGraph/store.js';
 import { resolveKnowledgeRebuildTrigger } from './knowledgeGraph/rebuildTrigger.js';
+import { buildUnderstandingGraph } from './understandingGraphBuilder.js';
 import { writeUnderstandingArtifacts } from './store.js';
 import { getContoriumPackageVersion } from '../version.js';
 import type { ChangeArtifact, HandoffArtifact, ProjectGraph, ProjectTimeline } from './types.js';
@@ -104,7 +105,14 @@ export async function buildAndWriteUnderstandingArtifacts(
   if (!result) {
     return undefined;
   }
-  await writeUnderstandingArtifacts(input.workspaceRoot, result);
+  const understandingGraph = buildUnderstandingGraph({
+    graph: result.graph,
+    change: result.change,
+    handoff: result.handoff,
+    agent: input.state?.source?.lastWriter ?? 'runtime',
+    now: Date.now(),
+  });
+  await writeUnderstandingArtifacts(input.workspaceRoot, { ...result, understandingGraph });
   await writeProjectKnowledgeGraph(input.workspaceRoot, result.knowledge);
   return result;
 }

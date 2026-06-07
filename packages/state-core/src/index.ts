@@ -25,6 +25,12 @@ export {
 } from './bootstrap/bootstrapState.js';
 
 export { attachStateSource, parseStateSource } from './sourceMetadata.js';
+export {
+  bumpWorkspaceActivity,
+  readWorkspaceActivity,
+  type WorkspaceActivityBump,
+  type WorkspaceActivityKind,
+} from './dashboardActivity.js';
 
 export {
   PROJECT_BUILT_STATE_VERSION,
@@ -97,6 +103,7 @@ export {
   readIntentArtifact,
   readProjectGraph,
   readProjectTimeline,
+  readUnderstandingGraph,
   normalizeHandoff,
   writeUnderstandingArtifacts,
   deleteUnderstandingArtifacts,
@@ -106,6 +113,24 @@ export {
   formatNextActionBullet,
   buildUnderstandingExportJson,
 } from './understanding/formatHandoff.js';
+export {
+  CHP_VERSION,
+  buildChpHandoffState,
+  buildChpHandoffStateSync,
+  formatChpCompact,
+  formatChpMarkdown,
+  getProjectHandoff,
+  type ChpAgentContext,
+  type ChpHandoffFormat,
+  type ChpHandoffState,
+  type ChpRecentChange,
+  type BuildChpHandoffInput,
+} from './understanding/chpHandoff.js';
+export {
+  buildUnderstandingGraph,
+  type UnderstandingGraph,
+} from './understanding/understandingGraphBuilder.js';
+export { formatUnderstandingMiniGraph } from './understanding/miniGraph.js';
 export {
   readProjectKnowledgeGraph,
   readKnowledgeSnapshot,
@@ -167,4 +192,17 @@ export {
   normalizeGraphRef,
   type CanonicalAiExportInput,
 } from './understanding/formatCanonicalExport.js';
+export {
+  checkActiveRuntime,
+  confirmHandoffInjection,
+  prepareHandoffInjection,
+  readConfirmedHandoffContext,
+  readHandoffInjectionState,
+  skipHandoffInjection,
+  syncInjectionWithRuntime,
+  buildInjectionPromptMessage,
+  type HandoffInjectionState,
+  type HandoffInjectionStatus,
+  type PrepareHandoffOptions,
+} from './semiAutoHandoff.js';
 export { getContoriumPackageVersion } from './version.js';
