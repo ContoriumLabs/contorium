@@ -1,7 +1,5 @@
 ![Contorium demo](./demo.gif)
 
-![Contorium demo](./demo.gif)
-
 # Contorium
 
 **The Runtime Continuity Layer for AI Coding**
