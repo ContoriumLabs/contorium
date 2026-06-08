@@ -1,5 +1,7 @@
 import { bumpWorkspaceActivity, } from '@contora/state-core';
 import { ensureDashboardWorker } from './ensure.js';
+import { isDashboardWorkerRunning } from './daemon.js';
+import { shouldPreferOsTerminal } from './spawn.js';
 import { readDashboardStatus } from './statusFile.js';
 import { writeDashboardSession } from './session.js';
 function sleep(ms) {
@@ -37,9 +39,16 @@ export async function wakeDashboardOnActivity(workspaceRoot, source, options) {
         detail: options?.detail,
     });
     await writeDashboardSession(workspaceRoot, source, true);
-    const mcpOrCli = source === 'mcp' ? 'mcp' : 'cli';
-    const result = await ensureDashboardWorker(workspaceRoot, mcpOrCli, {
-        preferTerminal: true,
+    // MCP bootstrap owns the single dashboard terminal — wake never spawns another window.
+    if (source === 'mcp') {
+        return {
+            started: false,
+            alreadyRunning: await isDashboardWorkerRunning(workspaceRoot),
+        };
+    }
+    const workerSource = source === 'ide' ? 'cli' : 'cli';
+    const result = await ensureDashboardWorker(workspaceRoot, workerSource, {
+        preferTerminal: shouldPreferOsTerminal(),
     });
     return result;
 }

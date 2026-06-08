@@ -41,6 +41,10 @@ export async function detectIdeSession(workspaceRoot) {
         return { active: true, reason: `activity:${activity.kind} (${activity.source})` };
     }
     const marker = await readDashboardSession(workspaceRoot);
+    // MCP / Codex: bootstrap session stays active until explicitly ended (no IDE required).
+    if (marker?.source === 'mcp' && marker.active) {
+        return { active: true, reason: 'mcp runtime session' };
+    }
     if (marker?.active) {
         const age = Date.now() - marker.startedAt;
         if (age < SESSION_IDLE_MS) {

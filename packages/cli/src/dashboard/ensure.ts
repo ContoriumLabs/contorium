@@ -1,5 +1,6 @@
 import { isDashboardWorkerRunning } from './daemon.js';
 import { shouldPreferOsTerminal, spawnDashboardTerminal, spawnHeadlessWorker } from './spawn.js';
+import { isDashboardSpawnPending, tryAcquireDashboardSpawnLock } from './spawnLock.js';
 import { writeDashboardSession } from './session.js';
 
 export interface EnsureResult {
@@ -19,6 +20,14 @@ export async function ensureDashboardWorker(
     return { started: false, alreadyRunning: true };
   }
 
+  if (await isDashboardSpawnPending(workspaceRoot)) {
+    return { started: false, alreadyRunning: true };
+  }
+
+  if (!(await tryAcquireDashboardSpawnLock(workspaceRoot))) {
+    return { started: false, alreadyRunning: true };
+  }
+
   await writeDashboardSession(workspaceRoot, source, true);
 
   const preferTerminal = opts?.preferTerminal ?? shouldPreferOsTerminal();
@@ -28,5 +37,6 @@ export async function ensureDashboardWorker(
     spawnHeadlessWorker(workspaceRoot);
   }
 
+  // Lock released by attach after registerDashboardWorker — not here (race caused Codex flash-close).
   return { started: true, alreadyRunning: false };
 }

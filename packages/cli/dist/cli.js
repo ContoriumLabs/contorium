@@ -2,6 +2,9 @@
 import * as path from 'node:path';
 import { buildUnderstandingExportJson, confirmHandoffInjection, filterMappingsByConfidence, formatCanonicalAiMarkdown, getProjectHandoff, prepareHandoffInjection, readChangeArtifact, readHandoffArtifact, readKnowledgeSnapshot, readProjectGraph, readProjectKnowledgeGraph, readProjectSnapshotMarkdown, readProjectTimeline, readStateJson, readWorkspaceStatus, skipHandoffInjection, syncWorkspaceState, } from '@contora/state-core';
 import { isDashboardWorkerRunning, readDashboardStatus, runAttach, wakeDashboardOnActivity, writeDashboardSignal, } from './dashboard/index.js';
+import { releaseDashboardSpawnLock } from './dashboard/spawnLock.js';
+import { spawnDashboardTerminal } from './dashboard/spawn.js';
+import { stopDashboardWorker } from './dashboard/daemon.js';
 import { bootstrapContoriumRuntime } from './runtime/bootstrap.js';
 import { copyToClipboard } from './handoff/clipboard.js';
 const USAGE = `Contorium CLI — runtime adapter (same state-core as IDE / MCP)
@@ -42,7 +45,7 @@ function workspaceArg() {
     let rest = argv.slice(1);
     if (cmd === 'dashboard') {
         const sub = rest[0];
-        if (sub === 'show' || sub === 'hide' || sub === 'line' || sub === 'wake') {
+        if (sub === 'show' || sub === 'hide' || sub === 'line' || sub === 'wake' || sub === 'open') {
             rest = rest.slice(1);
         }
         else if (sub === 'filter') {
@@ -112,8 +115,15 @@ function bootstrapSourceFlag() {
 }
 async function cmdBootstrap(root) {
     const source = bootstrapSourceFlag();
-    const result = await bootstrapContoriumRuntime(root, source);
-    await printJson(result);
+    const reopen = process.argv.includes('--reopen-dashboard');
+    const quiet = process.argv.includes('--quiet') || source === 'mcp';
+    const result = await bootstrapContoriumRuntime(root, source, { reopenDashboard: reopen });
+    if (!quiet && result.mode === 'already_running') {
+        console.error('[contorium] dashboard worker already running — reopen: contorium bootstrap --reopen-dashboard · or run .contora/dashboard.cmd');
+    }
+    if (!quiet && process.stdout.isTTY) {
+        await printJson(result);
+    }
 }
 async function cmdSnapshot(root) {
     const existing = await readProjectSnapshotMarkdown(root);
@@ -367,6 +377,7 @@ const DASHBOARD_HELP = `Contorium Runtime Dashboard — no CLI commands required
 4. Minimize: Ctrl+Shift+M · m in dashboard terminal
 
 Subcommands here are internal/debug only.
+  contorium dashboard open [path]   Reopen Contorium Dashboard terminal (Windows: .contora/dashboard.cmd)
 `;
 function dashboardWakeSource() {
     const i = process.argv.indexOf('--source');
@@ -392,6 +403,12 @@ async function cmdDashboardWake(root) {
 async function cmdDashboardControl(root, action) {
     const running = await isDashboardWorkerRunning(root);
     switch (action) {
+        case 'open':
+            await stopDashboardWorker(root);
+            await releaseDashboardSpawnLock(root);
+            spawnDashboardTerminal(root);
+            process.stderr.write('[contorium] dashboard terminal opened\n');
+            return;
         case 'wake':
             await cmdDashboardWake(root);
             return;

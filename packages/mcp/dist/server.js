@@ -13,7 +13,7 @@ import { loadProjectBuiltState, loadProjectSnapshotMarkdown } from './stateBuild
 import { readChangeArtifact, readHandoffArtifact, readImpactArtifact, readIntentArtifact, readProjectGraph, readProjectKnowledgeGraph, readKnowledgeSnapshot, readProjectTimeline, readUnderstandingGraph, filterMappingsByConfidence, getProjectHandoff, } from './understanding.js';
 import { findWorkspaceRoot, initWorkspaceFromArgv, resolveWorkspaceRoot } from './paths.js';
 import { ensureWorkspaceBootstrapped, startMcpLightSync } from './mcpBootstrap.js';
-import { scheduleMcpRuntimeBootstrap } from './dashboardEnsure.js';
+import { ensureMcpDashboardAttached } from './runtimeAttach.js';
 import { readMcpAutoContext } from './autoContext.js';
 import { confirmHandoffInjection, prepareHandoffInjection, readHandoffInjectionState, skipHandoffInjection, syncInjectionWithRuntime, } from '@contora/state-core';
 import { loadWorkspaceSnapshot } from './workspace.js';
@@ -526,7 +526,7 @@ export async function startMcpServer(argv = process.argv.slice(2)) {
         const root = await workspaceRootForTools();
         const boot = await ensureWorkspaceBootstrapped(root);
         startMcpLightSync(root);
-        scheduleMcpRuntimeBootstrap(root);
+        void ensureMcpDashboardAttached(root);
         console.error(`[contorium-mcp] runtime bootstrap scheduled (mode: ${boot.mode})`);
         setTimeout(() => {
             void (async () => {

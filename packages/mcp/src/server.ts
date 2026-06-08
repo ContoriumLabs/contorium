@@ -26,7 +26,7 @@ import {
 } from './understanding.js';
 import { findWorkspaceRoot, initWorkspaceFromArgv, resolveWorkspaceRoot } from './paths.js';
 import { ensureWorkspaceBootstrapped, startMcpLightSync } from './mcpBootstrap.js';
-import { scheduleMcpRuntimeBootstrap } from './dashboardEnsure.js';
+import { ensureMcpDashboardAttached } from './runtimeAttach.js';
 import { readMcpAutoContext } from './autoContext.js';
 import {
   confirmHandoffInjection,
@@ -697,7 +697,7 @@ export async function startMcpServer(argv: string[] = process.argv.slice(2)): Pr
     const root = await workspaceRootForTools();
     const boot = await ensureWorkspaceBootstrapped(root);
     startMcpLightSync(root);
-    scheduleMcpRuntimeBootstrap(root);
+    void ensureMcpDashboardAttached(root);
     console.error(`[contorium-mcp] runtime bootstrap scheduled (mode: ${boot.mode})`);
     setTimeout(() => {
       void (async () => {

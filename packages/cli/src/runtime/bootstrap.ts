@@ -5,8 +5,10 @@ import {
   syncWorkspaceState,
   type AdapterKind,
 } from '@contora/state-core';
-import { isDashboardWorkerRunning } from '../dashboard/daemon.js';
+import { isDashboardWorkerRunning, stopDashboardWorker } from '../dashboard/daemon.js';
 import { ensureDashboardWorker } from '../dashboard/ensure.js';
+import { shouldPreferOsTerminal } from '../dashboard/spawn.js';
+import { releaseDashboardSpawnLock, isDashboardSpawnPending } from '../dashboard/spawnLock.js';
 
 /** CRBP v1 bootstrap response (cli终端显示.md). */
 export interface BootstrapResponse {
@@ -30,6 +32,7 @@ export interface BootstrapResponse {
 export async function bootstrapContoriumRuntime(
   workspaceRoot: string,
   source: AdapterKind,
+  opts?: { reopenDashboard?: boolean },
 ): Promise<BootstrapResponse> {
   const root = path.resolve(workspaceRoot);
   await syncWorkspaceState(root, source);
@@ -39,10 +42,35 @@ export async function bootstrapContoriumRuntime(
     detail: 'bootstrap',
   });
 
-  const alreadyRunning = await isDashboardWorkerRunning(root);
+  if (opts?.reopenDashboard) {
+    await stopDashboardWorker(root);
+    await releaseDashboardSpawnLock(root);
+    const workerSource = source === 'mcp' ? 'mcp' : 'cli';
+    await ensureDashboardWorker(root, workerSource, { preferTerminal: shouldPreferOsTerminal() });
+    const response: BootstrapResponse = {
+      status: 'ok',
+      runtime_id: `ctr-${Date.now().toString(36)}`,
+      mode: 'attached',
+      state: 'passive',
+      source,
+      workspaceRoot: root,
+      features: {
+        file_watch: true,
+        ast_diff: true,
+        agent_stream: true,
+      },
+    };
+    const artifact = path.join(root, '.contora', 'runtime.bootstrap.json');
+    await fs.mkdir(path.dirname(artifact), { recursive: true });
+    await fs.writeFile(artifact, JSON.stringify({ ...response, at: Date.now() }, null, 2), 'utf8');
+    return response;
+  }
+
+  const alreadyRunning =
+    (await isDashboardWorkerRunning(root)) || (await isDashboardSpawnPending(root));
   if (!alreadyRunning) {
     const workerSource = source === 'mcp' ? 'mcp' : 'cli';
-    await ensureDashboardWorker(root, workerSource, { preferTerminal: true });
+    await ensureDashboardWorker(root, workerSource, { preferTerminal: shouldPreferOsTerminal() });
   }
 
   const response: BootstrapResponse = {

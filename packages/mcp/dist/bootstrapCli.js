@@ -1,5 +1,4 @@
 import { prepareHandoffInjection, syncWorkspaceState } from '@contora/state-core';
-import { scheduleMcpRuntimeBootstrap } from './dashboardEnsure.js';
 import { findWorkspaceRoot, initWorkspaceFromArgv, resolveWorkspaceRoot } from './paths.js';
 /** `contorium-mcp bootstrap` — one-shot runtime sync without starting stdio MCP. */
 export async function runMcpBootstrapCli(argv) {
@@ -8,7 +7,18 @@ export async function runMcpBootstrapCli(argv) {
     const root = await findWorkspaceRoot(hint);
     console.error(`[contorium-mcp] bootstrap workspace: ${root}`);
     const result = await syncWorkspaceState(root, 'mcp', { forceArtifacts: true });
-    scheduleMcpRuntimeBootstrap(root);
+    // Dashboard worker — invoke CLI bootstrap (do not recurse via scheduleMcpRuntimeBootstrap).
+    const { resolveContoriumSpawn } = await import('./dashboardEnsure.js');
+    const { spawn } = await import('node:child_process');
+    const plan = resolveContoriumSpawn('bootstrap', root, ['--source', 'mcp']);
+    const child = spawn(plan.command, plan.args, {
+        cwd: root,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        shell: process.platform === 'win32' && plan.command.endsWith('npx.cmd'),
+    });
+    child.unref();
     const prep = await prepareHandoffInjection(root);
     console.error(`[contorium-mcp] bootstrap: mode=${result.mode} artifacts=${result.created ? 'created' : 'updated'}`);
     if (prep.shouldPrompt) {

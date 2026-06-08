@@ -1,6 +1,7 @@
 import { confirmHandoffInjection, getProjectHandoff, skipHandoffInjection } from '@contora/state-core';
 import { artifactSignature, loadDashboardState } from './artifacts.js';
-import { registerDashboardWorker, unregisterDashboardWorker } from './daemon.js';
+import { tryClaimDashboardWorker, unregisterDashboardWorker } from './daemon.js';
+import { releaseDashboardSpawnLock } from './spawnLock.js';
 import { copyToClipboard } from '../handoff/clipboard.js';
 import { setupKeyboard } from './input.js';
 import { renderExpanded, renderIdleLine, renderPassiveLine } from './render.js';
@@ -64,12 +65,33 @@ async function resolveInitialFsm(options: AttachOptions): Promise<DashboardFsmSt
 }
 
 export async function runAttach(options: AttachOptions): Promise<void> {
+  if (process.env.CONTORIUM_DASHBOARD_TITLE) {
+    process.title = process.env.CONTORIUM_DASHBOARD_TITLE;
+  }
+
   if (options.once) {
     await renderOnce(options);
     return;
   }
 
-  await registerDashboardWorker(options.workspaceRoot);
+  if (!options.headless && !(await tryClaimDashboardWorker(options.workspaceRoot))) {
+    process.stderr.write(
+      '[contorium] Dashboard worker already running — close the other Contorium Dashboard window.\n',
+    );
+    if (process.stdout.isTTY) {
+      await sleep(1500);
+    }
+    return;
+  }
+
+  if (options.headless) {
+    const claimed = await tryClaimDashboardWorker(options.workspaceRoot);
+    if (!claimed) {
+      return;
+    }
+  }
+
+  await releaseDashboardSpawnLock(options.workspaceRoot);
   let fsm: DashboardFsmState = await resolveInitialFsm(options);
   let stopping = false;
   let updateCount = 0;
@@ -255,7 +277,11 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   }
   render();
   maybeAutoInjectionFlash();
-  teardownKeys = options.headless ? undefined : setupKeyboard((key) => {
+  teardownKeys = options.headless
+    ? undefined
+    : (() => {
+        try {
+          return setupKeyboard((key) => {
     if (key === 'q' || key === '\u0003') {
       stopping = true;
       return;
@@ -284,7 +310,14 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     if (key === 'm' && fsm === 'expanded') {
       fsm = transition('passive');
     }
-  });
+          });
+        } catch (err) {
+          process.stderr.write(
+            `[contorium] keyboard setup skipped: ${err instanceof Error ? err.message : err}\n`,
+          );
+          return undefined;
+        }
+      })();
 
   const unwatch = watchContoraArtifacts(options.workspaceRoot, () => {
     void refreshData();
