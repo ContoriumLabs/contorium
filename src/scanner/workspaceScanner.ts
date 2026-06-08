@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
+import { setGitSubprocessAllowed } from '@contora/state-core';
 import { CONTORA_CONFIG_SECTION } from '../constants';
 import type { EventStore } from '../core/engine/eventStore';
 import { StateManager } from '../state/stateManager';
-import { scanGitState } from './gitScanner';
+import { scanGitState, type GitScanResult } from './gitScanner';
 
 function workingSetCap(): number {
   const n = vscode.workspace.getConfiguration(CONTORA_CONFIG_SECTION).get<number>('workingSetMaxFiles');
@@ -58,11 +59,14 @@ const EDIT_ACTIVITY_DEBOUNCE_MS = 500;
 const FILE_FOCUS_EMIT_GAP_MS = 5000;
 /** Defer first Git/tab scan so extension activate is not blocked on startup. */
 const INITIAL_SCAN_DEFER_MS = 2_500;
+/** Refresh git.exe only on interval or explicit activity — not every tab/focus persist. */
+const GIT_REFRESH_MS = 60_000;
 
 export class WorkspaceScanner {
   private disposables: vscode.Disposable[] = [];
   private gitTimer: ReturnType<typeof setTimeout> | undefined;
   private lastGitSig = '';
+  private lastGitRefreshAt = 0;
   /** Last time we appended `file_focus` for a relative path (debounce). */
   private lastFileFocusEmitAt = new Map<string, number>();
   /** Per-path debounce timers for typing → activity stream (sidebar goals order). */
@@ -90,6 +94,27 @@ export class WorkspaceScanner {
     this.events?.add({ type: 'file_focus', file: rel, timestamp: now });
   }
 
+  private cachedGitState(): GitScanResult {
+    const cached = this.state.getCached(this.folder);
+    return {
+      staged: cached?.gitStaged ?? [],
+      working: cached?.gitWorking ?? [],
+    };
+  }
+
+  private async resolveGitState(refresh: boolean): Promise<GitScanResult> {
+    const now = Date.now();
+    if (!refresh && now - this.lastGitRefreshAt < GIT_REFRESH_MS) {
+      return this.cachedGitState();
+    }
+    if (refresh) {
+      setGitSubprocessAllowed(true);
+    }
+    const gs = await scanGitState(this.folder.uri.fsPath);
+    this.lastGitRefreshAt = now;
+    return gs;
+  }
+
   private async persist(touchRelative?: string, kind?: 'focus' | 'save'): Promise<void> {
     const folder = this.folder;
     const cap = workingSetCap();
@@ -106,7 +131,7 @@ export class WorkspaceScanner {
       this.events?.add({ type: 'file_save', file: touchRelative, timestamp: Date.now() });
     }
 
-    const gs = await scanGitState(folder.uri.fsPath);
+    const gs = await this.resolveGitState(kind === 'save');
     const sig = JSON.stringify(gs);
     if (sig !== this.lastGitSig) {
       this.lastGitSig = sig;
@@ -244,8 +269,8 @@ export class WorkspaceScanner {
     }
 
     this.gitTimer = setInterval(() => {
-      void this.persist();
-    }, 60_000);
+      void this.persist(undefined, 'save');
+    }, GIT_REFRESH_MS);
   }
 
   dispose(): void {

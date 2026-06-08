@@ -1,4 +1,13 @@
 import type { AdapterKind, StateEngineMode, StateSourceMetadata } from './types.js';
+export interface AdapterSyncOptions {
+    forceArtifacts?: boolean;
+    /** Refresh git status from git.exe (default: use cached state.json git fields). */
+    refreshGit?: boolean;
+    /** @deprecated Prefer refreshGit — when true, skip git.exe subprocess. */
+    skipGitScan?: boolean;
+    /** Only `git status --porcelain` → state.json; no log/diff/understanding rebuild. */
+    gitStatusOnly?: boolean;
+}
 export interface AdapterSyncResult {
     mode: StateEngineMode;
     /** true when .contora/state.json did not exist before this call */
@@ -12,9 +21,7 @@ export interface AdapterSyncResult {
  * Shared one-shot sync for MCP / CLI adapters (runtime adapter pattern).
  * Scans workspace, merges into state.json, optionally rebuilds L4 when no events.
  */
-export declare function syncWorkspaceState(workspaceRoot: string, writer: AdapterKind, options?: {
-    forceArtifacts?: boolean;
-}): Promise<AdapterSyncResult>;
+export declare function syncWorkspaceState(workspaceRoot: string, writer: AdapterKind, options?: AdapterSyncOptions): Promise<AdapterSyncResult>;
 /** Read-only status for CLI `status` / IDE-less inspection. */
 export declare function readWorkspaceStatus(workspaceRoot: string): Promise<{
     workspaceRoot: string;

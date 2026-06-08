@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { existsSync } from 'node:fs';
 import type { StateSummary } from '../intelligence/types';
 import type { WorkspaceEvent } from '../core/models/events';
 import type { ProjectState } from '../types/state';
@@ -128,10 +129,20 @@ export async function rebuildProjectStateArtifacts(args: {
     workspaceRoot: args.folder.uri.fsPath,
     state: toBootstrapState(args.state),
     built: withAnchor,
+    scan: {
+      workspaceRoot: args.folder.uri.fsPath,
+      scannedAt: now,
+      topLevelModules: [],
+      recentFiles: args.state.recentFiles ?? [],
+      gitStaged: args.state.gitStaged ?? [],
+      gitWorking: args.state.gitWorking ?? [],
+      isGitRepo: existsSync(vscode.Uri.joinPath(args.folder.uri, '.git').fsPath),
+    },
     extraChangedPaths: [
       ...ranked.slice(0, 12).map((r) => r.path),
       ...(args.extraHotPaths ?? []),
     ],
+    skipGitTimeline: true,
   }).catch((err: unknown) => {
     console.error('[Contorium] understanding layer update failed:', err);
   });

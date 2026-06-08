@@ -1,9 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildProjectTimeline = buildProjectTimeline;
-const node_child_process_1 = require("node:child_process");
-const node_util_1 = require("node:util");
-const execFileAsync = (0, node_util_1.promisify)(node_child_process_1.execFile);
+const runGit_js_1 = require("../scanner/runGit.js");
+const store_js_1 = require("./store.js");
 function norm(p) {
     return p.replace(/\\/g, '/');
 }
@@ -21,7 +20,7 @@ function riskFromChangeCount(n) {
 }
 async function recentGitCommits(workspaceRoot, max = 5) {
     try {
-        const { stdout } = await execFileAsync('git', ['-C', workspaceRoot, 'log', `-${max}`, '--pretty=format:---%n%H|%ct', '--name-status'], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
+        const stdout = await (0, runGit_js_1.runGit)(workspaceRoot, ['log', `-${max}`, '--pretty=format:---%n%H|%ct', '--name-status']);
         const rows = [];
         let current;
         for (const line of stdout.split('\n')) {
@@ -76,7 +75,19 @@ function linkedNodes(graph, file, keyChanges) {
     }
     return refs.slice(0, 8);
 }
-async function buildProjectTimeline(workspaceRoot, changedFiles, change, graph, now = Date.now(), maxCommits = 5) {
+async function buildProjectTimeline(workspaceRoot, changedFiles, change, graph, now = Date.now(), maxCommits = 5, opts) {
+    if (opts?.skipGitLog) {
+        const cached = await (0, store_js_1.readProjectTimeline)(workspaceRoot);
+        if (cached) {
+            return cached;
+        }
+        return {
+            version: 1,
+            generatedAt: now,
+            files: [],
+            recent: [],
+        };
+    }
     const commits = await recentGitCommits(workspaceRoot, maxCommits);
     const watch = new Set(changedFiles.map(norm));
     const byFile = new Map();

@@ -24,6 +24,10 @@ export interface UnderstandingBuildInput {
   built?: ProjectBuiltState | null;
   scan?: WorkspaceScanFacts;
   extraChangedPaths?: string[];
+  /** Reuse cached timeline.json — no `git log` subprocess. */
+  skipGitTimeline?: boolean;
+  /** Run `git diff` for changed files (default false — use state/scan only). */
+  allowGitDiff?: boolean;
 }
 
 export interface UnderstandingBuildResult {
@@ -48,6 +52,7 @@ export async function buildUnderstandingArtifacts(
     state,
     input.scan,
     input.extraChangedPaths ?? [],
+    { allowGitDiff: input.allowGitDiff === true },
   );
   if (!changedFiles.length) {
     return undefined;
@@ -61,7 +66,9 @@ export async function buildUnderstandingArtifacts(
   const intent = fuseIntent({ state, change, built });
   const goal = built?.project_goal?.trim() || state.currentTask.trim();
   const handoff = buildHandoff({ goal, intent, change, impact, graph, built, now });
-  const timeline = await buildProjectTimeline(root, changedFiles, change, graph, now);
+  const timeline = await buildProjectTimeline(root, changedFiles, change, graph, now, 5, {
+    skipGitLog: input.skipGitTimeline,
+  });
 
   const editCounts = new Map<string, number>();
   for (const p of [...changedFiles, ...(input.extraChangedPaths ?? [])]) {

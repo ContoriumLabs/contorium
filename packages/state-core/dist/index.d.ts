@@ -1,5 +1,6 @@
 export type { AdapterKind, BootstrapStateJson, DualModeInput, StateEngineMode, StateSourceMetadata, WorkspaceScanFacts, WriteStateOptions, } from './types.js';
 export { scanGitPorcelain } from './scanner/gitScan.js';
+export { isGitSubprocessAllowed, setGitSubprocessAllowed, traceGitInvocation, } from './scanner/gitRuntime.js';
 export { scanWorkspace } from './scanner/workspaceScanner.js';
 export { buildDualModeInput, mergeStateWithScan, resolveStateEngineMode, } from './dualMode.js';
 export { bootstrapStateFromScan, readStateJson, stateJsonExists, writeStateJson, } from './bootstrap/bootstrapState.js';
@@ -37,7 +38,7 @@ export { computeUnifiedConfidence, clampConfidence, isCanonicalConfidence, split
 export { resolveKnowledgeRebuildTrigger, shouldRebuildKnowledgeGraph, type KnowledgeRebuildTrigger, } from './understanding/knowledgeGraph/rebuildTrigger.js';
 export type { ProjectKnowledgeGraph, GraphMetadata, KnowledgeNode, KnowledgeEdge, KnowledgeGraphTreeNode, IntentFunctionMapping, ReasonTraceItem, HotspotNode, HotspotLifecycle, KnowledgeSnapshot, } from './understanding/knowledgeGraph/types.js';
 export { parseFileWithAdapter, IncrementalParseCache, type ParseBackend, type ParseFileOptions, } from './understanding/treeSitterParser.js';
-export { extractFromSource, isCodeFile } from './understanding/extractor.js';
+export { extractFromSource, isCodeFile, isTrackableFile } from './understanding/extractor.js';
 export { formatCanonicalAiMarkdown, formatAiHandoffExecutionBlock, formatNextActionPlain, normalizeGraphRef, type CanonicalAiExportInput, } from './understanding/formatCanonicalExport.js';
 export { checkActiveRuntime, confirmHandoffInjection, prepareHandoffInjection, readConfirmedHandoffContext, readHandoffInjectionState, skipHandoffInjection, syncInjectionWithRuntime, buildInjectionPromptMessage, type HandoffInjectionState, type HandoffInjectionStatus, type PrepareHandoffOptions, } from './semiAutoHandoff.js';
 export { getContoriumPackageVersion } from './version.js';

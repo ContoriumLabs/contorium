@@ -1,4 +1,6 @@
 import type * as vscode from 'vscode';
+import { existsSync } from 'node:fs';
+import * as path from 'node:path';
 import type { ProjectState } from '../types/state';
 import { newSessionId } from '../state/stateManager';
 
@@ -49,11 +51,17 @@ const SCAN_TIMEOUT_MS = 8_000;
 async function scanWithTimeout(
   core: StateCore,
   root: string,
+  state?: ProjectState,
 ): Promise<import('@contora/state-core').WorkspaceScanFacts> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const cachedGit = {
+    staged: state?.gitStaged ?? [],
+    working: state?.gitWorking ?? [],
+    isRepo: existsSync(path.join(root, '.git')),
+  };
   try {
     return await Promise.race([
-      core.scanWorkspace(root),
+      core.scanWorkspace(root, { skipGitScan: true, cachedGit }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('workspace scan timeout')), SCAN_TIMEOUT_MS);
       }),
@@ -84,12 +92,12 @@ export async function applyDualModeWorkspaceInput(
       return state;
     }
 
-    const scan = await scanWithTimeout(core, root);
+    const scan = await scanWithTimeout(core, root, state);
 
     if (!hadState && eventCount === 0) {
       const boot = core.bootstrapStateFromScan(scan);
       await core.writeStateJson(root, boot, { mode: 'scan-driven', writer: 'ide' });
-      await core.rebuildArtifactsFromScan(root, scan, boot, 'ide');
+      await core.rebuildArtifactsFromScan(root, scan, boot, 'ide', { skipGitTimeline: true });
       return fromBootstrap(boot);
     }
 

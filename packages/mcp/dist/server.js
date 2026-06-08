@@ -15,7 +15,7 @@ import { findWorkspaceRoot, initWorkspaceFromArgv, resolveWorkspaceRoot } from '
 import { ensureWorkspaceBootstrapped, startMcpLightSync } from './mcpBootstrap.js';
 import { ensureMcpDashboardAttached } from './runtimeAttach.js';
 import { readMcpAutoContext } from './autoContext.js';
-import { confirmHandoffInjection, prepareHandoffInjection, readHandoffInjectionState, skipHandoffInjection, syncInjectionWithRuntime, } from '@contora/state-core';
+import { confirmHandoffInjection, prepareHandoffInjection, readHandoffInjectionState, setGitSubprocessAllowed, skipHandoffInjection, syncInjectionWithRuntime, } from '@contora/state-core';
 import { loadWorkspaceSnapshot } from './workspace.js';
 import { readRuntimeState } from './runtimeState.js';
 import { resolveMcpStartupConfig } from './workspaceConfig.js';
@@ -522,6 +522,7 @@ export async function startMcpServer(argv = process.argv.slice(2)) {
     const startup = resolveMcpStartupConfig(argv);
     initWorkspaceFromArgv(argv);
     console.error(`[contorium-mcp] workspace: ${startup.workspaceHint}`);
+    setGitSubprocessAllowed(false);
     try {
         const root = await workspaceRootForTools();
         const boot = await ensureWorkspaceBootstrapped(root);

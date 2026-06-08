@@ -4,12 +4,18 @@ import { buildProjectStateFromScan } from './buildFromScan.js';
 import { formatProjectSnapshotMarkdown } from './snapshot.js';
 import { writeProjectBuiltState } from './store.js';
 
+export interface RebuildFromScanOptions {
+  /** Skip `git log` when building timeline (MCP/Codex startup). */
+  skipGitTimeline?: boolean;
+}
+
 /** Unified scan path — MCP / CLI / IDE fallback share one state-builder implementation. */
 export async function rebuildArtifactsFromScan(
   workspaceRoot: string,
   scan: WorkspaceScanFacts,
   state?: BootstrapStateJson,
   writer: AdapterKind = 'mcp',
+  opts?: RebuildFromScanOptions,
 ): Promise<void> {
   const built = buildProjectStateFromScan(scan, state);
   let md = formatProjectSnapshotMarkdown(built);
@@ -22,5 +28,6 @@ export async function rebuildArtifactsFromScan(
     state,
     built,
     scan,
+    skipGitTimeline: opts?.skipGitTimeline,
   }).catch(() => undefined);
 }

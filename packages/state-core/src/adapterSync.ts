@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { existsSync } from 'node:fs';
 import type { AdapterKind, StateEngineMode, StateSourceMetadata } from './types.js';
 import { bootstrapStateFromScan, readStateJson, writeStateJson } from './bootstrap/bootstrapState.js';
 import { rebuildArtifactsFromScan } from './state-builder/rebuildFromScan.js';
@@ -27,6 +28,16 @@ async function countEventLines(workspaceRoot: string): Promise<number> {
   return total;
 }
 
+export interface AdapterSyncOptions {
+  forceArtifacts?: boolean;
+  /** Refresh git status from git.exe (default: use cached state.json git fields). */
+  refreshGit?: boolean;
+  /** @deprecated Prefer refreshGit — when true, skip git.exe subprocess. */
+  skipGitScan?: boolean;
+  /** Only `git status --porcelain` → state.json; no log/diff/understanding rebuild. */
+  gitStatusOnly?: boolean;
+}
+
 export interface AdapterSyncResult {
   mode: StateEngineMode;
   /** true when .contora/state.json did not exist before this call */
@@ -44,18 +55,33 @@ export interface AdapterSyncResult {
 export async function syncWorkspaceState(
   workspaceRoot: string,
   writer: AdapterKind,
-  options?: { forceArtifacts?: boolean },
+  options?: AdapterSyncOptions,
 ): Promise<AdapterSyncResult> {
   const resolved = path.resolve(workspaceRoot);
-  const scan = await scanWorkspace(resolved);
-  const eventCount = await countEventLines(resolved);
   const existing = await readStateJson(resolved);
+  const refreshGit = options?.refreshGit === true;
+  const skipGitScan = options?.skipGitScan ?? !refreshGit;
+  const skipGitTimeline = skipGitScan || options?.gitStatusOnly === true;
+  const cachedGit = skipGitScan
+    ? {
+        staged: existing?.gitStaged ?? [],
+        working: existing?.gitWorking ?? [],
+        isRepo: existsSync(path.join(resolved, '.git')),
+      }
+    : undefined;
+  const scan = await scanWorkspace(resolved, {
+    skipGitScan,
+    cachedGit,
+  });
+  const eventCount = await countEventLines(resolved);
   const created = !existing;
 
   if (!existing) {
     const state = bootstrapStateFromScan(scan);
     await writeStateJson(resolved, state, { mode: 'scan-driven', writer });
-    await rebuildArtifactsFromScan(resolved, scan, state, writer);
+    await rebuildArtifactsFromScan(resolved, scan, state, writer, {
+      skipGitTimeline,
+    });
     const written = await readStateJson(resolved);
     return {
       mode: 'scan-driven',
@@ -71,7 +97,6 @@ export async function syncWorkspaceState(
     JSON.stringify(existing.gitStaged) !== JSON.stringify(dual.state.gitStaged) ||
     JSON.stringify(existing.gitWorking) !== JSON.stringify(dual.state.gitWorking);
   const recentChanged =
-    eventCount === 0 &&
     JSON.stringify(existing.recentFiles) !== JSON.stringify(dual.state.recentFiles);
   const shouldWrite = gitChanged || recentChanged || options?.forceArtifacts;
 
@@ -80,24 +105,30 @@ export async function syncWorkspaceState(
   }
 
   if (eventCount === 0 && (shouldWrite || options?.forceArtifacts)) {
-    await rebuildArtifactsFromScan(resolved, scan, dual.state, writer);
+    await rebuildArtifactsFromScan(resolved, scan, dual.state, writer, {
+      skipGitTimeline,
+    });
   }
 
-  if (gitChanged || options?.forceArtifacts) {
-    await buildAndWriteUnderstandingArtifacts({
-      workspaceRoot: resolved,
-      state: dual.state,
-      scan,
-    }).catch(() => undefined);
+  if (gitChanged || recentChanged || (options?.forceArtifacts && created)) {
+    if (!options?.gitStatusOnly) {
+      await buildAndWriteUnderstandingArtifacts({
+        workspaceRoot: resolved,
+        state: dual.state,
+        scan,
+        skipGitTimeline,
+        allowGitDiff: refreshGit && !options?.gitStatusOnly,
+      }).catch(() => undefined);
+    }
   }
 
   const written = await readStateJson(resolved);
   const updated = shouldWrite || (eventCount === 0 && !!options?.forceArtifacts);
-  if (updated || gitChanged) {
+  if (updated || gitChanged || recentChanged) {
     await bumpWorkspaceActivity(resolved, {
       source: writer,
-      kind: gitChanged ? 'git_change' : 'sync',
-      detail: gitChanged ? 'workspace sync' : undefined,
+      kind: gitChanged ? 'git_change' : recentChanged ? 'file_change' : 'sync',
+      detail: gitChanged ? 'workspace sync' : recentChanged ? 'recent files updated' : undefined,
     }).catch(() => undefined);
   }
   return {
@@ -120,14 +151,28 @@ export async function readWorkspaceStatus(workspaceRoot: string): Promise<{
   gitStaged: number;
   currentTask: string;
 }> {
-  const scan = await scanWorkspace(workspaceRoot);
-  const state = await readStateJson(workspaceRoot);
+  const resolved = path.resolve(workspaceRoot);
+  const state = await readStateJson(resolved);
+  const scan = await scanWorkspace(resolved, {
+    skipGitScan: true,
+    cachedGit: state
+      ? {
+          staged: state.gitStaged ?? [],
+          working: state.gitWorking ?? [],
+          isRepo: existsSync(path.join(resolved, '.git')),
+        }
+      : {
+          staged: [],
+          working: [],
+          isRepo: existsSync(path.join(resolved, '.git')),
+        },
+  });
   const eventCount = await countEventLines(workspaceRoot);
   const mode = state
     ? buildDualModeInput({ state, eventCount, scan }).mode
     : 'unknown';
   return {
-    workspaceRoot,
+    workspaceRoot: resolved,
     hasState: !!state,
     mode,
     source: state?.source,

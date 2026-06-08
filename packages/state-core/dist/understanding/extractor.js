@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.isCodeFile = isCodeFile;
+exports.isTrackableFile = isTrackableFile;
 exports.nodeId = nodeId;
 exports.extractFile = extractFile;
 exports.extractFromSource = extractFromSource;
@@ -42,6 +43,20 @@ exports.symbolNamesByKind = symbolNamesByKind;
 const fs = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const CODE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py']);
+/** Files that should appear in change/handoff artifacts (includes static web assets). */
+const TRACKABLE_EXT = new Set([
+    ...CODE_EXT,
+    '.html',
+    '.htm',
+    '.css',
+    '.scss',
+    '.md',
+    '.json',
+    '.yaml',
+    '.yml',
+    '.vue',
+    '.svelte',
+]);
 const CALL_KEYWORDS = new Set([
     'if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'typeof', 'instanceof', 'function',
     'class', 'import', 'export', 'await', 'async', 'throw', 'delete', 'void', 'super', 'this',
@@ -52,6 +67,10 @@ function norm(rel) {
 function isCodeFile(rel) {
     const ext = path.extname(rel).toLowerCase();
     return CODE_EXT.has(ext);
+}
+function isTrackableFile(rel) {
+    const ext = path.extname(rel).toLowerCase();
+    return TRACKABLE_EXT.has(ext);
 }
 function nodeId(file, kind, name) {
     return `${norm(file)}::${kind}::${name}`;

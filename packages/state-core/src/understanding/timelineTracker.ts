@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { ChangeArtifact, KeyChange, ProjectGraph, ProjectTimeline, RiskLevel, TimelineEntry } from './types.js';
-
-const execFileAsync = promisify(execFile);
+import { runGit } from '../scanner/runGit.js';
+import { readProjectTimeline } from './store.js';
 
 function norm(p: string): string {
   return p.replace(/\\/g, '/');
@@ -31,10 +29,9 @@ interface GitCommitRow {
 
 async function recentGitCommits(workspaceRoot: string, max = 5): Promise<GitCommitRow[]> {
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-C', workspaceRoot, 'log', `-${max}`, '--pretty=format:---%n%H|%ct', '--name-status'],
-      { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 },
+    const stdout = await runGit(
+      workspaceRoot,
+      ['log', `-${max}`, '--pretty=format:---%n%H|%ct', '--name-status'],
     );
     const rows: GitCommitRow[] = [];
     let current: { hash: string; timestamp: number } | undefined;
@@ -92,6 +89,10 @@ function linkedNodes(graph: ProjectGraph, file: string, keyChanges: KeyChange[])
   return refs.slice(0, 8);
 }
 
+export interface BuildProjectTimelineOptions {
+  skipGitLog?: boolean;
+}
+
 export async function buildProjectTimeline(
   workspaceRoot: string,
   changedFiles: string[],
@@ -99,7 +100,21 @@ export async function buildProjectTimeline(
   graph: ProjectGraph,
   now = Date.now(),
   maxCommits = 5,
+  opts?: BuildProjectTimelineOptions,
 ): Promise<ProjectTimeline> {
+  if (opts?.skipGitLog) {
+    const cached = await readProjectTimeline(workspaceRoot);
+    if (cached) {
+      return cached;
+    }
+    return {
+      version: 1,
+      generatedAt: now,
+      files: [],
+      recent: [],
+    };
+  }
+
   const commits = await recentGitCommits(workspaceRoot, maxCommits);
   const watch = new Set(changedFiles.map(norm));
   const byFile = new Map<string, TimelineEntry[]>();

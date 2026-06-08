@@ -1,7 +1,4 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { runGit } from './runGit.js';
 
 function norm(p: string): string {
   return p.replace(/\\/g, '/');
@@ -14,11 +11,7 @@ export async function scanGitPorcelain(workspaceRoot: string): Promise<{
   isRepo: boolean;
 }> {
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-C', workspaceRoot, 'status', '--porcelain'],
-      { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 },
-    );
+    const stdout = await runGit(workspaceRoot, ['status', '--porcelain']);
     const staged = new Set<string>();
     const working = new Set<string>();
     for (const line of stdout.split('\n')) {

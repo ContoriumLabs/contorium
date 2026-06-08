@@ -9,6 +9,11 @@ export type {
 } from './types.js';
 
 export { scanGitPorcelain } from './scanner/gitScan.js';
+export {
+  isGitSubprocessAllowed,
+  setGitSubprocessAllowed,
+  traceGitInvocation,
+} from './scanner/gitRuntime.js';
 export { scanWorkspace } from './scanner/workspaceScanner.js';
 
 export {
@@ -184,7 +189,7 @@ export {
   type ParseBackend,
   type ParseFileOptions,
 } from './understanding/treeSitterParser.js';
-export { extractFromSource, isCodeFile } from './understanding/extractor.js';
+export { extractFromSource, isCodeFile, isTrackableFile } from './understanding/extractor.js';
 export {
   formatCanonicalAiMarkdown,
   formatAiHandoffExecutionBlock,

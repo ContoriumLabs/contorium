@@ -46,7 +46,7 @@ export async function wakeDashboardOnActivity(workspaceRoot, source, options) {
             alreadyRunning: await isDashboardWorkerRunning(workspaceRoot),
         };
     }
-    const workerSource = source === 'ide' ? 'cli' : 'cli';
+    const workerSource = source === 'ide' ? 'ide' : 'cli';
     const result = await ensureDashboardWorker(workspaceRoot, workerSource, {
         preferTerminal: shouldPreferOsTerminal(),
     });

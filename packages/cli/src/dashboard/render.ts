@@ -98,13 +98,13 @@ function impactGraphLines(
   const ug = state.understandingGraph;
   if (ug?.call_chain.length) {
     const lines: string[] = [
-      truncate(`${c.dim('最近修改:')} ${ug.recent_change.name}`, width - 2),
+      truncate(`${c.dim('Recent change:')} ${ug.recent_change.name}`, width - 2),
       ...liveCallChainTree(ug.call_chain, c, width, maxLines),
     ];
     if (ug.affected.length > ug.call_chain.length) {
       lines.push(
         truncate(
-          `${c.dim('影响:')} ${ug.affected.slice(ug.call_chain.length, ug.call_chain.length + 6).join(', ')}`,
+          `${c.dim('Impact:')} ${ug.affected.slice(ug.call_chain.length, ug.call_chain.length + 6).join(', ')}`,
           width - 2,
         ),
       );
@@ -325,7 +325,7 @@ export function renderExpanded(state: DashboardState, ctx: RenderContext): strin
     c.bold('=== Contorium Runtime Dashboard ===') + liveBadge,
     c.dim(`${state.workspaceRoot}${filterNote}`),
     c.dim(
-      `updated ${new Date(state.loadedAt).toLocaleTimeString()} · Space toggle · c Copy To AI · q quit · fullscreen`,
+      `updated ${new Date(state.loadedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} · Space toggle · c Copy To AI · q quit · fullscreen`,
     ),
     '',
   ];

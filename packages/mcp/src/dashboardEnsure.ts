@@ -2,25 +2,30 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveContoriumCliBinary } from './cliResolve.js';
 
 export interface CliSpawnPlan {
   command: string;
   args: string[];
 }
 
-/** Resolve contorium CLI for bootstrap/wake — monorepo dev, bundled helper, or npx fallback. */
-export function resolveContoriumSpawn(subcommand: string, workspaceRoot: string, extraArgs: string[] = []): CliSpawnPlan {
+/** Resolve contorium CLI spawn plan — node + .cjs only (never npx/npm exec). */
+export function resolveContoriumSpawn(
+  subcommand: string,
+  workspaceRoot: string,
+  extraArgs: string[] = [],
+): CliSpawnPlan | undefined {
   const root = path.resolve(workspaceRoot);
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const monorepoCli = path.resolve(here, '../../cli/bin/contorium.cjs');
-  if (fs.existsSync(monorepoCli)) {
+  const cli = resolveContoriumCliBinary();
+  if (cli) {
     return {
       command: process.execPath,
-      args: [monorepoCli, subcommand, root, ...extraArgs],
+      args: [cli, subcommand, root, ...extraArgs],
     };
   }
 
   if (subcommand === 'bootstrap') {
+    const here = path.dirname(fileURLToPath(import.meta.url));
     const helper = path.resolve(here, '../bin/mcp-dashboard-bootstrap.cjs');
     if (fs.existsSync(helper)) {
       return {
@@ -30,26 +35,17 @@ export function resolveContoriumSpawn(subcommand: string, workspaceRoot: string,
     }
   }
 
-  const envCli = process.env.CONTORIUM_CLI_PATH;
-  if (envCli && fs.existsSync(envCli)) {
-    return {
-      command: process.execPath,
-      args: [envCli, subcommand, root, ...extraArgs],
-    };
-  }
-
-  return {
-    command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    args: ['contorium', subcommand, root, ...extraArgs],
-  };
+  return undefined;
 }
 
 function spawnDetached(plan: CliSpawnPlan): void {
+  const flags = process.platform === 'win32' ? { creationFlags: 0x08000000 } : {};
   spawn(plan.command, plan.args, {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
     shell: false,
+    ...flags,
   }).unref();
 }
 
@@ -71,10 +67,15 @@ function scheduleOncePerWorkspace(
   run();
 }
 
-/** CRBP — MCP client initialize → bootstrap runtime attach. */
+/** @deprecated Use ensureMcpDashboardAttached — kept for legacy callers. */
 export function scheduleMcpRuntimeBootstrap(workspaceRoot: string): void {
   scheduleOncePerWorkspace(bootstrapScheduled, workspaceRoot, 60_000, () => {
-    spawnDetached(resolveContoriumSpawn('bootstrap', workspaceRoot, ['--source', 'mcp', '--quiet']));
+    const plan = resolveContoriumSpawn('bootstrap', workspaceRoot, ['--source', 'mcp', '--quiet']);
+    if (plan) {
+      spawnDetached(plan);
+    } else {
+      console.error('[contorium-mcp] bootstrap skipped: CLI not found (do not use npx for MCP server)');
+    }
   });
 }
 
@@ -85,6 +86,9 @@ export function scheduleMcpDashboardWake(workspaceRoot: string, detail?: string)
     if (detail) {
       extra.push('--detail', detail);
     }
-    spawnDetached(resolveContoriumSpawn('dashboard', workspaceRoot, ['wake', ...extra]));
+    const plan = resolveContoriumSpawn('dashboard', workspaceRoot, ['wake', ...extra]);
+    if (plan) {
+      spawnDetached(plan);
+    }
   });
 }

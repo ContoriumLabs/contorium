@@ -32,6 +32,7 @@ import {
   confirmHandoffInjection,
   prepareHandoffInjection,
   readHandoffInjectionState,
+  setGitSubprocessAllowed,
   skipHandoffInjection,
   syncInjectionWithRuntime,
 } from '@contora/state-core';
@@ -692,6 +693,8 @@ export async function startMcpServer(argv: string[] = process.argv.slice(2)): Pr
   const startup = resolveMcpStartupConfig(argv);
   initWorkspaceFromArgv(argv);
   console.error(`[contorium-mcp] workspace: ${startup.workspaceHint}`);
+
+  setGitSubprocessAllowed(false);
 
   try {
     const root = await workspaceRootForTools();

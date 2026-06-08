@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as path from 'node:path';
-import { buildUnderstandingExportJson, confirmHandoffInjection, filterMappingsByConfidence, formatCanonicalAiMarkdown, getProjectHandoff, prepareHandoffInjection, readChangeArtifact, readHandoffArtifact, readKnowledgeSnapshot, readProjectGraph, readProjectKnowledgeGraph, readProjectSnapshotMarkdown, readProjectTimeline, readStateJson, readWorkspaceStatus, skipHandoffInjection, syncWorkspaceState, } from '@contora/state-core';
+import { buildUnderstandingExportJson, confirmHandoffInjection, filterMappingsByConfidence, formatCanonicalAiMarkdown, getProjectHandoff, prepareHandoffInjection, readChangeArtifact, readHandoffArtifact, readKnowledgeSnapshot, readProjectGraph, readProjectKnowledgeGraph, readProjectSnapshotMarkdown, readProjectTimeline, readStateJson, readWorkspaceStatus, setGitSubprocessAllowed, skipHandoffInjection, syncWorkspaceState, } from '@contora/state-core';
 import { isDashboardWorkerRunning, readDashboardStatus, runAttach, wakeDashboardOnActivity, writeDashboardSignal, } from './dashboard/index.js';
 import { releaseDashboardSpawnLock } from './dashboard/spawnLock.js';
 import { spawnDashboardTerminal } from './dashboard/spawn.js';
@@ -89,18 +89,21 @@ function basenameOf(rel) {
     return parts.length ? parts[parts.length - 1] : rel;
 }
 async function ensureUnderstanding(root) {
-    await syncWorkspaceState(root, 'cli', { forceArtifacts: true });
+    setGitSubprocessAllowed(true);
+    await syncWorkspaceState(root, 'cli', { refreshGit: true, forceArtifacts: true });
 }
 async function printJson(data) {
     console.log(JSON.stringify(data, null, 2));
 }
 async function cmdInit(root) {
-    const result = await syncWorkspaceState(root, 'cli', { forceArtifacts: true });
+    setGitSubprocessAllowed(true);
+    const result = await syncWorkspaceState(root, 'cli', { refreshGit: true, forceArtifacts: true });
     const boot = await bootstrapContoriumRuntime(root, 'cli');
     console.log(JSON.stringify({ workspaceRoot: root, ...result, runtime: boot }, null, 2));
 }
 async function cmdSync(root) {
-    const result = await syncWorkspaceState(root, 'cli');
+    setGitSubprocessAllowed(true);
+    const result = await syncWorkspaceState(root, 'cli', { refreshGit: true });
     if (result.updated) {
         await wakeDashboardOnActivity(root, 'cli', { kind: 'sync', detail: 'sync' });
     }
@@ -116,8 +119,12 @@ function bootstrapSourceFlag() {
 async function cmdBootstrap(root) {
     const source = bootstrapSourceFlag();
     const reopen = process.argv.includes('--reopen-dashboard');
-    const quiet = process.argv.includes('--quiet') || source === 'mcp';
-    const result = await bootstrapContoriumRuntime(root, source, { reopenDashboard: reopen });
+    const skipSync = process.argv.includes('--skip-sync');
+    const quiet = process.argv.includes('--quiet') || source === 'mcp' || skipSync;
+    const result = await bootstrapContoriumRuntime(root, source, {
+        reopenDashboard: reopen,
+        skipInitialSync: skipSync || source === 'mcp',
+    });
     if (!quiet && result.mode === 'already_running') {
         console.error('[contorium] dashboard worker already running — reopen: contorium bootstrap --reopen-dashboard · or run .contora/dashboard.cmd');
     }

@@ -23,7 +23,7 @@ async function buildUnderstandingArtifacts(input) {
     if (!state) {
         return undefined;
     }
-    const changedFiles = await (0, changeDetector_js_1.resolveChangedFiles)(root, state, input.scan, input.extraChangedPaths ?? []);
+    const changedFiles = await (0, changeDetector_js_1.resolveChangedFiles)(root, state, input.scan, input.extraChangedPaths ?? [], { allowGitDiff: input.allowGitDiff === true });
     if (!changedFiles.length) {
         return undefined;
     }
@@ -35,7 +35,9 @@ async function buildUnderstandingArtifacts(input) {
     const intent = (0, intentFusion_js_1.fuseIntent)({ state, change, built });
     const goal = built?.project_goal?.trim() || state.currentTask.trim();
     const handoff = (0, handoffBuilder_js_1.buildHandoff)({ goal, intent, change, impact, graph, built, now });
-    const timeline = await (0, timelineTracker_js_1.buildProjectTimeline)(root, changedFiles, change, graph, now);
+    const timeline = await (0, timelineTracker_js_1.buildProjectTimeline)(root, changedFiles, change, graph, now, 5, {
+        skipGitLog: input.skipGitTimeline,
+    });
     const editCounts = new Map();
     for (const p of [...changedFiles, ...(input.extraChangedPaths ?? [])]) {
         const k = p.replace(/\\/g, '/');

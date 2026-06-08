@@ -126,11 +126,14 @@ async function collectRecentFiles(root, maxFiles, maxDepth) {
     return scored.slice(0, maxFiles).map((s) => s.rel);
 }
 /** Mode B — workspace filesystem scan (no IDE required). */
-async function scanWorkspace(workspaceRoot) {
+async function scanWorkspace(workspaceRoot, opts) {
     const root = path.resolve(workspaceRoot);
     const now = Date.now();
+    const gitPromise = opts?.skipGitScan
+        ? Promise.resolve(opts.cachedGit ?? { staged: [], working: [], isRepo: false })
+        : (0, gitScan_js_1.scanGitPorcelain)(root);
     const [git, topLevelModules, recentFiles, readmeHint] = await Promise.all([
-        (0, gitScan_js_1.scanGitPorcelain)(root),
+        gitPromise,
         listTopLevelModules(root),
         collectRecentFiles(root, 24, 5),
         readReadmeHint(root),

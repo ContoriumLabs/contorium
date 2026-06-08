@@ -11,6 +11,7 @@ export interface FileExtraction {
     calls: string[];
 }
 export declare function isCodeFile(rel: string): boolean;
+export declare function isTrackableFile(rel: string): boolean;
 declare function nodeId(file: string, kind: string, name: string): string;
 export { nodeId };
 export declare function extractFile(workspaceRoot: string, relFile: string): Promise<FileExtraction | undefined>;

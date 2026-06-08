@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.fuseIntent = fuseIntent;
 const DOMAIN_HINTS = [
+    { re: /codex-landing|landing\/|\.html$/i, label: 'landing page / static UI' },
     { re: /packages\/mcp|\/mcp\//i, label: 'MCP server integration' },
     { re: /packages\/cli|\/cli\//i, label: 'CLI tooling' },
     { re: /packages\/state-core|state-builder|state-core/i, label: 'shared state engine' },

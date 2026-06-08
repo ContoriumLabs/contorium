@@ -16,6 +16,7 @@ import {
   readProjectTimeline,
   readStateJson,
   readWorkspaceStatus,
+  setGitSubprocessAllowed,
   skipHandoffInjection,
   syncWorkspaceState,
 } from '@contora/state-core';
@@ -125,7 +126,8 @@ function basenameOf(rel: string): string {
 }
 
 async function ensureUnderstanding(root: string): Promise<void> {
-  await syncWorkspaceState(root, 'cli', { forceArtifacts: true });
+  setGitSubprocessAllowed(true);
+  await syncWorkspaceState(root, 'cli', { refreshGit: true, forceArtifacts: true });
 }
 
 async function printJson(data: unknown): Promise<void> {
@@ -133,13 +135,15 @@ async function printJson(data: unknown): Promise<void> {
 }
 
 async function cmdInit(root: string): Promise<void> {
-  const result = await syncWorkspaceState(root, 'cli', { forceArtifacts: true });
+  setGitSubprocessAllowed(true);
+  const result = await syncWorkspaceState(root, 'cli', { refreshGit: true, forceArtifacts: true });
   const boot = await bootstrapContoriumRuntime(root, 'cli');
   console.log(JSON.stringify({ workspaceRoot: root, ...result, runtime: boot }, null, 2));
 }
 
 async function cmdSync(root: string): Promise<void> {
-  const result = await syncWorkspaceState(root, 'cli');
+  setGitSubprocessAllowed(true);
+  const result = await syncWorkspaceState(root, 'cli', { refreshGit: true });
   if (result.updated) {
     await wakeDashboardOnActivity(root, 'cli', { kind: 'sync', detail: 'sync' });
   }
@@ -157,8 +161,12 @@ function bootstrapSourceFlag(): AdapterKind {
 async function cmdBootstrap(root: string): Promise<void> {
   const source = bootstrapSourceFlag();
   const reopen = process.argv.includes('--reopen-dashboard');
-  const quiet = process.argv.includes('--quiet') || source === 'mcp';
-  const result = await bootstrapContoriumRuntime(root, source, { reopenDashboard: reopen });
+  const skipSync = process.argv.includes('--skip-sync');
+  const quiet = process.argv.includes('--quiet') || source === 'mcp' || skipSync;
+  const result = await bootstrapContoriumRuntime(root, source, {
+    reopenDashboard: reopen,
+    skipInitialSync: skipSync || source === 'mcp',
+  });
   if (!quiet && result.mode === 'already_running') {
     console.error(
       '[contorium] dashboard worker already running — reopen: contorium bootstrap --reopen-dashboard · or run .contora/dashboard.cmd',

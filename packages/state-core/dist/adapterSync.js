@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.syncWorkspaceState = syncWorkspaceState;
 exports.readWorkspaceStatus = readWorkspaceStatus;
 const path = __importStar(require("node:path"));
+const node_fs_1 = require("node:fs");
 const bootstrapState_js_1 = require("./bootstrap/bootstrapState.js");
 const rebuildFromScan_js_1 = require("./state-builder/rebuildFromScan.js");
 const buildUnderstanding_js_1 = require("./understanding/buildUnderstanding.js");
@@ -68,14 +69,29 @@ async function countEventLines(workspaceRoot) {
  */
 async function syncWorkspaceState(workspaceRoot, writer, options) {
     const resolved = path.resolve(workspaceRoot);
-    const scan = await (0, workspaceScanner_js_1.scanWorkspace)(resolved);
-    const eventCount = await countEventLines(resolved);
     const existing = await (0, bootstrapState_js_1.readStateJson)(resolved);
+    const refreshGit = options?.refreshGit === true;
+    const skipGitScan = options?.skipGitScan ?? !refreshGit;
+    const skipGitTimeline = skipGitScan || options?.gitStatusOnly === true;
+    const cachedGit = skipGitScan
+        ? {
+            staged: existing?.gitStaged ?? [],
+            working: existing?.gitWorking ?? [],
+            isRepo: (0, node_fs_1.existsSync)(path.join(resolved, '.git')),
+        }
+        : undefined;
+    const scan = await (0, workspaceScanner_js_1.scanWorkspace)(resolved, {
+        skipGitScan,
+        cachedGit,
+    });
+    const eventCount = await countEventLines(resolved);
     const created = !existing;
     if (!existing) {
         const state = (0, bootstrapState_js_1.bootstrapStateFromScan)(scan);
         await (0, bootstrapState_js_1.writeStateJson)(resolved, state, { mode: 'scan-driven', writer });
-        await (0, rebuildFromScan_js_1.rebuildArtifactsFromScan)(resolved, scan, state, writer);
+        await (0, rebuildFromScan_js_1.rebuildArtifactsFromScan)(resolved, scan, state, writer, {
+            skipGitTimeline,
+        });
         const written = await (0, bootstrapState_js_1.readStateJson)(resolved);
         return {
             mode: 'scan-driven',
@@ -88,29 +104,34 @@ async function syncWorkspaceState(workspaceRoot, writer, options) {
     const dual = (0, dualMode_js_1.buildDualModeInput)({ state: existing, eventCount, scan });
     const gitChanged = JSON.stringify(existing.gitStaged) !== JSON.stringify(dual.state.gitStaged) ||
         JSON.stringify(existing.gitWorking) !== JSON.stringify(dual.state.gitWorking);
-    const recentChanged = eventCount === 0 &&
-        JSON.stringify(existing.recentFiles) !== JSON.stringify(dual.state.recentFiles);
+    const recentChanged = JSON.stringify(existing.recentFiles) !== JSON.stringify(dual.state.recentFiles);
     const shouldWrite = gitChanged || recentChanged || options?.forceArtifacts;
     if (shouldWrite) {
         await (0, bootstrapState_js_1.writeStateJson)(resolved, dual.state, { mode: dual.mode, writer });
     }
     if (eventCount === 0 && (shouldWrite || options?.forceArtifacts)) {
-        await (0, rebuildFromScan_js_1.rebuildArtifactsFromScan)(resolved, scan, dual.state, writer);
+        await (0, rebuildFromScan_js_1.rebuildArtifactsFromScan)(resolved, scan, dual.state, writer, {
+            skipGitTimeline,
+        });
     }
-    if (gitChanged || options?.forceArtifacts) {
-        await (0, buildUnderstanding_js_1.buildAndWriteUnderstandingArtifacts)({
-            workspaceRoot: resolved,
-            state: dual.state,
-            scan,
-        }).catch(() => undefined);
+    if (gitChanged || recentChanged || (options?.forceArtifacts && created)) {
+        if (!options?.gitStatusOnly) {
+            await (0, buildUnderstanding_js_1.buildAndWriteUnderstandingArtifacts)({
+                workspaceRoot: resolved,
+                state: dual.state,
+                scan,
+                skipGitTimeline,
+                allowGitDiff: refreshGit && !options?.gitStatusOnly,
+            }).catch(() => undefined);
+        }
     }
     const written = await (0, bootstrapState_js_1.readStateJson)(resolved);
     const updated = shouldWrite || (eventCount === 0 && !!options?.forceArtifacts);
-    if (updated || gitChanged) {
+    if (updated || gitChanged || recentChanged) {
         await (0, dashboardActivity_js_1.bumpWorkspaceActivity)(resolved, {
             source: writer,
-            kind: gitChanged ? 'git_change' : 'sync',
-            detail: gitChanged ? 'workspace sync' : undefined,
+            kind: gitChanged ? 'git_change' : recentChanged ? 'file_change' : 'sync',
+            detail: gitChanged ? 'workspace sync' : recentChanged ? 'recent files updated' : undefined,
         }).catch(() => undefined);
     }
     return {
@@ -123,14 +144,28 @@ async function syncWorkspaceState(workspaceRoot, writer, options) {
 }
 /** Read-only status for CLI `status` / IDE-less inspection. */
 async function readWorkspaceStatus(workspaceRoot) {
-    const scan = await (0, workspaceScanner_js_1.scanWorkspace)(workspaceRoot);
-    const state = await (0, bootstrapState_js_1.readStateJson)(workspaceRoot);
+    const resolved = path.resolve(workspaceRoot);
+    const state = await (0, bootstrapState_js_1.readStateJson)(resolved);
+    const scan = await (0, workspaceScanner_js_1.scanWorkspace)(resolved, {
+        skipGitScan: true,
+        cachedGit: state
+            ? {
+                staged: state.gitStaged ?? [],
+                working: state.gitWorking ?? [],
+                isRepo: (0, node_fs_1.existsSync)(path.join(resolved, '.git')),
+            }
+            : {
+                staged: [],
+                working: [],
+                isRepo: (0, node_fs_1.existsSync)(path.join(resolved, '.git')),
+            },
+    });
     const eventCount = await countEventLines(workspaceRoot);
     const mode = state
         ? (0, dualMode_js_1.buildDualModeInput)({ state, eventCount, scan }).mode
         : 'unknown';
     return {
-        workspaceRoot,
+        workspaceRoot: resolved,
         hasState: !!state,
         mode,
         source: state?.source,

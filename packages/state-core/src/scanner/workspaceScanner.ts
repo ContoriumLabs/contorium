@@ -3,6 +3,12 @@ import * as path from 'node:path';
 import type { WorkspaceScanFacts } from '../types.js';
 import { scanGitPorcelain } from './gitScan.js';
 
+export interface ScanWorkspaceOptions {
+  /** Use cached git fields — no git.exe subprocess (MCP/Codex startup). */
+  skipGitScan?: boolean;
+  cachedGit?: { staged: string[]; working: string[]; isRepo: boolean };
+}
+
 const SKIP_DIRS = new Set([
   'node_modules',
   '.git',
@@ -95,11 +101,19 @@ async function collectRecentFiles(root: string, maxFiles: number, maxDepth: numb
 }
 
 /** Mode B — workspace filesystem scan (no IDE required). */
-export async function scanWorkspace(workspaceRoot: string): Promise<WorkspaceScanFacts> {
+export async function scanWorkspace(
+  workspaceRoot: string,
+  opts?: ScanWorkspaceOptions,
+): Promise<WorkspaceScanFacts> {
   const root = path.resolve(workspaceRoot);
   const now = Date.now();
+  const gitPromise = opts?.skipGitScan
+    ? Promise.resolve(
+        opts.cachedGit ?? { staged: [] as string[], working: [] as string[], isRepo: false },
+      )
+    : scanGitPorcelain(root);
   const [git, topLevelModules, recentFiles, readmeHint] = await Promise.all([
-    scanGitPorcelain(root),
+    gitPromise,
     listTopLevelModules(root),
     collectRecentFiles(root, 24, 5),
     readReadmeHint(root),

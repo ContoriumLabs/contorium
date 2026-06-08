@@ -20,7 +20,7 @@ export function scheduleRuntimeBootstrap(
   }
   bootstrapDoneFor = root;
   const cli = resolveCli(context);
-  spawn(process.execPath, [cli, 'bootstrap', root, '--source', 'ide'], {
+  spawn(process.execPath, [cli, 'bootstrap', root, '--source', 'ide', '--skip-sync', '--quiet'], {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,

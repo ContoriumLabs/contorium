@@ -1,59 +1,18 @@
-import simpleGit, { SimpleGit } from 'simple-git';
+import { scanGitPorcelain } from '@contora/state-core';
 
 export interface GitScanResult {
   staged: string[];
   working: string[];
 }
 
-function norm(p: string): string {
-  return p.replace(/\\/g, '/');
-}
-
 /**
- * Split Git status into staged vs working tree (2.x WorkspaceMemory.gitState).
+ * Git scan for IDE extension — uses state-core (single `git status`, respects gitRuntime gate).
+ * Do not use simple-git here (checkIsRepo + status = two visible git.exe windows on Windows).
  */
 export async function scanGitState(workspaceRoot: string): Promise<GitScanResult> {
-  let git: SimpleGit;
   try {
-    git = simpleGit(workspaceRoot);
-    const isRepo = await git.checkIsRepo();
-    if (!isRepo) {
-      return { staged: [], working: [] };
-    }
-  } catch {
-    return { staged: [], working: [] };
-  }
-
-  try {
-    const status = await git.status();
-    const staged = new Set<string>();
-    const working = new Set<string>();
-
-    for (const p of status.staged) {
-      staged.add(norm(p));
-    }
-    for (const p of status.modified) {
-      working.add(norm(p));
-    }
-    for (const p of status.not_added) {
-      working.add(norm(p));
-    }
-    for (const p of status.created) {
-      working.add(norm(p));
-    }
-    for (const p of status.deleted) {
-      working.add(norm(p));
-    }
-    for (const p of status.renamed) {
-      if (p.to) {
-        working.add(norm(p.to));
-      }
-    }
-    for (const p of status.conflicted) {
-      working.add(norm(p));
-    }
-
-    return { staged: [...staged], working: [...working] };
+    const result = await scanGitPorcelain(workspaceRoot);
+    return { staged: result.staged, working: result.working };
   } catch {
     return { staged: [], working: [] };
   }

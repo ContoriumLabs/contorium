@@ -13,7 +13,7 @@ export interface EnsureResult {
  */
 export async function ensureDashboardWorker(
   workspaceRoot: string,
-  source: 'mcp' | 'cli',
+  source: 'mcp' | 'cli' | 'ide',
   opts?: { preferTerminal?: boolean },
 ): Promise<EnsureResult> {
   if (await isDashboardWorkerRunning(workspaceRoot)) {

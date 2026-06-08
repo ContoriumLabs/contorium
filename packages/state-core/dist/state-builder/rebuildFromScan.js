@@ -6,7 +6,7 @@ const buildFromScan_js_1 = require("./buildFromScan.js");
 const snapshot_js_1 = require("./snapshot.js");
 const store_js_1 = require("./store.js");
 /** Unified scan path — MCP / CLI / IDE fallback share one state-builder implementation. */
-async function rebuildArtifactsFromScan(workspaceRoot, scan, state, writer = 'mcp') {
+async function rebuildArtifactsFromScan(workspaceRoot, scan, state, writer = 'mcp', opts) {
     const built = (0, buildFromScan_js_1.buildProjectStateFromScan)(scan, state);
     let md = (0, snapshot_js_1.formatProjectSnapshotMarkdown)(built);
     if (writer === 'cli' || writer === 'mcp') {
@@ -18,5 +18,6 @@ async function rebuildArtifactsFromScan(workspaceRoot, scan, state, writer = 'mc
         state,
         built,
         scan,
+        skipGitTimeline: opts?.skipGitTimeline,
     }).catch(() => undefined);
 }

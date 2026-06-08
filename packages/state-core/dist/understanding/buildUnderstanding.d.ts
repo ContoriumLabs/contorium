@@ -8,6 +8,10 @@ export interface UnderstandingBuildInput {
     built?: ProjectBuiltState | null;
     scan?: WorkspaceScanFacts;
     extraChangedPaths?: string[];
+    /** Reuse cached timeline.json — no `git log` subprocess. */
+    skipGitTimeline?: boolean;
+    /** Run `git diff` for changed files (default false — use state/scan only). */
+    allowGitDiff?: boolean;
 }
 export interface UnderstandingBuildResult {
     graph: ProjectGraph;

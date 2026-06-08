@@ -2,6 +2,20 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 const CODE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py']);
+/** Files that should appear in change/handoff artifacts (includes static web assets). */
+const TRACKABLE_EXT = new Set([
+  ...CODE_EXT,
+  '.html',
+  '.htm',
+  '.css',
+  '.scss',
+  '.md',
+  '.json',
+  '.yaml',
+  '.yml',
+  '.vue',
+  '.svelte',
+]);
 const CALL_KEYWORDS = new Set([
   'if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'typeof', 'instanceof', 'function',
   'class', 'import', 'export', 'await', 'async', 'throw', 'delete', 'void', 'super', 'this',
@@ -28,6 +42,11 @@ function norm(rel: string): string {
 export function isCodeFile(rel: string): boolean {
   const ext = path.extname(rel).toLowerCase();
   return CODE_EXT.has(ext);
+}
+
+export function isTrackableFile(rel: string): boolean {
+  const ext = path.extname(rel).toLowerCase();
+  return TRACKABLE_EXT.has(ext);
 }
 
 function nodeId(file: string, kind: string, name: string): string {

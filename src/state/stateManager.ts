@@ -8,6 +8,18 @@ function statePath(folder: vscode.WorkspaceFolder, relDir: string): vscode.Uri {
   return vscode.Uri.joinPath(folder.uri, relDir, STATE_FILE);
 }
 
+function ideSourceMetadata(base: ProjectState): ProjectState['source'] {
+  const mode =
+    base.source?.mode === 'scan-driven' || base.source?.mode === 'merged'
+      ? 'merged'
+      : 'event-driven';
+  return {
+    mode,
+    lastWriter: 'ide',
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
 function normalizeMerge(base: ProjectState, patch: Partial<ProjectState>): ProjectState {
   return {
     sessionId: patch.sessionId ?? base.sessionId,
@@ -18,6 +30,7 @@ function normalizeMerge(base: ProjectState, patch: Partial<ProjectState>): Proje
     gitWorking: patch.gitWorking ?? base.gitWorking,
     notes: patch.notes ?? base.notes,
     lastUpdated: Date.now(),
+    source: patch.source ?? ideSourceMetadata(base),
   };
 }
 

@@ -13,11 +13,28 @@ function resolveStateEngineMode(eventCount, hasExistingState) {
     }
     return 'scan-driven';
 }
+function mergeRecentFileLists(existing, scanned) {
+    const seen = new Set();
+    const out = [];
+    const push = (p) => {
+        const n = p.replace(/\\/g, '/').trim();
+        if (!n || seen.has(n)) {
+            return;
+        }
+        seen.add(n);
+        out.push(n);
+    };
+    for (const p of scanned) {
+        push(p);
+    }
+    for (const p of existing) {
+        push(p);
+    }
+    return out.slice(0, 24);
+}
 /** Merge scan facts into state without overwriting user task/notes. */
 function mergeStateWithScan(state, scan) {
-    const recent = state.recentFiles.length > 0
-        ? state.recentFiles
-        : scan.recentFiles.slice(0, 20);
+    const recent = mergeRecentFileLists(state.recentFiles, scan.recentFiles);
     const gitStaged = state.gitStaged.length > 0 ? state.gitStaged : scan.gitStaged;
     const gitWorking = state.gitWorking.length > 0 ? state.gitWorking : scan.gitWorking;
     return {

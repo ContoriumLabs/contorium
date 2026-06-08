@@ -1,34 +1,29 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { scheduleMcpRuntimeBootstrap } from './dashboardEnsure.js';
+import { pathToFileURL } from 'node:url';
+import { resolveCliDistModule } from './cliResolve.js';
+import { attachDashboardFallback } from './dashboardAttach.js';
 const attachScheduled = new Set();
-function resolveCliModule(relativePath) {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    const candidate = path.resolve(here, '../../cli/dist', relativePath);
-    return fs.existsSync(candidate) ? candidate : undefined;
-}
 /**
- * MCP initialize → bootstrap + one dashboard window in-process (no extra cmd with JSON).
+ * MCP initialize → in-process bootstrap when possible; hidden node spawn fallback.
+ * Never npx/npm exec (Codex shows "npm exec contorium bootstrap" flash window).
  */
 export async function ensureMcpDashboardAttached(workspaceRoot) {
-    const root = path.resolve(workspaceRoot);
-    if (attachScheduled.has(root)) {
+    const resolved = path.resolve(workspaceRoot);
+    if (attachScheduled.has(resolved)) {
         return;
     }
-    attachScheduled.add(root);
-    setTimeout(() => attachScheduled.delete(root), 60_000);
-    const bootstrapJs = resolveCliModule('runtime/bootstrap.js');
-    if (!bootstrapJs) {
-        scheduleMcpRuntimeBootstrap(root);
-        return;
+    attachScheduled.add(resolved);
+    setTimeout(() => attachScheduled.delete(resolved), 60_000);
+    const bootstrapJs = resolveCliDistModule('runtime/bootstrap.js');
+    if (bootstrapJs) {
+        try {
+            const mod = await import(pathToFileURL(bootstrapJs).href);
+            await mod.bootstrapContoriumRuntime(resolved, 'mcp', { skipInitialSync: true });
+            return;
+        }
+        catch (err) {
+            console.error('[contorium-mcp] in-process bootstrap failed:', err instanceof Error ? err.message : err);
+        }
     }
-    try {
-        const mod = await import(pathToFileURL(bootstrapJs).href);
-        await mod.bootstrapContoriumRuntime(root, 'mcp');
-    }
-    catch (err) {
-        console.error('[contorium-mcp] dashboard attach failed:', err instanceof Error ? err.message : err);
-        scheduleMcpRuntimeBootstrap(root);
-    }
+    await attachDashboardFallback(resolved);
 }
