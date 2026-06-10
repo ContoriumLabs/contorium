@@ -11,7 +11,6 @@ Projects need continuity.
 Contorium provides a persistent runtime and project memory layer that keeps AI aligned with your codebase across sessions, tools, and models.
 
 Works with:
-
 * Claude Code
 * Codex
 * Cursor

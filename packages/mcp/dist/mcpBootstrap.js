@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readWorkspaceActivity, setGitSubprocessAllowed, syncWorkspaceState, } from '@contora/state-core';
+import { buildCognitiveInsights } from './cognitive/cognitiveOverlay.js';
+import { isCognitiveOverlayEnabled, readCognitiveMode } from './cognitive/modeStore.js';
 import { releaseMcpWorkspaceLock, tryClaimMcpWorkspaceLock } from './mcpLock.js';
 import { scheduleMcpDashboardWake } from './dashboardEnsure.js';
 import { checkActiveRuntime, confirmHandoffInjection, readHandoffInjectionState, syncInjectionWithRuntime, } from '@contora/state-core';
@@ -38,6 +40,19 @@ async function shouldDeferMcpReactiveSideEffects(workspaceRoot) {
     return (activity?.source === 'ide' &&
         Date.now() - activity.at < IDE_ACTIVITY_QUIET_MS);
 }
+/** Mode B only — rebuild cognitive insights after workspace activity (overlay layer, not runtime core). */
+async function refreshCognitiveOverlayIfEnabled(workspaceRoot) {
+    try {
+        const mode = await readCognitiveMode(workspaceRoot);
+        if (!isCognitiveOverlayEnabled(mode.mode)) {
+            return;
+        }
+        await buildCognitiveInsights(workspaceRoot);
+    }
+    catch {
+        /* optional overlay */
+    }
+}
 function scheduleReactiveSync(workspaceRoot, opts) {
     if (Date.now() - lightSyncStartedAt < STARTUP_QUIET_MS) {
         return;
@@ -59,6 +74,7 @@ function scheduleReactiveSync(workspaceRoot, opts) {
                 return;
             }
             scheduleMcpDashboardWake(workspaceRoot, 'mcp-reactive-sync');
+            void refreshCognitiveOverlayIfEnabled(workspaceRoot);
             await syncInjectionWithRuntime(workspaceRoot);
             const { runtime_id } = await checkActiveRuntime(workspaceRoot);
             const injection = await readHandoffInjectionState(workspaceRoot);
@@ -116,12 +132,27 @@ export function startMcpLightSync(workspaceRoot) {
             if (!filename || shouldIgnoreWorkspaceWatch(filename)) {
                 return;
             }
+            if (filename.replace(/\\/g, '/').includes('.contora/mcp/cognitive.mode.json')) {
+                void refreshCognitiveOverlayIfEnabled(root);
+            }
             scheduleReactiveSync(root);
         });
         workspaceWatcher.unref?.();
     }
     catch {
         /* recursive watch unavailable */
+    }
+    const mcpMetaDir = path.join(root, '.contora', 'mcp');
+    try {
+        fs.mkdirSync(mcpMetaDir, { recursive: true });
+        fs.watch(mcpMetaDir, (_event, filename) => {
+            if (filename === 'cognitive.mode.json') {
+                void refreshCognitiveOverlayIfEnabled(root);
+            }
+        }).unref?.();
+    }
+    catch {
+        /* optional */
     }
     const gitHead = path.join(root, '.git', 'HEAD');
     try {

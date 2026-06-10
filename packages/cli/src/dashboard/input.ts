@@ -1,6 +1,6 @@
-/** Non-blocking single-key input for TTY dashboard control. */
+/** Non-blocking keyboard input for TTY dashboard control. */
 
-export type KeyHandler = (key: string) => void;
+export type KeyHandler = (key: string, raw?: string) => void;
 
 export function setupKeyboard(onKey: KeyHandler): () => void {
   if (!process.stdin.isTTY) {
@@ -14,8 +14,9 @@ export function setupKeyboard(onKey: KeyHandler): () => void {
   stdin.setEncoding('utf8');
 
   const handler = (chunk: string): void => {
-    const key = chunk.length === 1 ? chunk : chunk.slice(-1);
-    onKey(key);
+    const raw = chunk;
+    const key = raw.length === 1 ? raw : raw.slice(-1);
+    onKey(key, raw);
   };
 
   stdin.on('data', handler);

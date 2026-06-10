@@ -38,6 +38,7 @@ import {
 } from '@contora/state-core';
 import { loadWorkspaceSnapshot } from './workspace.js';
 import { readRuntimeState } from './runtimeState.js';
+import { registerCognitiveTools } from './cognitive/cognitiveTools.js';
 import { resolveMcpStartupConfig } from './workspaceConfig.js';
 
 function mcpPackageVersion(): string {
@@ -64,7 +65,13 @@ On every NEW chat when a runtime is active:
 3. On Y → confirm_handoff_injection. On N → skip_handoff_injection.
 Do NOT inject without user confirmation.
 
-For ongoing work use get_project_handoff, get_understanding_graph, get_recent_changes.`;
+For ongoing work use get_project_handoff, get_understanding_graph, get_recent_changes.
+
+Cognitive Overlay (optional — default Mode A = core runtime unchanged):
+- Mode A: default — core observation, project, task, feed
+- Mode B: set_cognitive_mode { mode: "B" } → A + get_skill_suggestions, get_model_preset, get_cognitive_insights
+- Dashboard (primary): Contorium Dashboard passive/expanded — ↑↓ select A/B · Enter apply
+- CLI fallback: contorium-mcp mode-panel [--workspace PATH]`;
 
 const server = new McpServer(
   {
@@ -77,6 +84,8 @@ const server = new McpServer(
 const workspaceRootSchema = z.object({
   workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
 });
+
+registerCognitiveTools(server, workspaceRootForTools);
 
 server.registerTool(
   'store_memory',

@@ -24,6 +24,8 @@ const ARTIFACT_FILES = [
   'dashboard.activity.json',
   'dashboard.status.json',
   'mcp.handoff-injection.json',
+  'mcp/cognitive.mode.json',
+  'mcp/cognitive-insights.json',
 ] as const;
 
 export async function artifactSignature(workspaceRoot: string): Promise<string> {

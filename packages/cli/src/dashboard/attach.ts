@@ -1,10 +1,19 @@
-import { confirmHandoffInjection, getProjectHandoff, skipHandoffInjection } from '@contora/state-core';
+import {
+  buildChpHandoffStateSync,
+  confirmHandoffInjection,
+  formatChpMarkdown,
+  skipHandoffInjection,
+  type ChpHandoffState,
+} from '@contora/state-core';
 import { artifactSignature, loadDashboardState } from './artifacts.js';
 import { tryClaimDashboardWorker, unregisterDashboardWorker } from './daemon.js';
 import { releaseDashboardSpawnLock } from './spawnLock.js';
-import { copyToClipboard } from '../handoff/clipboard.js';
+import { copyToClipboardAsync } from '../handoff/clipboard.js';
 import { setupKeyboard } from './input.js';
-import { renderExpanded, renderIdleLine, renderPassiveLine } from './render.js';
+import { renderExpanded, renderIdleLine } from './render.js';
+import { renderCompactView } from './renderCompact.js';
+import { readDashboardCognitiveInsights } from './cognitiveInsights.js';
+import type { DashboardCognitiveInsights } from './cognitiveInsights.js';
 import { consumeDashboardSignal } from './signals.js';
 import { detectIdeSession } from './sessionDetect.js';
 import { writeDashboardStatus } from './statusFile.js';
@@ -12,7 +21,13 @@ import {
   enterAlternateScreen,
   exitAlternateScreen,
   terminalHeight,
+  writeFrameInPlace,
 } from './terminalUi.js';
+import {
+  applyCognitiveModeFromDashboard,
+  readDashboardCognitiveMode,
+  type ContoriumMcpMode,
+} from './cognitiveModeBridge.js';
 import { watchContoraArtifacts } from './watchArtifacts.js';
 import type { AttachOptions, DashboardFsmState, RenderContext } from './types.js';
 
@@ -33,6 +48,30 @@ function writeStatusLine(text: string): void {
     return;
   }
   process.stdout.write(`\r\x1b[K${text}`);
+}
+
+/** Pin compact panel to bottom rows; optional flash line directly above. */
+function writeCompactLayout(lines: string[], flash?: string): void {
+  if (!process.stdout.isTTY) {
+    if (flash) {
+      process.stdout.write(`${flash}\n`);
+    }
+    for (const line of lines) {
+      process.stdout.write(`${line}\n`);
+    }
+    return;
+  }
+
+  const rows = terminalHeight();
+  const panelRows = lines.length;
+  const startRow = Math.max(1, rows - panelRows + 1);
+  if (flash) {
+    const flashRow = Math.max(1, startRow - 1);
+    process.stdout.write(`\x1b[${flashRow};1H\x1b[K${flash}`);
+  }
+  for (let i = 0; i < panelRows; i++) {
+    process.stdout.write(`\x1b[${startRow + i};1H\x1b[K${lines[i] ?? ''}`);
+  }
 }
 
 function hideCursor(): void {
@@ -106,14 +145,28 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   let flashUntil = 0;
   let liveUntil = 0;
   let alternateActive = false;
+  let tickCount = 0;
+  let cognitiveModeSelection: ContoriumMcpMode = 'A';
+  let cognitiveModeActive: ContoriumMcpMode = 'A';
+  let cognitiveInsights: DashboardCognitiveInsights | undefined;
+  let copyInFlight = false;
+  let expandedLineCount = 0;
+  let lastPersistKey = '';
+  cognitiveModeActive = await readDashboardCognitiveMode(options.workspaceRoot);
+  cognitiveModeSelection = cognitiveModeActive;
+  cognitiveInsights = await readDashboardCognitiveInsights(options.workspaceRoot);
 
   const ctx = (): RenderContext => ({
     useColor: options.useColor,
     width: terminalWidth(),
     height: terminalHeight(),
     live: Date.now() < liveUntil,
+    tickCount,
     filter,
     fsmState: fsm,
+    cognitiveModeSelection,
+    cognitiveModeActive,
+    cognitiveInsights,
   });
 
   const enterExpandedScreen = (): void => {
@@ -145,6 +198,7 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     fsm = next;
     if (fsm === 'expanded') {
       expandedAt = Date.now();
+      expandedLineCount = 0;
       enterExpandedScreen();
     }
     render();
@@ -180,17 +234,48 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     showFlash('[?] Runtime active — Enter/i inject · n skip', 8000);
   };
 
-  const copyToAi = async (): Promise<void> => {
-    const result = await getProjectHandoff(options.workspaceRoot, 'markdown', filter);
-    if (!result.found || !result.text) {
+  const buildCopyText = (): string | undefined => {
+    const chp = buildChpHandoffStateSync({
+      workspaceRoot: options.workspaceRoot,
+      handoff: lastData.handoff,
+      change: lastData.change,
+      currentTask: lastData.status.currentTask,
+      lastWriter: lastData.status.lastWriter,
+    });
+    if (!chp) {
+      return undefined;
+    }
+    const trimmed = filter?.trim();
+    const state: ChpHandoffState = trimmed
+      ? {
+          ...chp,
+          recent_changes: chp.recent_changes.filter((c) =>
+            c.name.toLowerCase().includes(trimmed.toLowerCase()),
+          ),
+        }
+      : chp;
+    return formatChpMarkdown(state, lastData.handoff, lastData.timeline);
+  };
+
+  const copyToAi = (): void => {
+    if (copyInFlight) {
+      return;
+    }
+    showFlash('Copying…', 6000);
+    const text = buildCopyText();
+    if (!text) {
       showFlash('Copy To AI: not ready — save changes or run sync');
       return;
     }
-    if (copyToClipboard(result.text)) {
-      showFlash('Copy To AI — pasted in next chat (clipboard ready)');
-      return;
-    }
-    showFlash('Clipboard unavailable — run: contorium handoff --copy');
+    copyInFlight = true;
+    void copyToClipboardAsync(text).then((ok) => {
+      copyInFlight = false;
+      if (ok) {
+        showFlash('Copy To AI — clipboard ready');
+        return;
+      }
+      showFlash('Clipboard unavailable — run: contorium handoff --copy');
+    });
   };
 
   const injectHandoff = async (): Promise<void> => {
@@ -200,11 +285,13 @@ export async function runAttach(options: AttachOptions): Promise<void> {
       return;
     }
     lastData = await loadDashboardState(options.workspaceRoot);
-    if (copyToClipboard(result.text)) {
-      showFlash('Runtime injected — clipboard ready for new chat');
-      return;
-    }
-    showFlash('Runtime injected → .contora/mcp.auto-context.md');
+    void copyToClipboardAsync(result.text).then((ok) => {
+      if (ok) {
+        showFlash('Runtime injected — clipboard ready for new chat');
+        return;
+      }
+      showFlash('Runtime injected → .contora/mcp.auto-context.md');
+    });
   };
 
   const skipInjectHandoff = async (): Promise<void> => {
@@ -224,6 +311,10 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     }
   };
 
+  const refreshCognitiveInsights = async (): Promise<void> => {
+    cognitiveInsights = await readDashboardCognitiveInsights(options.workspaceRoot);
+  };
+
   const refreshData = async (): Promise<void> => {
     const sig = await artifactSignature(options.workspaceRoot);
     if (sig === lastSig) {
@@ -236,8 +327,29 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     if (fsm === 'expanded') {
       expandedAt = Date.now();
     }
+    await refreshCognitiveInsights();
     maybeAutoInjectionFlash();
     render();
+  };
+
+  const applyCognitiveModeSelection = async (): Promise<void> => {
+    if (cognitiveModeSelection === cognitiveModeActive) {
+      showFlash(`Mode ${cognitiveModeActive} already active`, 2000);
+      return;
+    }
+    const result = await applyCognitiveModeFromDashboard(options.workspaceRoot, cognitiveModeSelection);
+    cognitiveModeActive = cognitiveModeSelection;
+    await refreshCognitiveInsights();
+    showFlash(result.hint, 4000);
+  };
+
+  const persistStatusIfChanged = (mode: DashboardFsmState, line: string, frame?: string): void => {
+    const key = `${mode}|${updateCount}|${line}|${frame?.length ?? 0}|${flashMsg}|${filter ?? ''}|${cognitiveModeActive}|${cognitiveModeSelection}`;
+    if (key === lastPersistKey) {
+      return;
+    }
+    lastPersistKey = key;
+    void persistStatus(mode, line, frame);
   };
 
   const render = (): void => {
@@ -252,19 +364,20 @@ export async function runAttach(options: AttachOptions): Promise<void> {
       return;
     }
     if (fsm === 'passive') {
-      const line = renderPassiveLine(lastData, updateCount, ctx());
-      writeStatusLine(line);
-      void persistStatus('passive', line);
+      const lines = renderCompactView(lastData, ctx());
+      const flashLine = flashMsg ? `\x1b[2m${flashMsg}\x1b[0m` : undefined;
+      writeCompactLayout(lines, flashLine);
+      writeCompactLayout(lines, flashLine);
+      persistStatusIfChanged('passive', flashMsg ?? lines[1] ?? '[Contorium] compact');
       return;
     }
     const frame = renderExpanded(lastData, ctx());
     const frameWithFlash = flashMsg ? `${frame}\n\x1b[2m${flashMsg}\x1b[0m` : frame;
-    void persistStatus('expanded', '[●] Contorium dashboard expanded', frameWithFlash);
+    persistStatusIfChanged('expanded', '[●] Contorium dashboard expanded', frameWithFlash);
     if (options.headless) {
       return;
     }
-    clearScreen();
-    process.stdout.write(frameWithFlash);
+    expandedLineCount = writeFrameInPlace(frameWithFlash, expandedLineCount);
   };
 
   const onSigint = (): void => {
@@ -281,7 +394,19 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     ? undefined
     : (() => {
         try {
-          return setupKeyboard((key) => {
+          return setupKeyboard((key, raw) => {
+    const modeSelectUp = raw === '\u001b[A' || key === 'k';
+    const modeSelectDown = raw === '\u001b[B' || key === 'j';
+    if ((fsm === 'passive' || fsm === 'expanded') && modeSelectUp) {
+      cognitiveModeSelection = 'A';
+      render();
+      return;
+    }
+    if ((fsm === 'passive' || fsm === 'expanded') && modeSelectDown) {
+      cognitiveModeSelection = 'B';
+      render();
+      return;
+    }
     if (key === 'q' || key === '\u0003') {
       stopping = true;
       return;
@@ -302,13 +427,17 @@ export async function runAttach(options: AttachOptions): Promise<void> {
       void skipInjectHandoff();
       return;
     }
+    if (
+      (fsm === 'passive' || fsm === 'expanded') &&
+      (key === '\r' || key === '\n' || key === 'o')
+    ) {
+      void applyCognitiveModeSelection();
+      return;
+    }
     // legacy aliases
     if (key === 'v' && fsm === 'passive') {
       fsm = transition('expanded');
       return;
-    }
-    if (key === 'm' && fsm === 'expanded') {
-      fsm = transition('passive');
     }
           });
         } catch (err) {
@@ -359,6 +488,11 @@ export async function runAttach(options: AttachOptions): Promise<void> {
         fsm = transition('passive');
       }
 
+      tickCount += 1;
+      if (fsm === 'passive' || fsm === 'expanded') {
+        render();
+      }
+
       await sleep(options.intervalMs);
     }
   } finally {
@@ -378,10 +512,15 @@ export async function runAttach(options: AttachOptions): Promise<void> {
 
 async function renderOnce(options: AttachOptions): Promise<void> {
   const state = await loadDashboardState(options.workspaceRoot);
+  const active = await readDashboardCognitiveMode(options.workspaceRoot);
+  const insights = await readDashboardCognitiveInsights(options.workspaceRoot);
   const frame = renderExpanded(state, {
     useColor: options.useColor,
     width: terminalWidth(),
     fsmState: 'expanded',
+    cognitiveModeSelection: active,
+    cognitiveModeActive: active,
+    cognitiveInsights: insights,
   });
   process.stdout.write(`${frame}\n`);
 }

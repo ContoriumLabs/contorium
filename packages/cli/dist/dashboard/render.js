@@ -1,4 +1,8 @@
 import { buildChpHandoffStateSync, formatChpCompact, formatUnderstandingMiniGraph } from '@contora/state-core';
+import { renderCognitiveInsightsLines, renderCognitiveModeSelectorLines, } from './cognitiveModePanel.js';
+import { renderKeyHintLines } from './keyHints.js';
+import { liveSectionTitle, monitoringBadge, statusGlyph } from './statusAnimation.js';
+import { progressBar, projectMetrics, sectionDivider } from './uiHelpers.js';
 function createColors(enabled) {
     const wrap = (code) => (text) => enabled ? `\x1b[${code}m${text}\x1b[0m` : text;
     return {
@@ -16,6 +20,24 @@ function truncate(text, max) {
         return text;
     }
     return `${text.slice(0, Math.max(0, max - 1))}…`;
+}
+const EVENT_GLYPH = '>';
+function uiTick(ctx) {
+    return ctx.tickCount ?? 0;
+}
+/** Strip ANSI for terminal column padding. */
+function visibleLength(text) {
+    return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').length;
+}
+function padVisible(text, width) {
+    const pad = Math.max(0, width - visibleLength(text));
+    return `${text}${' '.repeat(pad)}`;
+}
+/** Passive event log line — static text, fixed prefix glyph (no animation). */
+export function renderPassiveEventLine(source, kind, detail, ctx) {
+    const c = createColors(ctx.useColor);
+    const body = detail?.trim() ? `${kind} ${detail.trim()}` : kind;
+    return `${c.dim(EVENT_GLYPH)} ${c.dim(`${source}: ${body}`)}`;
 }
 function basenameOf(rel) {
     const parts = rel.replace(/\\/g, '/').split('/').filter(Boolean);
@@ -58,10 +80,10 @@ function functionUpdateLines(state, c, width, filter) {
         return changes.map((kc) => truncate(formatFunctionChange(kc, c), width - 2));
     }
     const files = (state.change?.changed_files ?? [])
-        .filter((f) => matchesFilter(basenameOf(f), filter))
+        .filter((f) => matchesFilter(f, filter))
         .slice(0, 6);
     if (files.length) {
-        return files.map((f) => truncate(`${c.dim('~')} ${basenameOf(f)}`, width - 2));
+        return files.map((f) => truncate(`${c.dim('~')} ${f.replace(/\\/g, '/')}`, width - 2));
     }
     return [c.dim(filter ? `(no changes matching "${filter}")` : '(no recent function changes)')];
 }
@@ -199,15 +221,19 @@ function statusLines(state, c, width) {
     const health = risk === 'high' ? 'CAUTION' : risk === 'medium' ? 'OK' : 'GOOD';
     const riskStyled = risk === 'high' ? c.red('HIGH') : risk === 'medium' ? c.yellow('MEDIUM') : c.green('LOW');
     return [
+        truncate('Monitor: active', width - 2),
         truncate(`Health: ${health}`, width - 2),
         truncate(`Change Velocity: ${velocity} (${fileCount} files)`, width - 2),
         truncate(`Risk: ${riskStyled}`, width - 2),
         truncate(`Mode: ${state.status.mode} · Events: ${state.status.eventCount}`, width - 2),
     ];
 }
-function section(title, body, width) {
+function section(title, body, width, opts) {
     const hr = '─'.repeat(Math.max(16, width - 2));
-    return [`[${title}]`, hr, ...body, ''];
+    const heading = opts?.animate && opts.c !== undefined && opts.tick !== undefined
+        ? liveSectionTitle(title, opts.tick, opts.c, true)
+        : `[${title}]`;
+    return [heading, hr, ...body, ''];
 }
 /** Idle — waiting for IDE session (minimal, single line). */
 export function renderIdleLine(ctx) {
@@ -217,7 +243,8 @@ export function renderIdleLine(ctx) {
 /** Passive — CHP v1 compact status bar. */
 export function renderPassiveLine(state, updateCount, ctx) {
     const c = createColors(ctx.useColor);
-    const dot = c.green('●');
+    const tick = uiTick(ctx);
+    const dot = statusGlyph(tick, c.green, true);
     const chp = buildChpHandoffStateSync({
         workspaceRoot: state.workspaceRoot,
         handoff: state.handoff,
@@ -228,72 +255,113 @@ export function renderPassiveLine(state, updateCount, ctx) {
     const core = chp
         ? formatChpCompact(chp, ctx.filter)
         : `[Contorium] task: (idle) | last: — | agent: ${state.status.lastWriter ?? 'runtime'}`;
-    const badge = updateCount > 0 && !chp?.recent_changes.length
-        ? c.dim(` (+${updateCount})`)
-        : '';
     const injectionPending = state.handoffInjection?.status === 'pending';
     const miniGraph = formatUnderstandingMiniGraph(state.understandingGraph, Math.max(24, ctx.width - 56));
     const miniSuffix = miniGraph ? c.dim(` · ${miniGraph}`) : '';
     const injectHint = injectionPending
         ? c.yellow(' · [?] Enter/i inject · n skip')
-        : c.dim(" · Space toggle · c Copy To AI · q quit");
-    return `[${dot}] ${core}${badge}${miniSuffix}${injectHint}`;
+        : c.dim(' · ↑↓ mode · Enter apply · Space expand · c Copy · q quit');
+    void updateCount;
+    return `[${dot}] ${core}${miniSuffix}${injectHint}`;
 }
-/** Expanded — full runtime dashboard (fullscreen TTY uses alternate screen buffer). */
+function runtimeFeedLines(state, c, width) {
+    const writer = state.status.lastWriter ?? 'mcp';
+    const lines = [];
+    for (const kc of keyChanges(state).slice(0, 4)) {
+        const file = kc.symbol.replace(/\\/g, '/').split('/').pop() ?? kc.symbol;
+        lines.push(truncate(`${writer}:update ${file}`, width));
+    }
+    for (const ev of state.recentEvents.slice(0, 4)) {
+        const file = ev.file ? basenameOf(ev.file) : ev.detail ?? '';
+        lines.push(truncate(`${writer}:${ev.type}${file ? ` ${file}` : ''}`, width));
+    }
+    return lines.length ? lines.slice(0, 6) : [c.dim('(no runtime feed)')];
+}
+function projectStatusFullLines(state, c, width) {
+    const m = projectMetrics(state);
+    const riskStyled = m.riskLevel === 'high' ? c.red(m.risk) : m.riskLevel === 'medium' ? c.yellow(m.risk) : c.green(m.risk);
+    return [
+        truncate(`Monitor : ACTIVE`, width),
+        truncate(`Health  : ${m.health}`, width),
+        truncate(`Velocity: ${m.velocity} (${m.fileCount} files)`, width),
+        truncate(`Risk    : ${riskStyled}`, width),
+        truncate(`Events  : ${m.eventCount}`, width),
+        '',
+        truncate('Velocity', width),
+        truncate(`${progressBar(m.velocityRatio)} ${m.velocity}`, width),
+    ];
+}
+function copyToAiCompactLines(state, c, width) {
+    const chp = buildChpHandoffStateSync({
+        workspaceRoot: state.workspaceRoot,
+        handoff: state.handoff,
+        change: state.change,
+        currentTask: state.status.currentTask,
+        lastWriter: state.status.lastWriter,
+    });
+    const lines = [
+        truncate('Press [c] to copy context', width),
+        truncate('Paste into your next AI chat', width),
+    ];
+    if (chp) {
+        lines.push(truncate(formatChpCompact(chp), width));
+    }
+    else {
+        lines.push(c.dim('Waiting for code changes…'));
+    }
+    return lines;
+}
+function panelSection(title, body, c, width, tick) {
+    return [liveSectionTitle(title, tick, c, true), sectionDivider(width), ...body, ''];
+}
+/** Expanded — full cognitive view (Space toggle from compact). */
 export function renderExpanded(state, ctx) {
     const c = createColors(ctx.useColor);
     const w = ctx.width;
-    const h = ctx.height ?? 24;
-    const filterNote = ctx.filter ? c.cyan(` · filter: ${ctx.filter}`) : '';
-    const liveBadge = ctx.live ? c.green(' LIVE') : '';
-    const graphRows = Math.max(6, Math.floor(h * 0.35));
-    const fnRows = Math.max(4, Math.floor(h * 0.2));
-    const timelineRows = Math.max(3, Math.floor(h * 0.15));
-    const header = [
-        c.bold('=== Contorium Runtime Dashboard ===') + liveBadge,
-        c.dim(`${state.workspaceRoot}${filterNote}`),
-        c.dim(`updated ${new Date(state.loadedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} · Space toggle · c Copy To AI · q quit · fullscreen`),
-        '',
-    ];
+    const colW = Math.max(28, Math.floor((w - 5) / 2));
+    const modeActive = ctx.cognitiveModeActive ?? 'A';
     const injectionPending = state.handoffInjection?.status === 'pending';
-    const injectionBanner = injectionPending
-        ? [
-            c.yellow('[?] Contorium runtime active — inject to new AI chat?'),
-            c.dim('Press Enter or i to inject · n to skip · MCP: confirm_handoff_injection'),
-            '',
-        ]
-        : [];
-    const wide = w >= 100;
-    const colW = wide ? Math.floor((w - 4) / 2) : w;
-    const leftSections = wide
-        ? [
-            ...section('Impact Graph', impactGraphLines(state, c, colW, graphRows), colW),
-            ...section('Agent Timeline', agentTimelineLines(state, c, colW).slice(0, timelineRows), colW),
-        ]
-        : [];
-    const rightSections = [
-        ...section('Function Updates', functionUpdateLines(state, c, colW, ctx.filter).slice(0, fnRows), colW),
-        ...(wide
-            ? []
-            : [
-                ...section('Impact Graph', impactGraphLines(state, c, colW, graphRows), colW),
-                ...section('Agent Timeline', agentTimelineLines(state, c, colW).slice(0, timelineRows), colW),
-            ]),
-        ...section('Structure View', structureLines(state, c, colW).slice(0, 5), colW),
-        ...section('Project Status', statusLines(state, c, colW), colW),
-        ...section('Copy To AI', copyToAiLines(state, c, colW), colW),
+    const tick = uiTick(ctx);
+    const left = [
+        ...panelSection('Runtime Feed', runtimeFeedLines(state, c, colW), c, colW, tick),
+        ...panelSection('Structure View', structureLines(state, c, colW).slice(0, 6), c, colW, tick),
+        ...panelSection('Copy To AI', copyToAiCompactLines(state, c, colW), c, colW, tick),
     ];
-    const body = wide ? mergeColumns(leftSections, rightSections, w) : rightSections;
-    return [...header, ...injectionBanner, ...body].join('\n');
+    const right = [
+        ...panelSection('Project Status', projectStatusFullLines(state, c, colW), c, colW, tick),
+        ...panelSection('Cognitive Mode', renderCognitiveModeSelectorLines({
+            selection: ctx.cognitiveModeSelection ?? 'A',
+            active: modeActive,
+            useColor: ctx.useColor,
+            width: colW,
+            tick,
+        }), c, colW, tick),
+        ...panelSection('Cognitive Insights', renderCognitiveInsightsLines(ctx.cognitiveInsights, modeActive, ctx.useColor, colW), c, colW, tick),
+    ];
+    const inner = Math.max(40, w - 4);
+    const top = `┌${'─'.repeat(inner)}┐`;
+    const titleText = `${c.bold('CONTORIUM • Runtime Cognitive Cortex')}${monitoringBadge(tick, ctx.live === true, c)}`;
+    const title = `│ ${padVisible(titleText, inner)} │`;
+    const colSep = `├${'─'.repeat(colW)}┬${'─'.repeat(Math.max(0, inner - colW - 1))}┤`;
+    const body = mergeColumns(left, right, w).map((line) => `│ ${padVisible(line, inner)} │`);
+    const keyLines = renderKeyHintLines({
+        injectionPending,
+        useColor: ctx.useColor,
+        width: inner,
+        view: 'expanded',
+    });
+    const footRows = keyLines.map((line) => `│ ${padVisible(line, inner)} │`);
+    const bottom = `└${'─'.repeat(inner)}┘`;
+    return [top, title, colSep, ...body, ...footRows, bottom].join('\n');
 }
 function mergeColumns(left, right, totalWidth) {
     const colW = Math.floor((totalWidth - 3) / 2);
     const maxRows = Math.max(left.length, right.length);
     const out = [];
     for (let i = 0; i < maxRows; i++) {
-        const l = (left[i] ?? '').padEnd(colW).slice(0, colW);
-        const r = (right[i] ?? '').slice(0, colW);
-        out.push(`${l} │ ${r}`);
+        const lPadded = padVisible(left[i] ?? '', colW);
+        const rPadded = padVisible(right[i] ?? '', colW);
+        out.push(`${lPadded} │ ${rPadded}`);
     }
     return out;
 }

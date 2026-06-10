@@ -13,6 +13,8 @@ const ARTIFACT_FILES = [
     'dashboard.activity.json',
     'dashboard.status.json',
     'mcp.handoff-injection.json',
+    'mcp/cognitive.mode.json',
+    'mcp/cognitive-insights.json',
 ];
 export async function artifactSignature(workspaceRoot) {
     const contora = path.join(workspaceRoot, '.contora');

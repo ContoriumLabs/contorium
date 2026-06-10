@@ -7,8 +7,9 @@ import type {
   UnderstandingGraph,
 } from '@contora/state-core';
 import type { KnowledgeSnapshot } from '@contora/state-core';
+import type { DashboardCognitiveInsights } from './cognitiveInsights.js';
 
-export type DashboardFsmState = 'idle' | 'passive' | 'expanded';
+export type DashboardFsmState = 'idle' | 'passive' | 'expanded' | 'mode_panel';
 
 export type DashboardSignalAction = 'expand' | 'minimize' | 'filter' | 'clear-filter';
 
@@ -67,6 +68,14 @@ export interface RenderContext {
   height?: number;
   /** True when artifacts just changed — show LIVE badge in Expanded header. */
   live?: boolean;
+  /** Monotonic UI tick for pulse/spinner animation (~500ms). */
+  tickCount?: number;
   filter?: string;
   fsmState: DashboardFsmState;
+  /** Cognitive overlay A/B — keyboard selection (not yet applied). */
+  cognitiveModeSelection?: 'A' | 'B';
+  /** Cognitive overlay A/B — saved in .contora/mcp/cognitive.mode.json */
+  cognitiveModeActive?: 'A' | 'B';
+  /** Mode B insights from .contora/mcp/cognitive-insights.json */
+  cognitiveInsights?: DashboardCognitiveInsights;
 }

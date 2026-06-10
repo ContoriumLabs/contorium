@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 export interface DashboardStatusFile {
-  mode: 'idle' | 'passive' | 'expanded';
+  mode: 'idle' | 'passive' | 'expanded' | 'mode_panel';
   line: string;
   frame?: string;
   updateCount: number;

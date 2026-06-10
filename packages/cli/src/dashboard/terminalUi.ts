@@ -16,3 +16,20 @@ export function exitAlternateScreen(): void {
     process.stdout.write('\x1b[?1049l');
   }
 }
+
+/** Write a multi-line frame without full-screen erase (avoids flicker on animation ticks). */
+export function writeFrameInPlace(text: string, previousLineCount = 0): number {
+  if (!process.stdout.isTTY) {
+    process.stdout.write(`${text}\n`);
+    return text.split('\n').length;
+  }
+  process.stdout.write('\x1b[H');
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    process.stdout.write(`\x1b[${i + 1};1H\x1b[K${lines[i] ?? ''}`);
+  }
+  for (let i = lines.length; i < previousLineCount; i++) {
+    process.stdout.write(`\x1b[${i + 1};1H\x1b[K`);
+  }
+  return lines.length;
+}

@@ -1,6 +1,6 @@
 {
   "name": "@contora/state-core",
-  "version": "0.9.1",
+  "version": "0.9.5",
   "description": "Tool-agnostic Contorium workspace scan, bootstrap, and dual-mode state inputs (IDE + MCP + CLI).",
   "license": "MIT",
   "repository": {

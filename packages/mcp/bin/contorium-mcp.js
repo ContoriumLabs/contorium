@@ -6,6 +6,7 @@
  *
  * Subcommands:
  *   contorium-mcp bootstrap [--workspace PATH]  — sync .contora + dashboard (no stdio server)
+ *   contorium-mcp mode-panel [--workspace PATH]  — A/B switch (CLI fallback; primary: Dashboard ↑↓ · Enter)
  *   contorium-mcp                               — start MCP stdio server (default)
  *
  * Codex: use `node …/contorium-mcp.js` — NOT `npx @contorium/mcp` (Windows console flash).
@@ -28,6 +29,9 @@ const sub = process.argv[2];
 if (sub === 'bootstrap') {
   const { runMcpBootstrapCli } = await import('../dist/bootstrapCli.js');
   await runMcpBootstrapCli(process.argv.slice(2));
+} else if (sub === 'mode-panel') {
+  const { runMcpModePanelCli } = await import('../dist/modePanelCli.js');
+  await runMcpModePanelCli(process.argv.slice(2));
 } else {
   const { startMcpServer } = await import('../dist/server.js');
   await startMcpServer();
