@@ -19,18 +19,47 @@ Works with **Claude Code · Cursor · Codex · Gemini CLI** and any MCP-compatib
 
 Switch modes from the runtime dashboard (**↑↓** select, **Enter** apply) or via MCP tools `get_cognitive_mode` / `set_cognitive_mode`.
 
+**V4 Governance Engine** — single decision pipeline shared with IDE and CLI:
+
+| Step | MCP Tool | IDE | CLI |
+|------|----------|-----|-----|
+| Bootstrap | `ensure_control_ready` | Startup ensure | `contorium control ready` |
+| Context | `get_control_context` | View Rules | `contorium control governance` |
+| Scope | `resolve_scope_context` | Open files + Git | Built into cycle |
+| Review | — | Review Change | `contorium governance review --target <file>` |
+| **Decision** | `run_governance_cycle` | Review Change (cycle) | `contorium governance cycle` |
+| Inject | `generate_inject_payload` | Smart/Diff Inject | Dashboard Enter |
+| Export | `export_governance_context` | Copy AI context | `[c]` · `contorium export` |
+
+**Semantic separation:** `governance review` writes `review.json` only; `run_governance_cycle` writes the full artifact set under `.contora/governance/`.
+
+Auxiliary tools: `update_project_intent`, `analyze_project`, `get_cognitive_state`, `get_change_log`.
+
+See [docs/MCP.md](../docs/MCP.md) · [docs/INSTALL.md](../docs/INSTALL.md) · [docs/ARCHITECTURE_V3.md](../docs/ARCHITECTURE_V3.md).
+
 ---
 
 ## What it does
 
 Contorium keeps a continuously updated understanding of your project and exposes it to AI tools through MCP:
 
-- **Project handoff** — goal, focus, recent changes, impact graph
+- **Project handoff** — goal, focus, recent changes, impact graph (CHP v1)
 - **Cross-tool continuity** — same `.contora/` memory across sessions and AI hosts
 - **Semi-auto injection** — on a new chat, asks whether to inject runtime context (Y/n)
 - **Runtime dashboard** — passive status line in the terminal (starts automatically)
+- **Governance V4** — review / cycle / scope / decision / trace pipeline
+- **Cognitive mode (A/B)** — optional skill suggestion overlay (display-only)
 
-Everything is stored locally under `.contora/` in your project.
+Everything is stored locally under `.contora/` in your project:
+
+```text
+.contora/
+├── state.json / handoff.json
+├── change.json / graph.json / timeline.json
+├── graph/                    # knowledge, snapshot, hotspots
+├── governance/               # review, decision, scope, trace, cycle
+└── mcp/                      # store_memory (optional)
+```
 
 ---
 
@@ -264,7 +293,7 @@ With **Method 1**, Codex and Claude usually need **no** `CONTORIUM_WORKSPACE` �
 
 ## MCP tools
 
-### Recommended (MCP v1)
+### Handoff and understanding (recommended)
 
 | Tool | Purpose |
 |------|---------|
@@ -275,6 +304,42 @@ With **Method 1**, Codex and Claude usually need **no** `CONTORIUM_WORKSPACE` �
 | `get_recent_changes` | File and symbol updates |
 | `get_understanding_graph` | Call chains + impact |
 | `get_runtime_state` | Bootstrap / dashboard / session (read-only) |
+| `get_workspace_context` | Read `state.json` snapshot |
+| `get_project_graph_snapshot` | Compact cognitive summary |
+| `get_project_knowledge_graph` | Full knowledge graph |
+
+### Governance V4
+
+| Tool | Purpose | CLI equivalent |
+|------|---------|----------------|
+| `ensure_control_ready` | Bootstrap governance + sync | `contorium control ready` |
+| `get_control_context` | Read governance rules | `contorium control governance` |
+| `resolve_scope_context` | Resolve scope from files + git | Built into cycle |
+| `run_governance_cycle` | Full decision cycle | `contorium governance cycle` |
+| `generate_inject_payload` | Build inject text for AI chat | Smart/Diff Inject (IDE) |
+| `export_governance_context` | Export governance appendix | `[c]` · `governance export` |
+| `update_project_intent` | Update project direction | `contorium control intent` |
+| `analyze_project` | Analyze project | `contorium control analyze` |
+| `get_cognitive_state` | Read cognitive projection | — |
+| `get_change_log` | Structured change log | — |
+
+### Cognitive mode (A/B)
+
+| Tool | Purpose |
+|------|---------|
+| `get_cognitive_mode` | Read current mode (A = default, B = overlay) |
+| `set_cognitive_mode` | Switch cognitive mode |
+| `get_cognitive_insights` | Cognitive insights for workspace |
+| `get_skill_suggestions` | Skill suggestions (mode B; display-only) |
+| `get_model_preset` | Recommended model preset |
+
+### Memory
+
+| Tool | Purpose |
+|------|---------|
+| `store_memory` | Persist note/decision/architecture under `.contora/mcp/` |
+| `search_memory` | Search memory by keyword |
+| `get_memory` | Get memory entry by exact key |
 
 ### `get_project_handoff` parameters
 
@@ -284,7 +349,11 @@ With **Method 1**, Codex and Claude usually need **no** `CONTORIUM_WORKSPACE` �
 | `filter` | symbol substring | none |
 | `workspaceRoot` | override path | auto-detect |
 
-Legacy tools (`get_project_change`, `get_project_graph`, `get_workspace_context`, `store_memory`, …) remain available for backward compatibility.
+Legacy tools (`get_project_change`, `get_project_graph`, `get_project_impact`, `get_project_intent`, …) remain available for backward compatibility.
+
+### Unified export
+
+IDE **Copy AI-ready context**, CLI dashboard **c**, `contorium export`, and `export_governance_context` all append a `GOVERNANCE:` block (`## DECISION` / `## SCOPE` / `## TRACE`) when `.contora/governance/` artifacts exist. Implementation lives in `@contora/state-core` (`buildGovernanceExportAppendixFull`).
 
 ---
 
@@ -298,6 +367,22 @@ When runtime is active and the host opens a **new AI chat**:
 4. **N** → start with a clean conversation
 
 This happens automatically — no CLI command required.
+
+---
+
+## CLI mirror (optional)
+
+MCP works standalone — no CLI required. When developing from source, the CLI adapter shares the same engine:
+
+```bash
+npm install && npm run compile    # repo root
+npx contorium init .
+npx contorium handoff
+npx contorium governance cycle .
+npx contorium export .
+```
+
+See [docs/CLI.md](../docs/CLI.md).
 
 ---
 
@@ -366,7 +451,10 @@ Remove-Item -Recurse -Force .contora\mcp -ErrorAction SilentlyContinue
 |----------|-----|
 | Website | https://www.contorium.dev/ |
 | GitHub | https://github.com/ContoriumLabs/contorium |
-| Full MCP guide | https://github.com/ContoriumLabs/contorium/blob/main/docs/MCP.md |
+| Install (three adapters) | [docs/INSTALL.md](../docs/INSTALL.md) |
+| Full MCP guide | [docs/MCP.md](../docs/MCP.md) |
+| CLI guide | [docs/CLI.md](../docs/CLI.md) |
+| Architecture | [docs/ARCHITECTURE_V3.md](../docs/ARCHITECTURE_V3.md) |
 | Issues | https://github.com/ContoriumLabs/contorium/issues |
 
 ---

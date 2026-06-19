@@ -162,6 +162,7 @@ export async function prepareHandoffInjection(
 export async function confirmHandoffInjection(
   workspaceRoot: string,
   format: ChpHandoffFormat = 'markdown',
+  opts?: { text?: string },
 ): Promise<{
   ok: boolean;
   filePath?: string;
@@ -174,7 +175,9 @@ export async function confirmHandoffInjection(
     return { ok: false, hint: 'No active runtime or handoff — save changes or run sync first.' };
   }
 
-  const result = await getProjectHandoff(root, format);
+  const result = opts?.text
+    ? { found: true, text: opts.text }
+    : await getProjectHandoff(root, format);
   if (!result.found || !result.text) {
     return { ok: false, hint: 'Handoff not ready.' };
   }

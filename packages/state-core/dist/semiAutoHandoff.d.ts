@@ -31,7 +31,9 @@ export declare function prepareHandoffInjection(workspaceRoot: string, options?:
     compact?: string;
 }>;
 /** User confirmed — write context file and mark injected. */
-export declare function confirmHandoffInjection(workspaceRoot: string, format?: ChpHandoffFormat): Promise<{
+export declare function confirmHandoffInjection(workspaceRoot: string, format?: ChpHandoffFormat, opts?: {
+    text?: string;
+}): Promise<{
     ok: boolean;
     filePath?: string;
     text?: string;

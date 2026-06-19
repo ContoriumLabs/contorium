@@ -17,6 +17,8 @@ Overview: [INSTALL.md](./INSTALL.md) · [Dashboard](./DASHBOARD.md) · [CLI](./C
 | **Published (npm)** | `npm install -g @contorium/mcp` · `contorium-mcp bootstrap --workspace .` |
 | **Daily use** | Open Codex / Claude / Cursor — host starts MCP automatically |
 | **Primary AI tool** | `get_project_handoff` (CHP v1) |
+| **Governance cycle** | `run_governance_cycle` |
+| **Governance export** | `export_governance_context` |
 | **New chat** | `get_handoff_injection_status` → `confirm_handoff_injection` |
 | **Remove** | Host-specific: see [Uninstall](#uninstall--disable) |
 
@@ -312,7 +314,93 @@ Invoke tools in the browser; set `CONTORIUM_WORKSPACE` in the Inspector environm
 
 ### Legacy tools (still supported)
 
-`get_project_change`, `get_project_graph`, `get_project_knowledge_graph`, `get_project_graph_snapshot`, `get_workspace_context`, `store_memory`, and others remain available for backward compatibility.
+`get_project_change`, `get_project_graph`, `get_project_knowledge_graph`, `get_project_graph_snapshot`, `get_workspace_context`, `get_project_snapshot`, `get_project_state`, `get_project_intelligence`, `get_intent_graph`, `get_active_intents`, `get_state_conflicts`, `store_memory`, `search_memory`, `get_memory`, and others remain available for backward compatibility.
+
+---
+
+## Governance V4 tools
+
+Single decision pipeline shared with IDE and CLI. Artifacts persist under `.contora/governance/`.
+
+| Tool | Purpose | IDE equivalent | CLI equivalent |
+|------|---------|----------------|----------------|
+| **`ensure_control_ready`** | Bootstrap governance + sync | Startup ensure | `contorium control ready` |
+| **`get_control_context`** | Read governance rules and context | View Rules | `contorium control governance` |
+| **`resolve_scope_context`** | Resolve scope from open files + git | Review scope selector | Built into cycle |
+| **`run_governance_cycle`** | Full decision cycle | Review Change (cycle path) | `contorium governance cycle` |
+| **`generate_inject_payload`** | Build inject text for AI chat | Smart/Diff Inject | Dashboard Enter |
+| **`export_governance_context`** | Export governance appendix | Copy AI context appendix | `[c]` · `governance export` |
+
+**Semantic separation:**
+
+- Review-only flows write **`review.json`**
+- `run_governance_cycle` writes **decision / scope / trace / cycle** (and optional trace-full)
+
+### Governance auxiliary tools
+
+| Tool | Purpose |
+|------|---------|
+| **`update_project_intent`** | Update project direction text |
+| **`analyze_project`** | Analyze project structure and intent |
+| **`get_cognitive_state`** | Read cognitive projection state |
+| **`get_change_log`** | Read structured change log |
+
+---
+
+## Cognitive mode tools (A/B)
+
+| Tool | Purpose |
+|------|---------|
+| **`get_cognitive_mode`** | Read current mode (A = default, B = overlay) |
+| **`set_cognitive_mode`** | Switch cognitive mode |
+| **`get_cognitive_insights`** | Read cognitive insights for workspace |
+| **`get_skill_suggestions`** | Skill suggestions (mode B only; display-only links) |
+| **`get_model_preset`** | Read recommended model preset |
+
+Mode B overlay suggests skills from open sources (GitHub, npm, local registry). Display-only — nothing is auto-installed. Switch modes from the runtime dashboard (↑↓ select, Enter apply) or via MCP tools.
+
+---
+
+## Full tool catalog
+
+### Handoff and understanding
+
+| Tool | Purpose |
+|------|---------|
+| `get_project_handoff` | CHP v1 unified AI memory |
+| `get_handoff_injection_status` | Semi-auto new-chat prompt state |
+| `confirm_handoff_injection` | User confirmed (Y) — write context file |
+| `skip_handoff_injection` | User declined (N) for this chat |
+| `get_recent_changes` | File and symbol updates |
+| `get_understanding_graph` | Call chains + impact |
+| `get_runtime_state` | Bootstrap / dashboard / session (read-only) |
+| `get_workspace_context` | Read `state.json` snapshot |
+| `get_project_snapshot` | L4 PROJECT SNAPSHOT markdown |
+| `get_project_change` | `change.json` |
+| `get_project_graph` | Change neighborhood `graph.json` |
+| `get_project_timeline` | `timeline.json` |
+| `get_project_knowledge_graph` | Full knowledge graph |
+| `get_project_graph_snapshot` | Compact cognitive summary |
+| `get_project_intelligence` | Derived project understanding |
+| `get_intent_graph` | Intent graph |
+| `get_active_intents` | Active intents |
+| `get_state_conflicts` | State conflict audit |
+
+### Memory
+
+| Tool | Purpose |
+|------|---------|
+| `store_memory` | Persist note/decision/architecture under `.contora/mcp/` |
+| `search_memory` | Search memory by keyword |
+| `get_memory` | Get memory entry by exact key |
+
+### Governance V4
+
+`ensure_control_ready` · `get_control_context` · `resolve_scope_context` · `run_governance_cycle` · `generate_inject_payload` · `export_governance_context` · `update_project_intent` · `analyze_project` · `get_cognitive_state` · `get_change_log`
+
+### Cognitive mode
+
+`get_cognitive_mode` · `set_cognitive_mode` · `get_cognitive_insights` · `get_skill_suggestions` · `get_model_preset`
 
 ---
 
@@ -363,9 +451,10 @@ See [DASHBOARD.md](./DASHBOARD.md). No manual `contorium attach` in normal use.
 |--------|----------|
 | **`get_project_handoff`** (MCP) | Agent-native; use semi-auto injection for new chats |
 | **`get_understanding_graph`** (MCP) | Call-chain + impact view |
-| **Copy AI-ready context** (IDE) | Full canonical Markdown to clipboard |
-| **`contorium handoff --copy`** (CLI) | Copy To AI for next chat |
-| **`contorium export`** (CLI) | Legacy full export |
+| **`export_governance_context`** (MCP) | Governance appendix only |
+| **Copy AI-ready context** (IDE) | Full canonical Markdown + governance appendix to clipboard |
+| **`contorium handoff --copy`** (CLI) | Copy To AI for next chat (unified export) |
+| **`contorium export`** (CLI) | Full export with governance appendix |
 
 ---
 
@@ -377,6 +466,7 @@ See [DASHBOARD.md](./DASHBOARD.md). No manual `contorium attach` in normal use.
 | Claude Code | `claude mcp remove contorium` |
 | Codex | `codex mcp remove contorium` |
 | Gemini CLI | Remove from `mcpServers` in settings.json |
+| Global npm | `npm uninstall -g @contorium/mcp` |
 
 Clear MCP-only memory (optional, project root):
 

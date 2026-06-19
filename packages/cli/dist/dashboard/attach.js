@@ -1,5 +1,6 @@
-import { buildChpHandoffStateSync, confirmHandoffInjection, formatChpMarkdown, skipHandoffInjection, } from '@contora/state-core';
+import { confirmHandoffInjection, skipHandoffInjection, } from '@contora/state-core';
 import { artifactSignature, loadDashboardState } from './artifacts.js';
+import { buildDashboardExportText } from './exportContext.js';
 import { tryClaimDashboardWorker, unregisterDashboardWorker } from './daemon.js';
 import { releaseDashboardSpawnLock } from './spawnLock.js';
 import { copyToClipboardAsync } from '../handoff/clipboard.js';
@@ -193,54 +194,44 @@ export async function runAttach(options) {
         lastInjectionPromptAt = at;
         showFlash('[?] Runtime active — Enter/i inject · n skip', 8000);
     };
-    const buildCopyText = () => {
-        const chp = buildChpHandoffStateSync({
-            workspaceRoot: options.workspaceRoot,
-            handoff: lastData.handoff,
-            change: lastData.change,
-            currentTask: lastData.status.currentTask,
-            lastWriter: lastData.status.lastWriter,
-        });
-        if (!chp) {
-            return undefined;
-        }
-        const trimmed = filter?.trim();
-        const state = trimmed
-            ? {
-                ...chp,
-                recent_changes: chp.recent_changes.filter((c) => c.name.toLowerCase().includes(trimmed.toLowerCase())),
-            }
-            : chp;
-        return formatChpMarkdown(state, lastData.handoff, lastData.timeline);
-    };
+    const buildCopyText = async () => buildDashboardExportText(options.workspaceRoot, lastData, filter);
     const copyToAi = () => {
         if (copyInFlight) {
             return;
         }
         showFlash('Copying…', 6000);
-        const text = buildCopyText();
-        if (!text) {
-            showFlash('Copy To AI: not ready — save changes or run sync');
-            return;
-        }
-        copyInFlight = true;
-        void copyToClipboardAsync(text).then((ok) => {
-            copyInFlight = false;
-            if (ok) {
-                showFlash('Copy To AI — clipboard ready');
+        void buildCopyText().then((text) => {
+            if (!text) {
+                showFlash('Export: not ready — run governance cycle or save changes');
                 return;
             }
-            showFlash('Clipboard unavailable — run: contorium handoff --copy');
+            copyInFlight = true;
+            void copyToClipboardAsync(text).then((ok) => {
+                copyInFlight = false;
+                if (ok) {
+                    const label = lastData.governance?.review
+                        ? 'Governance context exported'
+                        : 'Context exported (governance appendix included)';
+                    showFlash(label);
+                    return;
+                }
+                showFlash('Clipboard unavailable — run: contorium handoff --copy');
+            });
         });
     };
     const injectHandoff = async () => {
-        const result = await confirmHandoffInjection(options.workspaceRoot, 'markdown');
-        if (!result.ok || !result.text) {
+        const text = await buildCopyText();
+        if (!text) {
+            showFlash('Inject: not ready — save changes or run sync');
+            return;
+        }
+        const result = await confirmHandoffInjection(options.workspaceRoot, 'markdown', { text });
+        if (!result.ok) {
             showFlash(result.hint ?? 'Inject: not ready');
             return;
         }
         lastData = await loadDashboardState(options.workspaceRoot);
-        void copyToClipboardAsync(result.text).then((ok) => {
+        void copyToClipboardAsync(text).then((ok) => {
             if (ok) {
                 showFlash('Runtime injected — clipboard ready for new chat');
                 return;

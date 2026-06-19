@@ -42,4 +42,28 @@ export { extractFromSource, isCodeFile, isTrackableFile } from './understanding/
 export { formatCanonicalAiMarkdown, formatAiHandoffExecutionBlock, formatNextActionPlain, normalizeGraphRef, type CanonicalAiExportInput, } from './understanding/formatCanonicalExport.js';
 export { checkActiveRuntime, confirmHandoffInjection, prepareHandoffInjection, readConfirmedHandoffContext, readHandoffInjectionState, skipHandoffInjection, syncInjectionWithRuntime, buildInjectionPromptMessage, type HandoffInjectionState, type HandoffInjectionStatus, type PrepareHandoffOptions, } from './semiAutoHandoff.js';
 export { getContoriumPackageVersion } from './version.js';
+export type { ChangeLog, ChangeRecord, CognitiveGraph, CognitiveIntent, CognitiveRisk, Constitution, ExecutionGuardResult, GovernanceAction, GovernanceBundle, GuardAction, GuardDetection, GuardSession, HardcodedEntry, Identity, IdentityHistory, PreActionCheckInput, ProjectCognitiveState, RiskSeverity, TruthLayer, UserRequestOverlay, ValidationResult, ValidationStatus, AdapterPreWriteResult, } from './governance/types.js';
+export { defaultConstitution, defaultIdentity, defaultTruthLayer, } from './governance/defaults.js';
+export { appendExecutionLog, governanceExists, readChangeLog, readConstitution, readCognitiveGraph, readCognitiveIntent, readCognitiveState, readIdentity, readTruthLayer, } from './governance/store.js';
+export { defaultForbiddenPatterns, getGovernanceSummary, loadGovernanceBundle, matchProtectedPath, normalizeProtectedPathRules, scanForbiddenPatterns, validateAction, validateActionWithBundle, validatePathChange, } from './governance/governanceEngine.js';
+export { detectHardcodingInSnippet, } from './governance/hardcodeDetector.js';
+export { guardActionLabel, preActionCheck, } from './governance/executionGuard.js';
+export { ensureGovernanceLayer, syncIdentityFocus, type EnsureGovernanceResult, } from './governance/init.js';
+export { syncCognitiveLayer } from './governance/cognitiveProjection.js';
+export { updateCognitiveFromInput, type CognitiveUpdateResult, } from './governance/cognitiveLoop.js';
+export { analyzeProject, getProjectState, refreshProjectCognitive, validateChange, } from './governance/internalApi.js';
+export { listRecentChanges, validateAndTrackChange, type ValidateAndTrackResult, } from './governance/changeTracker.js';
+export { adapterPreWriteHook, getGuardReminder, GUARD_SESSION_TTL_MS, isGuardSessionFresh, recordGuardSession, } from './governance/adapterHook.js';
+export { V3_CORE_FREEZE_VERSION } from './governance/types.js';
+export { readGuardSession, readUserRequestOverlay, } from './governance/store.js';
+export type { ControlAnalyzeResult, ControlCheckResult, ControlExecuteInput, ControlExecuteResult, ControlGovernanceResult, ControlIntentResult, ControlSurfaceContext, } from './control-core/types.js';
+export { ContoriumControlSurface, createControlSurface } from './control-core/index.js';
+export { buildGovernanceReviewArtifact, buildGovernanceRulesLines, computeGovernanceScore, formatGovernanceExportSection, formatGovernanceReviewYaml, formatReviewForInject, readGovernanceReview, writeGovernanceReview, estimateTokens as estimateGovernanceTokens, type BuildReviewOptions, type GovernanceReviewArtifact, type ReviewScope, type ReviewSource, } from './governance/governanceReview.js';
+export { GOVERNANCE_ARTIFACT_FILES, GOVERNANCE_SCHEMA, buildGovernanceScopeFromReview, buildGovernanceSupplement, buildGovernanceTraceSteps, governanceModeLabel, loadGovernanceArtifactBundle, loadGovernanceDashboardSnapshot, mapGovernanceDecisionAction, persistGovernanceCycleArtifacts, persistGovernanceArtifacts, readGovernanceCycle, readGovernanceDecision, readGovernanceScopeArtifact, readGovernanceTrace, readGovernanceTraceSummary, scopeArtifactToMap, scopeMapToArtifact, validateArtifactSchema, type GovernanceArtifactBundle, type GovernanceArtifactHeader, type GovernanceArtifactSource, type GovernanceCycleArtifact, type GovernanceCycleMode, type GovernanceDashboardSnapshot, type GovernanceDecisionAction, type GovernanceDecisionArtifact, type GovernanceScopeArtifact, type GovernanceScopeFiles, type GovernanceScopeMap, type GovernanceTraceFullArtifact, type GovernanceTraceSummaryArtifact, } from './governance/governanceArtifacts.js';
+export { buildGovernanceAwareExportText, buildGovernanceExportAppendixFull, type GovernanceAwareExportInput, } from './governance/governanceExportUnified.js';
+export { getGitStagedDiff, listGitStagedRelativePaths, pickHigherRiskReview, reviewGitStagedChanges, } from './governance/gitStagedReview.js';
+export { getGitCommitFileDiff, listGitCommitRelativePaths, mergeReviewArtifacts, reviewGitCommitChanges, reviewOpenFilesChanges, reviewScopedFiles, type ReviewScopePreference, type ScopedFileReviewInput, } from './governance/scopeReview.js';
+export { analyzeChange, computeChangeConfidence, type ChangeAnalysis, type ChangeAnalysisInput, type ChangeSeverity, type ChangeType } from './governance/changeAnalyzer.js';
+export { computeGovernanceImpact, computeGovernanceRisk, recommendationFor, type GovernanceImpact, type GovernanceRecommendation, type GovernanceRisk, type RiskEngineInput, type RiskEngineResult, } from './governance/riskEngine.js';
+export { buildGovernanceInjectPreview, compileGovernanceInjectPrompt, getRelevantGovernanceForFile, type GovernanceInjectInput, type GovernanceInjectMode, type RelevantGovernanceForFile, } from './prompt-engine/index.js';
 //# sourceMappingURL=index.d.ts.map

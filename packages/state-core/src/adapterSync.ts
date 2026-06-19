@@ -7,6 +7,8 @@ import { buildAndWriteUnderstandingArtifacts } from './understanding/buildUnders
 import { buildDualModeInput } from './dualMode.js';
 import { bumpWorkspaceActivity } from './dashboardActivity.js';
 import { scanWorkspace } from './scanner/workspaceScanner.js';
+import { ensureGovernanceLayer } from './governance/init.js';
+import { syncCognitiveLayer } from './governance/cognitiveProjection.js';
 
 async function countEventLines(workspaceRoot: string): Promise<number> {
   const { readdir, readFile } = await import('node:fs/promises');
@@ -76,6 +78,8 @@ export async function syncWorkspaceState(
   const eventCount = await countEventLines(resolved);
   const created = !existing;
 
+  await ensureGovernanceLayer(resolved).catch(() => undefined);
+
   if (!existing) {
     const state = bootstrapStateFromScan(scan);
     await writeStateJson(resolved, state, { mode: 'scan-driven', writer });
@@ -83,6 +87,7 @@ export async function syncWorkspaceState(
       skipGitTimeline,
     });
     const written = await readStateJson(resolved);
+    await syncCognitiveLayer(resolved, written).catch(() => undefined);
     return {
       mode: 'scan-driven',
       created: true,
@@ -124,6 +129,10 @@ export async function syncWorkspaceState(
 
   const written = await readStateJson(resolved);
   const updated = shouldWrite || (eventCount === 0 && !!options?.forceArtifacts);
+
+  // V3.2 — always refresh cognitive projection after sync (closed loop).
+  await syncCognitiveLayer(resolved, written).catch(() => undefined);
+
   if (updated || gitChanged || recentChanged) {
     await bumpWorkspaceActivity(resolved, {
       source: writer,

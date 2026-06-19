@@ -17,6 +17,7 @@ Peer adapters: [MCP](./MCP.md), [CLI](./CLI.md). Overview: [INSTALL.md](./INSTAL
 | **Install (dev)** | `npm install && npm run compile` → **F5** → open project folder in new window |
 | **Verify** | Activity bar **Contorium** → sidebar shows Current focus / Copy button |
 | **Daily use** | **Copy AI-ready context**; auto Passive line + mini-graph; **Space** → Expanded in terminal |
+| **Governance** | Review Change · View Rules · Edit Direction · Smart/Diff Inject |
 | **New AI chat** | Auto inject prompt (notification + status bar `[?]`) — **no command** |
 | **Settings** | `contora.autoAttachDashboard` (default `true`) — auto-start dashboard worker |
 | **Uninstall** | Extensions → Contorium → Uninstall → Reload |
@@ -89,7 +90,12 @@ If the sidebar stays blank, see [Troubleshooting](#troubleshooting).
 
 | Command | Purpose |
 |---------|---------|
-| Copy AI-ready context (clipboard) | One-click export |
+| Copy AI-ready context (clipboard) | One-click export (includes governance appendix when available) |
+| Smart inject (governance → AI) | Pre-review + inject governance context into chat |
+| Diff mode inject (governance → AI) | Diff-scoped governance inject |
+| Review Change | Run governance review on current scope |
+| View Rules | Open governance rules panel |
+| Edit Direction | Update project intent |
 | Save session state now | Persist immediately |
 | Restore editors from saved state | Restore editors |
 | Configure API key… (BYOK) | Optional cloud model keys |
@@ -116,6 +122,23 @@ Optional: **Ctrl+Shift+C** opens IDE Webview panel (secondary view).
 
 See [DASHBOARD.md](./DASHBOARD.md).
 
+### Governance (V4)
+
+The IDE participates in the unified governance pipeline shared with MCP and CLI:
+
+| Action | Command / UI | Artifact |
+|--------|--------------|----------|
+| Review current change | **Review Change** | `governance/review.json` |
+| View rules | **View Rules** | reads control-core store |
+| Edit project direction | **Edit Direction** | updates project intent |
+| Smart inject to chat | **Smart inject (governance → AI)** | reads review + generates inject payload |
+| Diff-scoped inject | **Diff mode inject** | scoped to git diff |
+| Export with governance | **Copy AI-ready context** | full export + `GOVERNANCE:` appendix |
+
+IDE **Review Change** writes `review.json` only. A full **cycle** (decision / scope / trace / cycle artifacts) is triggered via MCP `run_governance_cycle` or CLI `contorium governance cycle`.
+
+See [INSTALL.md](./INSTALL.md#architecture-three-adapters) for the three-adapter governance matrix.
+
 ### Copy AI-ready context structure (V3.1 canonical)
 
 Same as `contorium export` / `formatCanonicalAiMarkdown` (sections appear when data exists):
@@ -131,6 +154,11 @@ Same as `contorium export` / `formatCanonicalAiMarkdown` (sections appear when d
 # CODE EVOLUTION            (timeline recent commits)
 # INSIGHTS                  (up to 4 weak hints, optional)
 # NOTES / INSTRUCTION
+---
+GOVERNANCE:                  (when governance artifacts exist)
+## DECISION
+## SCOPE
+## TRACE
 ```
 
 JSON export (`contora.exportFormat: json`) includes `cognitiveSnapshot` when the knowledge graph exists.
@@ -152,6 +180,13 @@ All data stays in the project; **not uploaded by default**:
 ├── handoff.json               # CHP v1 AI handoff
 ├── understanding_graph.json   # call chains + impact
 ├── change.json / graph.json / timeline.json
+├── governance/                # V4 governance artifacts
+│   ├── review.json            # Review results (IDE/CLI review)
+│   ├── decision.json          # Decision outcome
+│   ├── scope.json             # Scope context
+│   ├── trace.json             # Summary trace
+│   ├── trace-full.json        # Detailed reason_chain
+│   └── cycle.json             # Full cycle record + matched_rules
 ├── runtime.bootstrap.json     # runtime_id (session-level)
 ├── mcp.auto-context.md        # after user confirms semi-auto injection
 ├── mcp.handoff-injection.json

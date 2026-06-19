@@ -1,6 +1,6 @@
 {
   "name": "@contora/cli",
-  "version": "0.9.5",
+  "version": "1.0.1",
   "description": "Contorium CLI adapter — init workspace state and print snapshot (shared state-core).",
   "type": "module",
   "license": "MIT",

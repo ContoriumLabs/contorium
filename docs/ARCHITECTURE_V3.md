@@ -32,6 +32,21 @@ IDE Cortex UI · MCP Tools · CLI · One-click Export
 
 **Single engine:** `@contora/state-core` — IDE / MCP / CLI are Runtime Adapters only.
 
+## Monorepo layout
+
+```text
+contorium/
+├── src/                    # IDE extension (VS Code / Cursor)
+├── packages/
+│   ├── state-core/         # Shared engine — understanding, governance, sync
+│   ├── cli/                # CLI adapter + dashboard worker
+│   ├── mcp/                # MCP stdio server
+│   └── runtime/            # Runtime abstraction (IDE-embedded)
+└── docs/                   # Architecture and install guides
+```
+
+All three adapters call into `@contora/state-core` and read/write the same `.contora/` directory. They are independent processes — no adapter requires another to be running.
+
 ## Artifact model (3 + 1 + cognitive graph)
 
 | File | Role |
@@ -44,6 +59,12 @@ IDE Cortex UI · MCP Tools · CLI · One-click Export
 | `graph/snapshot.json` | Compact cognitive summary for export / MCP |
 | `graph/hotspots.json` | Project activity hotspots |
 | `graph/metadata.json` | Version layer (`schemaVersion`, `graphBuildId`) |
+| `governance/review.json` | Governance review results (review-only writes) |
+| `governance/decision.json` | Decision outcome (allow, risk, rule_count, …) |
+| `governance/scope.json` | Scope context (files, modules, dependencies) |
+| `governance/trace.json` | Summary trace (≤12 steps) |
+| `governance/trace-full.json` | Detailed reason_chain (≤64 entries) |
+| `governance/cycle.json` | Full cycle record + matched_rules + metrics |
 
 ### Converged away (V3.1)
 
@@ -118,9 +139,43 @@ contorium handoff .              # same as get_project_handoff
 contorium graph-snapshot .       # same as get_project_graph_snapshot
 contorium knowledge .            # same as get_project_knowledge_graph
 contorium knowledge . --min-confidence 0.7
-contorium export .               # canonical markdown (includes COGNITIVE SNAPSHOT)
+contorium export .               # canonical markdown + governance appendix
 contorium export . --format json
+contorium governance review . --target path/to/file.ts
+contorium governance cycle .
+contorium governance export . --copy
+contorium control ready .
 ```
+
+## Governance V4 pipeline
+
+Governance runs as a unified decision pipeline across all three adapters:
+
+```text
+ensure_control_ready
+        ↓
+get_control_context + resolve_scope_context
+        ↓
+run_governance_cycle  (or review-only → review.json)
+        ↓
+decision.json + scope.json + trace.json + cycle.json
+        ↓
+generate_inject_payload / export_governance_context
+        ↓
+IDE Smart Inject · MCP Agent · CLI [c] copy
+```
+
+| Step | MCP tool | IDE | CLI |
+|------|----------|-----|-----|
+| Bootstrap | `ensure_control_ready` | Startup ensure | `contorium control ready` |
+| Context | `get_control_context` | View Rules | `contorium control governance` |
+| Scope | `resolve_scope_context` | Open files + Git | Built into cycle |
+| Review | — | Review Change | `contorium governance review` |
+| Cycle | `run_governance_cycle` | Review Change (cycle) | `contorium governance cycle` |
+| Inject | `generate_inject_payload` | Smart/Diff Inject | Dashboard Enter |
+| Export | `export_governance_context` | Copy AI context | `[c]` · `governance export` |
+
+Unified export (`buildGovernanceExportAppendixFull` in `@contora/state-core`) appends a `GOVERNANCE:` block with `## DECISION`, `## SCOPE`, and `## TRACE` sections to all export paths when artifacts exist.
 
 ## IDE
 
@@ -141,6 +196,7 @@ Canonical markdown sections (when data exists):
 6. `# AI HANDOFF (V3.1)`
 7. `# CODE EVOLUTION`
 8. `# INSIGHTS` / `# NOTES` / `# INSTRUCTION`
+9. `GOVERNANCE:` appendix (`## DECISION` / `## SCOPE` / `## TRACE`) when governance artifacts exist
 
 JSON export includes `cognitiveSnapshot` when knowledge graph exists.
 
@@ -152,6 +208,6 @@ JSON export includes `cognitiveSnapshot` when knowledge graph exists.
 
 ## Version
 
-**0.8.1** — V3.1 convergence + cognitive graph (Version/Confidence/Hotspot/Snapshot) + timeline + hybrid symbol validation.
+**0.9.5** — V3.1 understanding layer + V4 governance engine + cognitive mode (A/B) + unified governance export across IDE / MCP / CLI.
 
 See also: [STATE_ENGINE.md](./STATE_ENGINE.md) · [INSTALL.md](./INSTALL.md) · [MCP.md](./MCP.md) · [CLI.md](./CLI.md) · [IDE_EXTENSION.md](./IDE_EXTENSION.md) · **[ENGINEERING_CLOSURE.md](./ENGINEERING_CLOSURE.md)** (frozen rules)

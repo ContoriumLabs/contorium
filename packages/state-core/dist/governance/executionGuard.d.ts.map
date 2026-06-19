@@ -1,0 +1,1 @@
+{"version":3,"file":"executionGuard.d.ts","sourceRoot":"","sources":["../../src/governance/executionGuard.ts"],"names":[],"mappings":"AASA,OAAO,KAAK,EACV,oBAAoB,EACpB,WAAW,EAEX,mBAAmB,EAGpB,MAAM,YAAY,CAAC;AAgEpB;;GAEG;AACH,wBAAsB,cAAc,CAClC,aAAa,EAAE,MAAM,EACrB,KAAK,EAAE,mBAAmB,GACzB,OAAO,CAAC,oBAAoB,CAAC,CAmG/B;AAED,wBAAgB,gBAAgB,CAAC,MAAM,EAAE,WAAW,GAAG,MAAM,CAW5D"}

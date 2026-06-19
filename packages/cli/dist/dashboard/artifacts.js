@@ -1,6 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { readChangeArtifact, readHandoffArtifact, readHandoffInjectionState, readKnowledgeSnapshot, readProjectGraph, readProjectTimeline, readUnderstandingGraph, readWorkspaceStatus, } from '@contora/state-core';
+import { GOVERNANCE_ARTIFACT_FILES } from '@contora/state-core';
+import { loadGovernanceSnapshot } from './governanceDashboard.js';
 const ARTIFACT_FILES = [
     'state.json',
     'change.json',
@@ -15,6 +17,7 @@ const ARTIFACT_FILES = [
     'mcp.handoff-injection.json',
     'mcp/cognitive.mode.json',
     'mcp/cognitive-insights.json',
+    ...GOVERNANCE_ARTIFACT_FILES,
 ];
 export async function artifactSignature(workspaceRoot) {
     const contora = path.join(workspaceRoot, '.contora');
@@ -82,7 +85,7 @@ async function readRecentEvents(workspaceRoot, limit = 8) {
         .slice(0, limit);
 }
 export async function loadDashboardState(workspaceRoot) {
-    const [status, change, handoff, understandingGraph, graph, snapshot, timeline, recentEvents, handoffInjection] = await Promise.all([
+    const [status, change, handoff, understandingGraph, graph, snapshot, timeline, recentEvents, handoffInjection, governance] = await Promise.all([
         readWorkspaceStatus(workspaceRoot),
         readChangeArtifact(workspaceRoot),
         readHandoffArtifact(workspaceRoot),
@@ -92,6 +95,7 @@ export async function loadDashboardState(workspaceRoot) {
         readProjectTimeline(workspaceRoot),
         readRecentEvents(workspaceRoot),
         readHandoffInjectionState(workspaceRoot),
+        loadGovernanceSnapshot(workspaceRoot),
     ]);
     return {
         workspaceRoot,
@@ -113,5 +117,6 @@ export async function loadDashboardState(workspaceRoot) {
         timeline,
         recentEvents,
         handoffInjection,
+        governance,
     };
 }

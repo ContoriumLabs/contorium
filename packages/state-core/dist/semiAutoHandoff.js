@@ -155,13 +155,15 @@ async function prepareHandoffInjection(workspaceRoot, options) {
     };
 }
 /** User confirmed — write context file and mark injected. */
-async function confirmHandoffInjection(workspaceRoot, format = 'markdown') {
+async function confirmHandoffInjection(workspaceRoot, format = 'markdown', opts) {
     const root = path.resolve(workspaceRoot);
     const { active, runtime_id } = await checkActiveRuntime(root);
     if (!active || !runtime_id) {
         return { ok: false, hint: 'No active runtime or handoff — save changes or run sync first.' };
     }
-    const result = await (0, chpHandoff_js_1.getProjectHandoff)(root, format);
+    const result = opts?.text
+        ? { found: true, text: opts.text }
+        : await (0, chpHandoff_js_1.getProjectHandoff)(root, format);
     if (!result.found || !result.text) {
         return { ok: false, hint: 'Handoff not ready.' };
     }

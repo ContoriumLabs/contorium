@@ -8,6 +8,7 @@ import type {
 } from '@contora/state-core';
 import type { KnowledgeSnapshot } from '@contora/state-core';
 import type { DashboardCognitiveInsights } from './cognitiveInsights.js';
+import type { DashboardGovernanceSnapshot } from './governanceDashboard.js';
 
 export type DashboardFsmState = 'idle' | 'passive' | 'expanded' | 'mode_panel';
 
@@ -46,6 +47,7 @@ export interface DashboardState {
   timeline?: ProjectTimeline;
   recentEvents: RuntimeEvent[];
   handoffInjection?: HandoffInjectionState;
+  governance?: DashboardGovernanceSnapshot;
 }
 
 export interface AttachOptions {

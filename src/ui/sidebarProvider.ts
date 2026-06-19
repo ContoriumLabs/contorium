@@ -18,6 +18,18 @@ import {
 import { StateManager } from '../state/stateManager';
 import type { ProjectState } from '../types/state';
 import { defaultProjectState } from '../types/state';
+import { runAndPersistGovernanceReview, readGovernanceReviewScope } from '../ai/governanceReviewBridge';
+import {
+  buildSidebarGovernanceStatus,
+  formatGovernanceOverview,
+  formatReviewArtifactOverlay,
+  type ChangeReviewOverlay,
+  type GovernanceOverviewOverlay,
+} from './sidebarGovernancePanel';
+import {
+  ideControlGovernance,
+  ideControlUpdateIntent,
+} from '../control/controlBridge';
 import {
   buildSidebarWebviewState,
   type SidebarAiIntentPanel,
@@ -34,6 +46,13 @@ type WebviewToExt =
   | { type: 'generateSemanticSummary' }
   | { type: 'analyzeWorkspaceIntent' }
   | { type: 'compressContextPreview' }
+  | { type: 'viewRules' }
+  | { type: 'reviewChange' }
+  | { type: 'setReviewScope'; value: string }
+  | { type: 'editDirection' }
+  | { type: 'getGovernance' }
+  | { type: 'checkAction' }
+  | { type: 'updateProjectIntent' }
   | { type: 'updateTask'; value: string }
   | { type: 'updateNotes'; value: string }
   | { type: 'openFile'; relativePath: string }
@@ -93,6 +112,7 @@ const EMPTY_UNDERSTANDING: SidebarUnderstandingPanel = {
 
 export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'contora.sidebar';
+  /** Bust on layout changes so Reload Window picks up sidebar HTML. */
   private static htmlTemplateCache: string | undefined;
 
   private view?: vscode.WebviewView;
@@ -102,7 +122,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   private pushStateSeq = 0;
   private pushStateInFlight = false;
   private pushStateQueued = false;
-
+  /** Webview posted `ready` — listener is registered. */
+  private webviewScriptReady = false;
+  /** Fast workspace shell painted at least once. */
+  private webviewBaseHydrated = false;
   constructor(
     private readonly ctx: vscode.ExtensionContext,
     private readonly stateManager: StateManager,
@@ -135,6 +158,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     // posted before the listener exists and the webview never receives initial state.
     webviewView.webview.onDidReceiveMessage(async (msg: WebviewToExt) => {
       if (msg.type === 'ready') {
+        this.webviewScriptReady = true;
         void this.pushStateToWebview();
         return;
       }
@@ -169,6 +193,27 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
       if (msg.type === 'compressContextPreview') {
         await vscode.commands.executeCommand('contora.compressContextPreview');
+        return;
+      }
+      if (msg.type === 'viewRules' || msg.type === 'getGovernance') {
+        await this.showGovernanceOverview();
+        return;
+      }
+      if (msg.type === 'reviewChange' || msg.type === 'checkAction') {
+        await this.showChangeReview();
+        return;
+      }
+      if (msg.type === 'setReviewScope') {
+        const scope = msg.value ?? 'auto';
+        await vscode.workspace
+          .getConfiguration(CONTORA_CONFIG_SECTION)
+          .update('governanceReviewScope', scope, vscode.ConfigurationTarget.Workspace);
+        await this.refreshGovernanceReview();
+        void this.pushStateToWebview();
+        return;
+      }
+      if (msg.type === 'editDirection' || msg.type === 'updateProjectIntent') {
+        await this.promptEditDirection();
         return;
       }
       if (msg.type === 'startFreshAiSession') {
@@ -207,17 +252,20 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
     webviewView.onDidDispose(() => {
       this.view = undefined;
+      this.webviewScriptReady = false;
+      this.webviewBaseHydrated = false;
     });
 
     webviewView.onDidChangeVisibility(() => {
-      if (webviewView.visible) {
+      if (webviewView.visible && this.webviewScriptReady) {
         void this.pushStateToWebview();
       }
     });
 
     try {
+      this.webviewScriptReady = false;
+      this.webviewBaseHydrated = false;
       webviewView.webview.html = this.getHtml(webviewView.webview);
-      void this.pushStateToWebview();
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar HTML failed:`, err);
       webviewView.webview.html = this.getFallbackHtml(
@@ -243,6 +291,86 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
   async refresh(): Promise<void> {
     await this.pushStateToWebview();
+  }
+
+  private postOverlay(overlay: GovernanceOverviewOverlay | ChangeReviewOverlay): void {
+    this.view?.webview.postMessage({ type: 'overlay', overlay });
+  }
+
+  async showGovernanceOverview(): Promise<void> {
+    const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+    if (!folder) {
+      await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
+      return;
+    }
+    try {
+      const result = await ideControlGovernance(folder);
+      this.postOverlay(formatGovernanceOverview(result));
+    } catch (err) {
+      await vscode.window.showErrorMessage(
+        `${PRODUCT_DISPLAY_NAME}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async refreshGovernanceReview(editor?: vscode.TextEditor): Promise<void> {
+    const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+    if (!folder) {
+      return;
+    }
+    try {
+      await runAndPersistGovernanceReview(folder, editor);
+    } catch (err) {
+      console.warn(`[${PRODUCT_DISPLAY_NAME}] governance review:`, err);
+    }
+  }
+
+  async showChangeReview(): Promise<void> {
+    const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+    if (!folder) {
+      await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
+      return;
+    }
+    try {
+      const editor = vscode.window.activeTextEditor;
+      const artifact = await runAndPersistGovernanceReview(folder, editor);
+      if (!artifact) {
+        await vscode.window.showInformationMessage(
+          `${PRODUCT_DISPLAY_NAME}: No reviewable changes — open a file, stage git changes, or adjust review scope.`,
+        );
+        return;
+      }
+      this.postOverlay(formatReviewArtifactOverlay(artifact));
+      void this.pushStateToWebview();
+    } catch (err) {
+      await vscode.window.showErrorMessage(
+        `${PRODUCT_DISPLAY_NAME}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async promptEditDirection(): Promise<void> {
+    const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+    if (!folder) {
+      await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
+      return;
+    }
+    const input = await vscode.window.showInputBox({
+      title: 'Edit project direction',
+      prompt: 'Why are you building this project? (long-term goal, not the current task)',
+      placeHolder: 'e.g. Become the governance layer for AI-native development',
+    });
+    if (!input?.trim()) {
+      return;
+    }
+    try {
+      await ideControlUpdateIntent(folder, input.trim());
+      void this.pushStateToWebview();
+    } catch (err) {
+      await vscode.window.showErrorMessage(
+        `${PRODUCT_DISPLAY_NAME}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private defaultByokPanelState(): SidebarByokPanelState {
@@ -378,8 +506,20 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     };
   }
 
+  private activeRelativeFile(): string | undefined {
+    const doc = vscode.window.activeTextEditor?.document;
+    if (!doc || doc.uri.scheme !== 'file') {
+      return undefined;
+    }
+    const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+    if (!folder) {
+      return undefined;
+    }
+    return vscode.workspace.asRelativePath(doc.uri, false).replace(/\\/g, '/');
+  }
+
   private async pushStateToWebview(): Promise<void> {
-    if (!this.view) {
+    if (!this.view || !this.webviewScriptReady) {
       return;
     }
     if (this.pushStateInFlight) {
@@ -388,56 +528,110 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
     this.pushStateInFlight = true;
     const seq = ++this.pushStateSeq;
+    const emptyCog = this.emptyCognitionState();
     try {
       const folder = this.folder ?? this.stateManager.getPrimaryFolder();
       const ver = String((this.ctx.extension.packageJSON as { version?: string }).version ?? '');
-      const emptyCog = this.emptyCognitionState();
       const byokDefault = this.defaultByokPanelState();
 
       if (!folder) {
-        this.postWebviewState(seq, null, byokDefault, true);
+        this.postWebviewState(seq, null, byokDefault, !this.webviewBaseHydrated);
+        this.webviewBaseHydrated = true;
         return;
       }
 
-      const cached = this.stateManager.getCached(folder) ?? defaultProjectState();
-      const baseInstant = buildSidebarWebviewState(cached, this.events, ver);
-      this.postWebviewState(
-        seq,
-        { ...baseInstant, ...emptyCog },
-        byokDefault,
-        true,
-      );
+      const needsFastShell = !this.webviewBaseHydrated;
+      if (needsFastShell) {
+        const cached = this.stateManager.getCached(folder) ?? defaultProjectState();
+        const baseInstant = buildSidebarWebviewState(cached, this.events, ver);
+        this.postWebviewState(
+          seq,
+          { ...baseInstant, ...emptyCog },
+          byokDefault,
+          true,
+        );
+        this.webviewBaseHydrated = true;
+      }
 
-      const [byok, state] = await Promise.all([
-        this.loadByokPanelState(),
-        this.stateManager.load(folder),
-      ]);
+      const state = await this.stateManager.load(folder);
       if (seq !== this.pushStateSeq || !this.view) {
         return;
       }
-      const base = buildSidebarWebviewState(state, this.events, ver);
-      let merged: Record<string, unknown> = { ...base, ...emptyCog };
-      this.postWebviewState(seq, merged, byok, true);
 
-      const [projectState, intentGraph, stateConflicts] = await Promise.all([
+      const settled = await Promise.allSettled([
+        this.loadByokPanelState(),
         buildSidebarProjectStatePanel(folder),
         buildSidebarGraphPanel(folder),
         buildSidebarConflictsPanel(folder),
-      ]);
-      if (seq !== this.pushStateSeq || !this.view) {
-        return;
-      }
-      merged = { ...merged, projectState, intentGraph, stateConflicts };
-      this.postWebviewState(seq, merged, byok);
-
-      const [understandingPanel, aiIntent] = await Promise.all([
         buildSidebarUnderstandingPanel(folder),
         this.readAiIntentForFolder(folder, state),
+        buildSidebarGovernanceStatus(
+          folder.uri.fsPath,
+          this.activeRelativeFile(),
+          readGovernanceReviewScope(),
+        ),
       ]);
       if (seq !== this.pushStateSeq || !this.view) {
         return;
       }
-      this.postWebviewState(seq, { ...merged, understandingPanel, aiIntent }, byok);
+
+      const pick = <T>(i: number, fallback: T): T =>
+        settled[i]?.status === 'fulfilled' ? (settled[i] as PromiseFulfilledResult<T>).value : fallback;
+
+      const byok = pick(0, byokDefault);
+      const projectState = pick(1, { ...EMPTY_PROJECT_STATE });
+      const intentGraph = pick(2, { ...EMPTY_INTENT_GRAPH });
+      const stateConflicts = pick(3, { ...EMPTY_CONFLICTS });
+      const understandingPanel = pick(4, { ...EMPTY_UNDERSTANDING });
+      const aiIntent = pick(5, { goals: [] } as SidebarAiIntentPanel);
+      const governanceStatus = pick(6, {
+        active: false,
+        constitutionLoaded: false,
+        truthLoaded: false,
+        identityLoaded: false,
+        protectedPathCount: 0,
+        forbiddenRuleCount: 0,
+        protectedPaths: [],
+        forbiddenActions: [],
+        projectDirection: '',
+        review: null,
+        reviewFile: '—',
+        reviewRisk: '—',
+        reviewChangeType: '—',
+        reviewSeverity: '—',
+        reviewImpact: '—',
+        reviewConfidence: '—',
+        reviewProtected: '—',
+        reviewTruthImpact: '—',
+        reviewRecommendation: '—',
+        reviewReasonChain: [],
+        reviewSource: '—',
+        reviewTimestamp: '—',
+        reviewScopePreference: 'Auto (merge all)',
+        reviewScopeValue: 'auto',
+        reviewWhyChain: [],
+        injectionRules: [],
+        injectionTokenEstimate: 0,
+        injectPreview: 'Governance not loaded',
+      });
+
+      for (const result of settled) {
+        if (result.status === 'rejected') {
+          console.warn(`[${PRODUCT_DISPLAY_NAME}] sidebar panel load:`, result.reason);
+        }
+      }
+
+      const base = buildSidebarWebviewState(state, this.events, ver);
+      const merged: Record<string, unknown> = {
+        ...base,
+        projectState,
+        intentGraph,
+        stateConflicts,
+        understandingPanel,
+        aiIntent,
+        governanceStatus,
+      };
+      this.postWebviewState(seq, merged, byok, false);
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar state push failed:`, err);
       try {
@@ -957,7 +1151,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       color: var(--vscode-descriptionForeground);
     }
     .cr-ai-foot-ctx { color: var(--vscode-textLink-foreground); cursor: default; }
-    .cr-actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .cr-actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
     button.cr-primary {
       width: 100%;
       display: flex;
@@ -1117,6 +1311,230 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.1)) 50%
       );
     }
+    .cr-module-card--governance {
+      border-left: 3px solid var(--vscode-charts-green, #89d185);
+    }
+    .cr-gov-intent {
+      width: 100%;
+      margin-top: 6px;
+    }
+    .cr-today-card {
+      background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,.08));
+      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.18));
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .cr-today-card .cr-task-input {
+      width: 100%;
+      margin-top: 4px;
+    }
+    .cr-today-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+    }
+    .cr-gov-status-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      margin: 0 0 4px;
+    }
+    .cr-gov-status-line .cr-gov-ok { color: var(--vscode-testing-iconPassed, #3fb950); }
+    .cr-gov-meta-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 6px 10px;
+      margin: 8px 0 10px;
+      font-size: 11px;
+      width: 100%;
+    }
+    .cr-gov-meta-grid > div {
+      min-width: 0;
+      overflow: hidden;
+    }
+    .cr-gov-meta-grid span {
+      color: var(--vscode-descriptionForeground);
+      display: block;
+      margin-bottom: 1px;
+    }
+    .cr-gov-meta-grid strong {
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+      font-weight: 600;
+      color: var(--vscode-foreground);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .cr-gov-inject-block {
+      margin: 10px 0 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: rgba(137, 209, 133, 0.08);
+      border: 1px solid rgba(137, 209, 133, 0.22);
+    }
+    .cr-gov-inject-k {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+      margin-bottom: 4px;
+    }
+    .cr-gov-inject-preview {
+      margin: 0 0 8px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--vscode-foreground);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .cr-gov-rules-list {
+      margin: 0 0 6px;
+      padding-left: 16px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--vscode-descriptionForeground);
+    }
+    .cr-gov-rules-list li { margin-bottom: 2px; }
+    .cr-gov-scope-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 8px;
+      font-size: 11px;
+    }
+    .cr-gov-scope-row label {
+      color: var(--vscode-descriptionForeground);
+      white-space: nowrap;
+    }
+    .cr-gov-scope-row select {
+      flex: 1;
+      min-width: 0;
+      font-size: 11px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--vscode-input-border, rgba(127,127,127,.35));
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+    }
+    .cr-gov-why-block {
+      margin: 8px 0 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: rgba(127, 127, 127, 0.08);
+      border: 1px solid rgba(127, 127, 127, 0.18);
+    }
+    .cr-gov-why-list {
+      margin: 0;
+      padding-left: 0;
+      list-style: none;
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--vscode-foreground);
+    }
+    .cr-gov-why-list li { margin-bottom: 3px; }
+    .cr-gov-why-list li.cr-why-neg { color: var(--vscode-descriptionForeground); }
+    .cr-ai-context-card {
+      background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,.08));
+      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.18));
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .cr-ai-context-includes {
+      margin: 6px 0 10px;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      line-height: 1.45;
+    }
+    .cr-sync-mini {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .cr-sync-mini button { flex: 1; font-size: 11px; padding: 5px 8px; }
+    .cr-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 8px;
+    }
+    .cr-overlay[hidden] { display: none !important; }
+    .cr-overlay-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,.35);
+    }
+    .cr-overlay-panel {
+      position: relative;
+      width: 100%;
+      max-height: 78vh;
+      overflow: auto;
+      background: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.35));
+      border-radius: 10px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.25);
+      padding: 12px 14px 14px;
+    }
+    .cr-overlay-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .cr-overlay-head h2 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .cr-overlay-close {
+      border: none;
+      background: transparent;
+      color: var(--vscode-foreground);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .cr-overlay-close:hover { background: var(--vscode-toolbar-hoverBackground); }
+    .cr-overlay-row {
+      margin: 0 0 8px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .cr-overlay-k {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+      margin-bottom: 2px;
+    }
+    .cr-overlay-list {
+      margin: 4px 0 0;
+      padding-left: 16px;
+      font-size: 12px;
+    }
+    .cr-overlay-foot { margin-top: 12px; }
+    .cr-overlay-foot button { width: 100%; }
+    .cr-review-pass { color: var(--vscode-testing-iconPassed, #3fb950); }
+    .cr-review-warn { color: var(--vscode-inputValidation-warningForeground, #cca700); }
+    .cr-review-block { color: var(--vscode-errorForeground, #f85149); }
+    #crSecAiGoals { display: none !important; }
     .cr-stack { margin-top: 10px; }
     .cr-stack:first-of-type { margin-top: 14px; }
     .cr-stack-label {
@@ -1657,75 +2075,184 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     </div>
   </header>
 
-  <section class="cr-ai-card" aria-label="Workspace status">
-    <div class="cr-ai-card-head">
-      <span class="cr-ai-card-title">${ico.code} Workspace status</span>
-      <span class="cr-ai-card-status" id="aiCardStatusRow"><span class="cr-dot cr-dot--pulse"></span><span id="aiTrackStatus">Workspace tracking active</span></span>
-    </div>
-    <div class="cr-ai-card-grid">
-      <div>
+  <div class="cr-stack" aria-label="Today">
+    <div class="cr-stack-label">Today</div>
+    <section class="cr-section cr-today-card" aria-label="Today">
+      <div class="cr-psb-block">
         <div class="cr-ai-focus-row">
-          <span class="cr-ai-label">Current focus</span>
+          <span class="cr-psb-k">Current task</span>
           <span class="cr-task-meta" style="display:flex;align-items:center;gap:6px">
-            <span class="cr-sec-ico" style="opacity:.45" aria-hidden="true" title="Keywords from text">${ico.plus}</span>
             <span id="taskCount">0 / ${TASK_MAX}</span>
           </span>
         </div>
         <textarea id="task" class="cr-task-input" rows="2" maxlength="${TASK_MAX}" placeholder="What are you working on right now?"></textarea>
-        <p id="taskActivityHint" class="cr-byok-muted">Optional — improves direction for AI-ready export</p>
-        <div id="crSecAiGoals">
-        <p class="cr-ai-goals-label">Operational intent</p>
-        <ul id="aiIntentGoals" class="cr-ai-goals-list" hidden></ul>
-        <button type="button" id="aiIntentGoalsToggle" class="cr-ai-goals-toggle" hidden aria-expanded="false"></button>
-        <p id="aiIntentEmpty" class="cr-ai-goals-empty">No active focus. Waiting for workspace activity.</p>
-        </div>
       </div>
-      <div class="cr-ai-side-strip" aria-label="Model and runtime summary">
-        <div class="cr-ai-side-cell">
-          <span class="cr-ai-side-k">Model</span>
-          <span class="cr-ai-side-v"><span id="aiStatModel">—</span><span class="cr-badge-pro" id="aiStatTierBadge" hidden>Pro</span></span>
-        </div>
-        <div class="cr-ai-side-cell">
-          <span class="cr-ai-side-k">Runtime</span>
-          <span class="cr-ai-side-v" id="aiStatRuntime">—</span>
-        </div>
-        <div class="cr-ai-side-cell">
-          <span class="cr-ai-side-k">Mode</span>
-          <span class="cr-ai-side-v cr-ai-side-mode" id="aiStatMode">—</span>
-        </div>
-        <button type="button" class="cr-ai-jump-byok" id="btnJumpByok" title="Scroll to BYOK / Cloud AI (v3)" aria-label="Scroll to BYOK / Cloud AI">${ico.jumpDown}</button>
+      <div class="cr-psb-block">
+        <span class="cr-psb-k">Project goal</span>
+        <p id="todayProjectGoal" class="cr-graph-line">—</p>
+        <span id="todayDirectionUpdated" class="cr-graph-muted">—</span>
       </div>
-      <div class="cr-ai-card-foot">
-        <span id="aiStatUpdated">—</span>
-        <span id="aiStatCtx" class="cr-ai-foot-ctx">—</span>
+      <div class="cr-psb-block">
+        <span class="cr-psb-k">Current stage</span>
+        <p id="todayStage" class="cr-graph-muted">—</p>
       </div>
-    </div>
-  </section>
+      <div class="cr-psb-block" id="todayNextBlock" hidden>
+        <span class="cr-psb-k">Next action</span>
+        <p id="todayNext" class="cr-graph-line">—</p>
+      </div>
+      <div class="cr-today-status" id="todayWorkspaceStatus">
+        <span class="cr-dot cr-dot--pulse"></span>
+        <span id="aiTrackStatus">Workspace tracking active</span>
+      </div>
+    </section>
+  </div>
 
-  <div class="cr-actions">
-    <button type="button" class="cr-primary" id="btnExport" title="Copy AI-ready context: task anchor, pure snapshot, working context, light insights">
-      ${ico.copy}<span>Copy AI-ready context</span>${ico.spark}
+  <div class="cr-actions" aria-label="Export AI context">
+    <button type="button" class="cr-primary" id="btnExport" title="Run governance review, build context, and inject into AI chat">
+      ${ico.copy}<span>Export AI context</span>${ico.spark}
     </button>
     <div class="cr-grid2">
       <button type="button" class="cr-secondary" id="btnSave" title="Write state to disk">${ico.save}<span>Sync state to disk</span></button>
       <button type="button" class="cr-secondary" id="btnRestore" title="Reopen editors from last saved state">${ico.history}<span>Restore editors</span></button>
     </div>
+    <div class="cr-ai-card-foot" style="margin-top:0;padding-top:6px;border-top:none">
+      <span id="aiStatUpdated">—</span>
+      <span id="aiStatCtx" class="cr-ai-foot-ctx">—</span>
+    </div>
+  </div>
+  <span id="aiContextTokens" hidden aria-hidden="true">—</span>
+
+  <div class="cr-stack" aria-label="Governance">
+    <div class="cr-stack-label">Governance</div>
+    <section class="cr-section" id="crSecGovernance" aria-label="Governance status">
+      <div class="cr-module-card cr-module-card--governance">
+        <div class="cr-module-card-body">
+          <p class="cr-gov-status-line" id="govActiveLine"><span class="cr-gov-ok">✓</span><span id="govActiveLabel">Active</span></p>
+          <p class="cr-gov-status-line" id="govConstLine" hidden><span class="cr-gov-ok">✓</span> Constitution loaded</p>
+          <p class="cr-gov-status-line" id="govTruthLine" hidden><span class="cr-gov-ok">✓</span> Truth layer loaded</p>
+          <p class="cr-gov-status-line" id="govIdentityLine" hidden><span class="cr-gov-ok">✓</span> Identity loaded</p>
+          <div class="cr-gov-scope-row">
+            <label for="govReviewScope">Review scope</label>
+            <select id="govReviewScope" title="Which changes to include in governance review">
+              <option value="auto">Auto (merge all)</option>
+              <option value="current_file">Current file</option>
+              <option value="open_files">Open files</option>
+              <option value="git_staged">Git staged</option>
+              <option value="git_commit">Git commit (HEAD)</option>
+            </select>
+          </div>
+          <div class="cr-gov-meta-grid">
+            <div><span>Protected paths</span><strong id="govProtectedCount">—</strong></div>
+            <div><span>Forbidden rules</span><strong id="govForbiddenCount">—</strong></div>
+            <div><span>Current file</span><strong id="govReviewFile">—</strong></div>
+            <div><span>Risk</span><strong id="govReviewRisk">—</strong></div>
+            <div><span>Change</span><strong id="govReviewChange">—</strong></div>
+            <div><span>Severity</span><strong id="govReviewSeverity">—</strong></div>
+            <div><span>Impact</span><strong id="govReviewImpact">—</strong></div>
+            <div><span>Confidence</span><strong id="govReviewConfidence">—</strong></div>
+            <div><span>Protected</span><strong id="govReviewProtected">—</strong></div>
+            <div><span>Truth impact</span><strong id="govReviewTruth">—</strong></div>
+            <div><span>Recommendation</span><strong id="govReviewRecommendation">—</strong></div>
+            <div><span>Source</span><strong id="govReviewSource">—</strong></div>
+            <div><span>Last check</span><strong id="govReviewTimestamp">—</strong></div>
+          </div>
+          <div class="cr-gov-why-block" aria-label="Why chain">
+            <span class="cr-gov-inject-k">Why?</span>
+            <ul id="govReviewWhy" class="cr-gov-why-list"></ul>
+          </div>
+          <div class="cr-gov-inject-block" aria-label="Export injection preview">
+            <span class="cr-gov-inject-k">Export preview</span>
+            <p id="govInjectPreview" class="cr-gov-inject-preview">—</p>
+            <ul id="govInjectionRules" class="cr-gov-rules-list"></ul>
+            <p id="govTokenEstimate" class="cr-graph-muted">—</p>
+          </div>
+          <div class="cr-grid2">
+            <button type="button" class="cr-secondary" id="btnViewRules" title="View project rules">${ico.list}<span>Project rules</span></button>
+            <button type="button" class="cr-secondary" id="btnReviewChange" title="Why is this change high risk?">${ico.check}<span>Review change</span></button>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <div class="cr-stack" aria-label="Workflow layer">
-    <div class="cr-stack-label">Workflow</div>
+  <details class="cr-stack cr-stack-fold" id="crSecWorkspaceHealth" aria-label="Workspace health">
+    <summary class="cr-stack-label" style="cursor:pointer">Workspace health</summary>
+    <div class="cr-stack-fold-body">
+  <section class="cr-section" id="crSecSnapshot">
+    <div class="cr-module-card cr-module-card--workspace">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Status</span></span>
+      </div>
+      <div class="cr-module-card-body">
+    <div class="cr-summary">
+      <div class="cr-sum-line" id="sumActive">
+        <span class="cr-sum-ico cr-sum-ico--files">${ico.list}</span>
+        <div class="cr-sum-main">
+          <span class="cr-sum-muted">Tracked files</span>
+          <div class="cr-sum-body" id="sumActiveBody">—</div>
+        </div>
+      </div>
+      <div class="cr-sum-line" id="sumGit">
+        <span class="cr-sum-ico cr-sum-ico--git">${ico.branch}</span>
+        <div class="cr-sum-main">
+          <span class="cr-sum-muted">Git sync</span>
+          <div class="cr-sum-body" id="sumGitBody">—</div>
+        </div>
+      </div>
+    </div>
+    </div>
+  </section>
+  <section class="cr-section" id="crSecHandoff" aria-label="Recent handoff">
+    <div class="cr-module-card cr-module-card--handoff">
+      <div class="cr-module-card-head">
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Recent changes</span></span>
+        <span class="cr-graph-meta" id="handoffMeta">—</span>
+      </div>
+      <div class="cr-module-card-body">
+        <p id="handoffSummary" class="cr-graph-line">—</p>
+        <details class="cr-stack-fold">
+          <summary>Impact modules</summary>
+          <div class="cr-stack-fold-body">
+        <div id="uImpactBlock" class="cr-psb-panel" hidden>
+          <span class="cr-psb-k">Affected modules</span>
+          <div id="uImpactModules" class="cr-graph-domains"></div>
+        </div>
+          </div>
+        </details>
+        <details id="uTimelineDetails" class="cr-stack-fold" hidden>
+          <summary>Timeline (recent commits)</summary>
+          <ul id="uTimelineList" class="cr-psb-list"></ul>
+        </details>
+        <p id="handoffEmpty" class="cr-graph-empty">Analyzing recent code changes…</p>
+      </div>
+    </div>
+  </section>
+    </div>
+  </details>
+
+  <div class="cr-stack" aria-label="Activity">
+    <div class="cr-stack-label">Activity</div>
+    <section class="cr-section">
+      <ul id="activityStreamList" class="cr-activity-feed" aria-label="Recent workspace activity"></ul>
+      <p id="sumActivityBody" class="cr-graph-muted" style="margin:0">—</p>
+    </section>
+  </div>
+
+  <details class="cr-stack cr-stack-fold" id="crSecProjectDetail" aria-label="Project detail">
+    <summary class="cr-stack-label" style="cursor:pointer">Project detail</summary>
+    <div class="cr-stack-fold-body">
   <section class="cr-section" id="crSecProjectState" aria-label="Project state (State Builder)">
     <div class="cr-module-card cr-module-card--state">
       <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>Project state</span></span>
+        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>State builder</span></span>
         <span class="cr-graph-meta" id="psbMeta">—</span>
       </div>
       <div class="cr-module-card-body">
-    <div class="cr-psb-block">
+    <div class="cr-psb-block" hidden aria-hidden="true">
       <span class="cr-psb-k">Goal</span>
       <p id="psbGoal" class="cr-graph-line">—</p>
     </div>
-    <div class="cr-psb-block">
+    <div class="cr-psb-block" hidden aria-hidden="true">
       <span class="cr-psb-k">Current stage</span>
       <p id="psbStage" class="cr-graph-muted">—</p>
     </div>
@@ -1751,81 +2278,39 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       </div>
     </div>
   </section>
-  </div>
+    </div>
+  </details>
 
-  <div class="cr-stack" aria-label="Intent layer">
-    <div class="cr-stack-label">Intent</div>
-  <section class="cr-section" id="crSecHandoff" aria-label="V3.1 understanding">
-    <div class="cr-module-card cr-module-card--handoff">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>AI handoff</span></span>
-        <span class="cr-graph-meta" id="handoffMeta">—</span>
+  <div id="crSecAiGoals" hidden aria-hidden="true">
+    <ul id="aiIntentGoals"></ul>
+    <button type="button" id="aiIntentGoalsToggle" hidden></button>
+    <p id="aiIntentEmpty"></p>
+  </div>
+  <p id="handoffIntent" hidden aria-hidden="true"></p>
+
+  <div id="crOverlay" class="cr-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="crOverlayTitle">
+    <div class="cr-overlay-backdrop" id="crOverlayBackdrop"></div>
+    <div class="cr-overlay-panel">
+      <div class="cr-overlay-head">
+        <h2 id="crOverlayTitle">—</h2>
+        <button type="button" class="cr-overlay-close" id="crOverlayClose" aria-label="Close">×</button>
       </div>
-      <div class="cr-module-card-body">
-        <p id="handoffSummary" class="cr-graph-line">—</p>
-        <p id="handoffIntent" class="cr-graph-muted" hidden></p>
-        <details class="cr-stack-fold">
-          <summary>Impact modules</summary>
-          <div class="cr-stack-fold-body">
-        <div id="uImpactBlock" class="cr-psb-panel" hidden>
-          <span class="cr-psb-k">Affected modules</span>
-          <div id="uImpactModules" class="cr-graph-domains"></div>
-        </div>
-          </div>
-        </details>
-        <details id="uTimelineDetails" class="cr-stack-fold" hidden>
-          <summary>Timeline (recent commits)</summary>
-          <ul id="uTimelineList" class="cr-psb-list"></ul>
-        </details>
-        <p id="handoffEmpty" class="cr-graph-empty">Analyzing recent code changes…</p>
+      <div id="crOverlayBody"></div>
+      <div class="cr-overlay-foot">
+        <button type="button" class="cr-primary" id="crOverlayContinue">Continue</button>
       </div>
     </div>
-  </section>
   </div>
 
-  <div class="cr-stack" aria-label="Sync layer">
-    <div class="cr-stack-label">Sync</div>
-  <section class="cr-section" id="crSecSnapshot">
-    <div class="cr-module-card cr-module-card--workspace">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Workspace snapshot</span></span>
-      </div>
-      <div class="cr-module-card-body">
-    <div class="cr-summary">
-      <div class="cr-sum-line" id="sumActive">
-        <span class="cr-sum-ico cr-sum-ico--files">${ico.list}</span>
-        <div class="cr-sum-main">
-          <span class="cr-sum-muted">Active files</span>
-          <div class="cr-sum-body" id="sumActiveBody">—</div>
-        </div>
-      </div>
-      <div class="cr-sum-line" id="sumGit">
-        <span class="cr-sum-ico cr-sum-ico--git">${ico.branch}</span>
-        <div class="cr-sum-main">
-          <span class="cr-sum-muted">Git sync</span>
-          <div class="cr-sum-body" id="sumGitBody">—</div>
-        </div>
-      </div>
-      <details class="cr-stack-fold">
-        <summary>Recent activity</summary>
-        <div class="cr-stack-fold-body">
-      <div class="cr-sum-line" id="sumActivity">
-        <span class="cr-sum-ico cr-sum-ico--clock">${ico.clock}</span>
-        <div class="cr-sum-main">
-          <span class="cr-sum-muted">Activity stream</span>
-          <div class="cr-sum-body" id="sumActivityBody">—</div>
-          <ul id="activityStreamList" class="cr-activity-feed" hidden aria-label="Recent workspace activity"></ul>
-        </div>
-      </div>
-        </div>
-      </details>
-    </div>
-    </div>
-  </section>
-  </div>
+  <div id="sumActivity" hidden aria-hidden="true"></div>
+  <span id="aiStatModel" hidden aria-hidden="true"></span>
+  <span id="aiStatRuntime" hidden aria-hidden="true"></span>
+  <span id="aiStatMode" hidden aria-hidden="true"></span>
+  <span id="aiStatTierBadge" hidden aria-hidden="true"></span>
+  <button type="button" id="btnJumpByok" hidden aria-hidden="true"></button>
 
-  <details class="cr-stack cr-cortex" id="crCortexDetails" aria-label="AI Cortex layer">
-    <summary class="cr-cortex-summary">AI Cortex</summary>
+  <details class="cr-stack cr-cortex" id="crCortexDetails" aria-label="Knowledge graph">
+    <summary class="cr-cortex-summary">Knowledge graph</summary>
     <div class="cr-cortex-body">
 
   <section class="cr-section" id="crSecKnowledgeGraph" aria-label="Project knowledge graph">
@@ -2017,6 +2502,40 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const aiStatCtx = document.getElementById('aiStatCtx');
     const aiStatTierBadge = document.getElementById('aiStatTierBadge');
     const aiTrackStatus = document.getElementById('aiTrackStatus');
+    const todayProjectGoalEl = document.getElementById('todayProjectGoal');
+    const todayDirectionUpdatedEl = document.getElementById('todayDirectionUpdated');
+    const todayStageEl = document.getElementById('todayStage');
+    const todayNextEl = document.getElementById('todayNext');
+    const todayNextBlock = document.getElementById('todayNextBlock');
+    const govActiveLabel = document.getElementById('govActiveLabel');
+    const govConstLine = document.getElementById('govConstLine');
+    const govTruthLine = document.getElementById('govTruthLine');
+    const govIdentityLine = document.getElementById('govIdentityLine');
+    const govProtectedCount = document.getElementById('govProtectedCount');
+    const govForbiddenCount = document.getElementById('govForbiddenCount');
+    const govReviewFile = document.getElementById('govReviewFile');
+    const govReviewRisk = document.getElementById('govReviewRisk');
+    const govReviewChange = document.getElementById('govReviewChange');
+    const govReviewSeverity = document.getElementById('govReviewSeverity');
+    const govReviewImpact = document.getElementById('govReviewImpact');
+    const govReviewConfidence = document.getElementById('govReviewConfidence');
+    const govReviewProtected = document.getElementById('govReviewProtected');
+    const govReviewTruth = document.getElementById('govReviewTruth');
+    const govReviewRecommendation = document.getElementById('govReviewRecommendation');
+    const govReviewSource = document.getElementById('govReviewSource');
+    const govReviewTimestamp = document.getElementById('govReviewTimestamp');
+    const govReviewScope = document.getElementById('govReviewScope');
+    const govReviewWhy = document.getElementById('govReviewWhy');
+    const govInjectPreview = document.getElementById('govInjectPreview');
+    const govInjectionRules = document.getElementById('govInjectionRules');
+    const govTokenEstimate = document.getElementById('govTokenEstimate');
+    const aiContextTokensEl = document.getElementById('aiContextTokens');
+    const crOverlay = document.getElementById('crOverlay');
+    const crOverlayTitle = document.getElementById('crOverlayTitle');
+    const crOverlayBody = document.getElementById('crOverlayBody');
+    const crOverlayClose = document.getElementById('crOverlayClose');
+    const crOverlayBackdrop = document.getElementById('crOverlayBackdrop');
+    const crOverlayContinue = document.getElementById('crOverlayContinue');
     const graphMetaEl = document.getElementById('graphMeta');
     const graphUnderstandingEl = document.getElementById('graphUnderstanding');
     const graphProblemEl = document.getElementById('graphProblem');
@@ -2096,6 +2615,11 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     document.getElementById('btnExport').addEventListener('click', () => vscode.postMessage({ type: 'exportAIContext' }));
     document.getElementById('btnSave').addEventListener('click', () => vscode.postMessage({ type: 'saveStateNow' }));
     document.getElementById('btnRestore').addEventListener('click', () => vscode.postMessage({ type: 'restoreSession' }));
+    if (govReviewScope) {
+      govReviewScope.addEventListener('change', () => {
+        vscode.postMessage({ type: 'setReviewScope', value: govReviewScope.value || 'auto' });
+      });
+    }
     const btnJumpByok = document.getElementById('btnJumpByok');
     if (btnJumpByok) {
       btnJumpByok.addEventListener('click', () => {
@@ -2123,6 +2647,88 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     let lastSumGit = '';
     let lastSumActive = '';
     let lastSumActivity = '';
+
+    function jsonEq(a, b) {
+      return JSON.stringify(a) === JSON.stringify(b);
+    }
+
+    function syncTaskNotesFromState(s) {
+      if (!s) return;
+      const incomingTask = s.currentTask || '';
+      const incomingNotes = s.notes || '';
+      const taskFocused = document.activeElement === taskEl;
+      const notesFocused = document.activeElement === notesEl;
+      const taskPending = typeof debounce !== 'undefined' && debounce;
+      if (!taskFocused && !taskPending && taskEl && taskEl.value !== incomingTask) {
+        taskEl.value = incomingTask;
+        paintTaskMeta();
+      }
+      if (!notesFocused && notesEl && notesEl.value !== incomingNotes) {
+        notesEl.value = incomingNotes;
+      }
+    }
+
+    function paintStateDelta(prev, s, byokPayload) {
+      const aiIntent = s.aiIntent || null;
+      syncTaskNotesFromState(s);
+      if (
+        !jsonEq(prev.summary, s.summary) ||
+        !jsonEq(prev.activityStreamItems, s.activityStreamItems)
+      ) {
+        paintSummary(s);
+      }
+      if (
+        !jsonEq(prev.recentFiles, s.recentFiles) ||
+        !jsonEq(prev.recentFileActivitySuffixes, s.recentFileActivitySuffixes) ||
+        !jsonEq(prev.gitStaged, s.gitStaged) ||
+        !jsonEq(prev.gitWorking, s.gitWorking)
+      ) {
+        paintLists(s);
+      }
+      if (
+        !jsonEq(prev.aiIntent, s.aiIntent) ||
+        !jsonEq(prev.activityObservedGoals, s.activityObservedGoals)
+      ) {
+        paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
+      }
+      if (!jsonEq(prev.intentGraph, s.intentGraph)) {
+        paintGraphPanel(s.intentGraph || null);
+      }
+      if (!jsonEq(prev.projectState, s.projectState)) {
+        paintProjectStatePanel(s.projectState || null);
+      }
+      if (!jsonEq(prev.governanceStatus, s.governanceStatus)) {
+        paintGovernancePanel(s.governanceStatus || null);
+      }
+      if (
+        !jsonEq(prev.governanceStatus, s.governanceStatus) ||
+        !jsonEq(prev.projectState, s.projectState)
+      ) {
+        paintTodayFromPanels(s.governanceStatus || null, s.projectState || null);
+      }
+      if (!jsonEq(prev.understandingPanel, s.understandingPanel)) {
+        paintUnderstandingPanel(s.understandingPanel || null);
+      }
+      if (!jsonEq(prev.stateConflicts, s.stateConflicts)) {
+        paintConflictsPanel(s.stateConflicts || null);
+      }
+      bumpTrackStatus(s);
+    }
+
+    function paintFullState(s, byokPayload) {
+      const aiIntent = s.aiIntent || null;
+      syncTaskNotesFromState(s);
+      paintLists(s);
+      paintSummary(s);
+      paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
+      paintGraphPanel(s.intentGraph || null);
+      paintProjectStatePanel(s.projectState || null);
+      paintGovernancePanel(s.governanceStatus || null);
+      paintTodayFromPanels(s.governanceStatus || null, s.projectState || null);
+      paintUnderstandingPanel(s.understandingPanel || null);
+      paintConflictsPanel(s.stateConflicts || null);
+      bumpTrackStatus(s);
+    }
 
     function fingerprintSidebar(s) {
       if (!s) return '';
@@ -2307,6 +2913,34 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         return t;
       }
       return t.slice(0, max - 1) + '…';
+    }
+
+    /** Middle ellipsis for long paths — keeps prefix and suffix visible. */
+    function truncateMiddle(text, max) {
+      const t = String(text || '').trim();
+      if (t.length <= max) {
+        return t;
+      }
+      if (max <= 3) {
+        return '…';
+      }
+      const budget = max - 1;
+      const head = Math.ceil(budget / 2);
+      const tail = Math.floor(budget / 2);
+      return t.slice(0, head) + '…' + t.slice(t.length - tail);
+    }
+
+    function setGovMetaText(el, text, max, middle) {
+      if (!el) {
+        return;
+      }
+      const raw = String(text || '—').trim() || '—';
+      el.textContent = middle ? truncateMiddle(raw, max) : truncateGraphText(raw, max);
+      if (raw !== '—' && raw.length > max) {
+        el.title = raw;
+      } else {
+        el.removeAttribute('title');
+      }
     }
 
     function paintGraphPanel(panel) {
@@ -2532,6 +3166,238 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         }
       }
     }
+
+    function paintTodayFromPanels(gov, projectState) {
+      const g = gov || null;
+      const p = projectState || null;
+      const direction =
+        (g && g.projectDirection && g.projectDirection.trim()) ||
+        (p && p.projectGoal && p.projectGoal.trim()) ||
+        '—';
+      if (todayProjectGoalEl) {
+        todayProjectGoalEl.textContent = truncateGraphText(direction, 220);
+      }
+      if (todayDirectionUpdatedEl) {
+        const ts = g && g.directionUpdatedAt ? g.directionUpdatedAt : p && p.updatedAt ? p.updatedAt : 0;
+        todayDirectionUpdatedEl.textContent =
+          ts > 0 ? 'Updated ' + formatGraphUpdated(ts) : 'Set project direction to guide AI exports';
+      }
+      if (todayStageEl) {
+        todayStageEl.textContent = p && p.currentStage ? truncateGraphText(p.currentStage, 160) : '—';
+      }
+      const next = p && p.nextActions && p.nextActions.length ? p.nextActions[0] : '';
+      if (todayNextBlock && todayNextEl) {
+        if (next) {
+          todayNextBlock.hidden = false;
+          todayNextEl.textContent = truncateGraphText(next, 160);
+        } else {
+          todayNextBlock.hidden = true;
+          todayNextEl.textContent = '—';
+        }
+      }
+    }
+
+    function paintGovernancePanel(gov) {
+      const g = gov || null;
+      if (!g) {
+        if (govActiveLabel) govActiveLabel.textContent = 'Not initialized';
+        if (govConstLine) govConstLine.hidden = true;
+        if (govTruthLine) govTruthLine.hidden = true;
+        if (govIdentityLine) govIdentityLine.hidden = true;
+        if (govProtectedCount) govProtectedCount.textContent = '—';
+        if (govForbiddenCount) govForbiddenCount.textContent = '—';
+        if (govReviewFile) {
+          govReviewFile.textContent = '—';
+          govReviewFile.removeAttribute('title');
+        }
+        if (govReviewRisk) govReviewRisk.textContent = '—';
+        if (govReviewChange) govReviewChange.textContent = '—';
+        if (govReviewSeverity) govReviewSeverity.textContent = '—';
+        if (govReviewImpact) govReviewImpact.textContent = '—';
+        if (govReviewConfidence) govReviewConfidence.textContent = '—';
+        if (govReviewProtected) govReviewProtected.textContent = '—';
+        if (govReviewTruth) govReviewTruth.textContent = '—';
+        if (govReviewRecommendation) govReviewRecommendation.textContent = '—';
+        if (govReviewSource) govReviewSource.textContent = '—';
+        if (govReviewTimestamp) govReviewTimestamp.textContent = '—';
+        if (govReviewScope) govReviewScope.value = 'auto';
+        if (govReviewWhy) govReviewWhy.innerHTML = '';
+        if (govInjectPreview) govInjectPreview.textContent = '—';
+        if (govInjectionRules) govInjectionRules.innerHTML = '';
+        if (govTokenEstimate) govTokenEstimate.textContent = '—';
+        return;
+      }
+      if (govActiveLabel) {
+        govActiveLabel.textContent = g.active ? 'Active' : 'Not initialized';
+      }
+      if (govConstLine) govConstLine.hidden = !g.constitutionLoaded;
+      if (govTruthLine) govTruthLine.hidden = !g.truthLoaded;
+      if (govIdentityLine) govIdentityLine.hidden = !g.identityLoaded;
+      if (govProtectedCount) govProtectedCount.textContent = String(g.protectedPathCount ?? 0);
+      if (govForbiddenCount) govForbiddenCount.textContent = String(g.forbiddenRuleCount ?? 0);
+      setGovMetaText(govReviewFile, g.reviewFile || '—', 30, true);
+      if (govReviewRisk) {
+        govReviewRisk.textContent = g.reviewRisk || '—';
+        govReviewRisk.className = riskClass(g.reviewRisk);
+      }
+      if (govReviewChange) govReviewChange.textContent = g.reviewChangeType || '—';
+      if (govReviewSeverity) govReviewSeverity.textContent = g.reviewSeverity || '—';
+      if (govReviewImpact) govReviewImpact.textContent = g.reviewImpact || '—';
+      if (govReviewConfidence) govReviewConfidence.textContent = g.reviewConfidence || '—';
+      if (govReviewProtected) govReviewProtected.textContent = g.reviewProtected || '—';
+      if (govReviewTruth) govReviewTruth.textContent = g.reviewTruthImpact || '—';
+      setGovMetaText(govReviewRecommendation, g.reviewRecommendation || '—', 22, false);
+      setGovMetaText(govReviewSource, g.reviewSource || '—', 18, false);
+      setGovMetaText(govReviewTimestamp, g.reviewTimestamp || '—', 22, false);
+      if (govReviewScope && g.reviewScopeValue && govReviewScope.value !== g.reviewScopeValue) {
+        govReviewScope.value = g.reviewScopeValue;
+      }
+      if (govReviewWhy) {
+        govReviewWhy.innerHTML = '';
+        const why = g.reviewWhyChain || [];
+        if (!why.length) {
+          const li = document.createElement('li');
+          li.className = 'cr-why-neg';
+          li.textContent = 'Run Review change to populate Why chain';
+          govReviewWhy.appendChild(li);
+        } else {
+          for (let i = 0; i < why.length; i++) {
+            const li = document.createElement('li');
+            li.textContent = why[i];
+            if (String(why[i]).charAt(0) === '✗') {
+              li.className = 'cr-why-neg';
+            }
+            govReviewWhy.appendChild(li);
+          }
+          if (g.reviewRisk && g.reviewRisk !== '—') {
+            const li = document.createElement('li');
+            li.textContent = 'Final Risk: ' + g.reviewRisk;
+            govReviewWhy.appendChild(li);
+          }
+        }
+      }
+      if (govInjectPreview) {
+        const preview = g.injectPreview || 'Open a file — review runs automatically on switch.';
+        govInjectPreview.textContent = truncateMiddle(preview, 72);
+        if (preview.length > 72) {
+          govInjectPreview.title = preview;
+        } else {
+          govInjectPreview.removeAttribute('title');
+        }
+      }
+      if (govInjectionRules) {
+        govInjectionRules.innerHTML = '';
+        const rules = g.injectionRules || [];
+        for (let i = 0; i < Math.min(rules.length, 4); i++) {
+          const li = document.createElement('li');
+          li.textContent = truncateGraphText(rules[i], 72);
+          govInjectionRules.appendChild(li);
+        }
+        if (rules.length > 4) {
+          const li = document.createElement('li');
+          li.textContent = '+' + (rules.length - 4) + ' more in export';
+          govInjectionRules.appendChild(li);
+        }
+      }
+      if (govTokenEstimate) {
+        const est = g.injectionTokenEstimate || 0;
+        govTokenEstimate.textContent = est > 0 ? '~' + est + ' governance tokens in export' : '—';
+      }
+    }
+
+    function closeOverlayPanel() {
+      if (crOverlay) crOverlay.hidden = true;
+    }
+
+    function renderOverlay(overlay) {
+      if (!crOverlay || !crOverlayBody || !crOverlayTitle || !overlay) return;
+      crOverlayBody.innerHTML = '';
+      if (overlay.kind === 'governance') {
+        crOverlayTitle.textContent = 'Governance overview';
+        appendOverlayRow(crOverlayBody, 'Constitution', overlay.constitutionLoaded ? 'Loaded' : 'Missing');
+        appendOverlayRow(crOverlayBody, 'Truth layer', overlay.truthLoaded ? 'Loaded' : 'Missing');
+        appendOverlayRow(crOverlayBody, 'Identity', overlay.identityLoaded ? 'Loaded' : 'Missing');
+        appendOverlayList(crOverlayBody, 'Protected paths', overlay.protectedPaths || []);
+        appendOverlayList(crOverlayBody, 'Forbidden actions', overlay.forbiddenActions || []);
+        if (overlay.principles && overlay.principles.length) {
+          appendOverlayList(crOverlayBody, 'Principles', overlay.principles);
+        }
+      } else if (overlay.kind === 'review') {
+        crOverlayTitle.textContent = 'Change review';
+        appendOverlayRow(crOverlayBody, 'Current file', overlay.file || '—');
+        if (overlay.reviewSource) {
+          appendOverlayRow(crOverlayBody, 'Source', overlay.reviewSource);
+        }
+        if (overlay.reviewTimestamp) {
+          appendOverlayRow(crOverlayBody, 'Last check', overlay.reviewTimestamp);
+        }
+        appendOverlayRow(crOverlayBody, 'Risk', overlay.risk || '—', riskClass(overlay.risk));
+        appendOverlayRow(crOverlayBody, 'Change type', overlay.changeType || '—');
+        appendOverlayRow(crOverlayBody, 'Severity', overlay.severity || '—');
+        appendOverlayRow(crOverlayBody, 'Impact', overlay.impact || '—');
+        if (overlay.confidence != null) {
+          appendOverlayRow(crOverlayBody, 'Confidence', String(Math.round(overlay.confidence * 100)) + '%');
+        }
+        appendOverlayRow(crOverlayBody, 'Governance', overlay.governance || '—', riskClass(overlay.governance));
+        appendOverlayRow(crOverlayBody, 'Protected path', overlay.protectedPath || 'No');
+        appendOverlayRow(crOverlayBody, 'Truth impact', overlay.truthImpact || 'No');
+        appendOverlayRow(crOverlayBody, 'Reason', overlay.reason || '—');
+        appendOverlayRow(
+          crOverlayBody,
+          'Recommendation',
+          overlay.recommendation || '—',
+          overlay.allow ? 'cr-review-pass' : 'cr-review-warn',
+        );
+        if (overlay.reasonChain && overlay.reasonChain.length) {
+          appendOverlayList(crOverlayBody, 'Why?', overlay.reasonChain);
+        }
+      }
+      crOverlay.hidden = false;
+    }
+
+    function riskClass(label) {
+      const t = String(label || '').toLowerCase();
+      if (t.includes('block') || t === 'high' || t === 'critical') return 'cr-review-block';
+      if (t.includes('confirm') || t.includes('warn') || t === 'medium') return 'cr-review-warn';
+      return 'cr-review-pass';
+    }
+
+    function appendOverlayRow(parent, label, value, valueClass) {
+      const row = document.createElement('div');
+      row.className = 'cr-overlay-row';
+      const k = document.createElement('span');
+      k.className = 'cr-overlay-k';
+      k.textContent = label;
+      const v = document.createElement('div');
+      v.textContent = value;
+      if (valueClass) v.className = valueClass;
+      row.appendChild(k);
+      row.appendChild(v);
+      parent.appendChild(row);
+    }
+
+    function appendOverlayList(parent, label, items) {
+      const row = document.createElement('div');
+      row.className = 'cr-overlay-row';
+      const k = document.createElement('span');
+      k.className = 'cr-overlay-k';
+      k.textContent = label;
+      row.appendChild(k);
+      const ul = document.createElement('ul');
+      ul.className = 'cr-overlay-list';
+      const list = items && items.length ? items : ['(none)'];
+      for (let i = 0; i < list.length; i++) {
+        const li = document.createElement('li');
+        li.textContent = list[i];
+        ul.appendChild(li);
+      }
+      row.appendChild(ul);
+      parent.appendChild(row);
+    }
+
+    if (crOverlayClose) crOverlayClose.addEventListener('click', closeOverlayPanel);
+    if (crOverlayBackdrop) crOverlayBackdrop.addEventListener('click', closeOverlayPanel);
+    if (crOverlayContinue) crOverlayContinue.addEventListener('click', closeOverlayPanel);
 
     function renderFnTreeNode(node, depth, isLast, prefix) {
       const li = document.createElement('li');
@@ -2866,11 +3732,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       const risk = h.riskLevel ? ' · risk ' + h.riskLevel : '';
       handoffMetaEl.textContent = h.changedCount + ' changed · ' + h.impactCount + ' impacted' + risk;
       handoffSummaryEl.textContent = truncateGraphText(h.summary || h.currentFocus || '—', 240);
-      if (handoffIntentEl && h.currentFocus && h.currentFocus !== h.summary) {
-        handoffIntentEl.hidden = false;
-        handoffIntentEl.textContent = truncateGraphText(h.currentFocus, 180);
-      } else if (handoffIntentEl) {
+      if (handoffIntentEl) {
         handoffIntentEl.hidden = true;
+        handoffIntentEl.textContent = '';
       }
       const impact = p.impact || { modules: [], empty: true };
       if (uImpactBlock && uImpactModules) {
@@ -3003,6 +3867,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       const budgetTxt =
         !b.exportTokenBudget ? 'no cap' : String(b.exportTokenBudget) + ' tokens';
       aiStatCtx.textContent = 'Context ' + budgetTxt;
+      if (aiContextTokensEl) {
+        aiContextTokensEl.textContent = budgetTxt === 'no cap' ? 'Context budget: no cap' : budgetTxt;
+      }
     }
 
     function wireClick(el, type) {
@@ -3111,6 +3978,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     wireClick(document.getElementById('btnAiSemantic'), 'generateSemanticSummary');
     wireClick(document.getElementById('btnAiIntent'), 'analyzeWorkspaceIntent');
     wireClick(document.getElementById('btnAiCompress'), 'compressContextPreview');
+    wireClick(document.getElementById('btnViewRules'), 'viewRules');
+    wireClick(document.getElementById('btnReviewChange'), 'reviewChange');
 
     function paintLists(s) {
       const suf = (s && s.recentFileActivitySuffixes) || [];
@@ -3232,7 +4101,12 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
-      if (!msg || msg.type !== 'state') return;
+      if (!msg) return;
+      if (msg.type === 'overlay') {
+        renderOverlay(msg.overlay);
+        return;
+      }
+      if (msg.type !== 'state') return;
       const s = msg.state;
       const byokPayload = msg.byok || null;
       paintByok(byokPayload);
@@ -3243,16 +4117,16 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         expandState.staged = false;
         expandState.working = false;
         expandState.activityStream = false;
-        taskEl.value = '';
-        notesEl.value = '';
+        if (taskEl) taskEl.value = '';
+        if (notesEl) notesEl.value = '';
         paintTaskMeta();
         paintLists({ recentFiles: [], recentFileActivitySuffixes: [], gitStaged: [], gitWorking: [] });
-        sumActiveBody.textContent = '—';
-        sumGitBody.textContent = '—';
-        sumActivityBody.textContent = 'Open a folder to start workspace tracking.';
+        if (sumActiveBody) sumActiveBody.textContent = '—';
+        if (sumGitBody) sumGitBody.textContent = '—';
+        if (sumActivityBody) sumActivityBody.textContent = 'Open a folder to start workspace tracking.';
         lastActivityStreamHead = '';
         paintActivityStream([], false);
-        crVersion.textContent = '${PRODUCT_DISPLAY_NAME}';
+        if (crVersion) crVersion.textContent = '${PRODUCT_DISPLAY_NAME}';
         lastSumGit = '';
         lastSumActive = '';
         lastSumActivity = '';
@@ -3260,42 +4134,31 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         paintAiRibbon(byokPayload, null, []);
         paintGraphPanel(null);
         paintProjectStatePanel(null);
+        paintGovernancePanel(null);
+        paintTodayFromPanels(null, null);
         paintUnderstandingPanel(null);
         paintConflictsPanel(null);
         bumpTrackStatus(null);
         return;
       }
-      const aiIntent = s.aiIntent || null;
       const prevState = lastState;
-      lastState = s;
-      taskEl.value = s.currentTask || '';
-      notesEl.value = s.notes || '';
-      paintTaskMeta();
-      crVersion.textContent = '${PRODUCT_DISPLAY_NAME} v' + (s.extensionVersion || '?');
 
-      if (prevState === null || msg.instant) {
-        clearPhasedRestoreFull();
-        paintLists(s);
-        paintSummary(s);
-        paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
-        paintGraphPanel(s.intentGraph || null);
-        paintProjectStatePanel(s.projectState || null);
-        paintUnderstandingPanel(s.understandingPanel || null);
-        paintConflictsPanel(s.stateConflicts || null);
-        bumpTrackStatus(s);
-        return;
+      try {
+        lastState = s;
+        if (crVersion) {
+          crVersion.textContent = '${PRODUCT_DISPLAY_NAME} v' + (s.extensionVersion || '?');
+        }
+
+        if (prevState === null) {
+          clearPhasedRestoreFull();
+          paintFullState(s, byokPayload);
+          return;
+        }
+
+        paintStateDelta(prevState, s, byokPayload);
+      } catch (err) {
+        console.error('Contorium sidebar paint failed:', err);
       }
-      if (phasedRestoreInProgress) {
-        clearPhasedRestoreFull();
-      }
-      paintLists(s);
-      paintSummary(s);
-      paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
-      paintGraphPanel(s.intentGraph || null);
-      paintProjectStatePanel(s.projectState || null);
-      paintUnderstandingPanel(s.understandingPanel || null);
-      paintConflictsPanel(s.stateConflicts || null);
-      bumpTrackStatus(s);
     });
 
     paintTaskMeta();

@@ -5,6 +5,7 @@ export function renderKeyHintLines(args: {
   useColor: boolean;
   width: number;
   view: 'compact' | 'expanded';
+  hasGovernanceReview?: boolean;
 }): string[] {
   const c = args.useColor;
   const dim = (s: string) => (c ? `\x1b[2m${s}\x1b[0m` : s);
@@ -25,9 +26,10 @@ export function renderKeyHintLines(args: {
     ];
   }
 
+  const copyLabel = args.hasGovernanceReview ? '[c] Export Governance' : '[c] Copy To AI';
   const toggle = args.view === 'compact' ? '[space] Expand' : '[space] Minimize';
   return [
-    truncate(dim(`[c] Copy To AI   ${toggle}   [q] Quit`), w),
+    truncate(dim(`${copyLabel}   ${toggle}   [q] Quit`), w),
     truncate(dim('↑↓ Select Mode   Enter Apply'), w),
   ];
 }

@@ -22,6 +22,11 @@ Overview: [INSTALL.md](./INSTALL.md) · [README](../README.md)
 | **Knowledge graph** | `npx contorium knowledge [path]` |
 | **Change / graph / timeline** | `npx contorium change\|graph\|timeline [path]` |
 | **AI-ready export** | `npx contorium export [path]` or `--format json` |
+| **Governance review** | `npx contorium governance review [path] --target <file>` |
+| **Governance cycle** | `npx contorium governance cycle [path] [--target <file>]` |
+| **Governance export** | `npx contorium governance export [path] [--copy]` |
+| **Control surface** | `npx contorium control governance\|check\|intent\|analyze\|execute\|ready [path]` |
+| **Runtime bootstrap** | `npx contorium bootstrap [path] [--source ide\|mcp\|cli]` |
 | **Status** | `npx contorium status [path]` |
 | **Runtime dashboard** | Zero CLI commands — edit files → auto Passive (see below) |
 | **state.json** | `npx contorium state [path]` |
@@ -68,6 +73,7 @@ contorium status E:\path\to\your-project
 | Command | Purpose | MCP equivalent |
 |---------|---------|----------------|
 | `contorium init [path]` | Create/merge `state.json`, L4 snapshot | bootstrap |
+| `contorium bootstrap [path] [--source ide\|mcp\|cli]` | Runtime attach + dashboard worker | MCP initialize |
 | `contorium sync [path]` | Rescan git + recent files | light sync |
 | `contorium snapshot [path]` | Print PROJECT SNAPSHOT markdown | `get_project_snapshot` |
 | `contorium status [path]` | JSON summary (mode, source, git counts) | — |
@@ -96,6 +102,17 @@ See [DASHBOARD.md](./DASHBOARD.md).
 | `contorium handoff --copy` / `--copy-to-ai` | Manual clipboard copy |
 | `contorium attach . --auto` | Start worker manually |
 
+### Dashboard subcommands (debug / dev only)
+
+| Command | Purpose |
+|---------|---------|
+| `contorium dashboard show` | Force expand signal |
+| `contorium dashboard hide` | Minimize to Passive |
+| `contorium dashboard line` | Print Passive line to stdout |
+| `contorium dashboard wake` | Wake worker and refresh |
+| `contorium dashboard open` | Open dashboard terminal |
+| `contorium dashboard filter [symbol]` | Set or clear symbol filter |
+
 ### V3.1 understanding layer
 
 | Command | Purpose | MCP equivalent |
@@ -108,7 +125,40 @@ See [DASHBOARD.md](./DASHBOARD.md).
 | `contorium change [path]` | `change.json` | `get_project_change` |
 | `contorium graph [path]` | Change neighborhood `graph.json` | `get_project_graph` |
 | `contorium timeline [path]` | `timeline.json` | `get_project_timeline` |
-| `contorium export [path] [--format json\|markdown]` | Legacy full export (manual copy fallback) | combined tools |
+| `contorium export [path] [--format json\|markdown]` | Unified export (handoff + governance appendix) | combined tools |
+
+### Governance (`.contora/governance/*`)
+
+Unified artifacts under `.contora/governance/` — see [INSTALL.md](./INSTALL.md#architecture-three-adapters).
+
+| Command | Purpose | Writes |
+|---------|---------|--------|
+| `contorium governance review [path] --target <file>` | Run governance review on a target file | `review.json` only |
+| `contorium governance cycle [path] [--target <file>]` | Full governance cycle (calls MCP dist when available) | decision, scope, trace, cycle |
+| `contorium governance export [path] [--copy]` | Export governance appendix; `--copy` to clipboard | — |
+
+**PowerShell:**
+
+```powershell
+npx contorium governance review . --target src/foo.ts
+npx contorium governance cycle .
+npx contorium governance export . --copy
+```
+
+### Control surface (control-core)
+
+Mirrors MCP auxiliary governance tools:
+
+| Command | Purpose | MCP equivalent |
+|---------|---------|----------------|
+| `contorium control governance [path]` | Read governance rules | `get_control_context` |
+| `contorium control check [path] --target <file>` | Review an action | check via governance engine |
+| `contorium control intent [path] "<text>"` | Update project direction | `update_project_intent` |
+| `contorium control analyze [path]` | Analyze project | `analyze_project` |
+| `contorium control execute [path] --target <file>` | Validate governance loop | — |
+| `contorium control ready [path]` | Bootstrap governance + sync | `ensure_control_ready` |
+
+Legacy aliases also work: `get-governance`, `check-action`, `update-project-intent`.
 
 **PowerShell:**
 
@@ -178,7 +228,7 @@ npx contorium export . | Out-File -Encoding utf8 ai-context.md
 
 ### `contorium export` sections (markdown)
 
-Uses the same `formatCanonicalAiMarkdown` as IDE **Copy AI-ready context**:
+Uses the same canonical export as IDE **Copy AI-ready context**, plus a unified **GOVERNANCE:** appendix when governance artifacts exist:
 
 ```text
 # TASK ANCHOR
@@ -190,9 +240,16 @@ Uses the same `formatCanonicalAiMarkdown` as IDE **Copy AI-ready context**:
 # CODE EVOLUTION
 # NOTES
 # INSTRUCTION
+---
+GOVERNANCE:
+## DECISION
+## SCOPE
+## TRACE
 ```
 
-JSON format includes `cognitiveSnapshot` when the knowledge graph exists.
+Dashboard **c** key, `contorium handoff --copy`, and `contorium governance export` use the same unified export builder from `@contora/state-core`.
+
+JSON format includes `cognitiveSnapshot` when the knowledge graph exists, and `governance_export` when governance artifacts exist.
 
 ---
 
@@ -226,6 +283,8 @@ Remove-Item -Recurse -Force .contora
 | Generic snapshot | Without IDE events, scan-only inference; use extension for precision |
 | `knowledge` / `graph-snapshot` missing | Needs code changes; run `sync` or save files in IDE |
 | `state: no state.json` | Run `npx contorium init .` first |
+| Copy missing `GOVERNANCE:` block | Run `governance review` or `governance cycle` first; restart dashboard worker after CLI rebuild |
+| Dashboard shows stale UI | Run `npm run build:cli` then restart dashboard worker |
 
 ---
 

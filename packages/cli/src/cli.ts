@@ -28,11 +28,20 @@ import {
   wakeDashboardOnActivity,
   writeDashboardSignal,
 } from './dashboard/index.js';
+import { loadDashboardState } from './dashboard/artifacts.js';
+import { buildDashboardExportText } from './dashboard/exportContext.js';
 import { releaseDashboardSpawnLock } from './dashboard/spawnLock.js';
 import { spawnDashboardTerminal } from './dashboard/spawn.js';
 import { stopDashboardWorker } from './dashboard/daemon.js';
 import { bootstrapContoriumRuntime } from './runtime/bootstrap.js';
 import { copyToClipboard } from './handoff/clipboard.js';
+import { cmdGovernance } from './governance/commands.js';
+import {
+  cmdCheckAction,
+  cmdControl,
+  cmdGetGovernance,
+  cmdUpdateProjectIntent,
+} from './control/commands.js';
 
 const USAGE = `Contorium CLI — runtime adapter (same state-core as IDE / MCP)
 
@@ -52,7 +61,20 @@ V3.1 understanding (mirrors MCP get_project_*):
   contorium timeline [path]                           timeline.json
   contorium knowledge [path] [--min-confidence N]     knowledge graph (default filter 0.7)
   contorium graph-snapshot [path]                     cognitive snapshot (compact)
-  contorium export [path] [--format json|markdown]    canonical AI export (V3.1)
+  contorium export [path] [--format json|markdown]    unified export (handoff + governance)
+
+Governance (unified .contora/governance/* artifacts):
+  contorium governance review [path] --target <file>
+  contorium governance cycle [path] [--target <file>]
+  contorium governance export [path] [--copy]
+
+Control surface (control-core):
+  contorium control governance [path]               get_governance
+  contorium control check [path] --target <file>    check_action
+  contorium control intent [path] "<text>"          update_project_intent
+  contorium control analyze [path]                  analyze_project
+  contorium control execute [path] --target <file>  validate_governance loop
+  contorium control ready [path]                    bootstrap governance + sync
 
 Runtime (CRBP — auto attach via IDE / MCP initialize / workspace activity):
   contorium bootstrap [path] [--source ide|mcp|cli]   Runtime attach (MCP calls on init)
@@ -331,12 +353,20 @@ async function cmdHandoff(root: string): Promise<void> {
   }
 
   if (hasCopyToAiFlag()) {
-    const copied = copyToClipboard(result.text);
+    const dashState = await loadDashboardState(root);
+    const exportText = await buildDashboardExportText(root, dashState, filter);
+    if (!exportText) {
+      console.error('contorium handoff: not generated — no recent code changes detected');
+      process.exit(1);
+    }
+    const copied = copyToClipboard(exportText);
     if (copied) {
       console.error('Copy To AI: ready — paste in your next chat');
       return;
     }
     process.stderr.write('Copy To AI: clipboard unavailable — output below\n');
+    process.stdout.write(exportText.endsWith('\n') ? exportText : `${exportText}\n`);
+    return;
   }
 
   process.stdout.write(result.text.endsWith('\n') ? result.text : `${result.text}\n`);
@@ -534,22 +564,23 @@ async function cmdDashboardControl(root: string, action: string): Promise<void> 
 }
 
 async function cmdExport(root: string): Promise<void> {
-  await ensureUnderstanding(root);
   const format = flagValue('--format', 'markdown');
-  const [snapshot, handoff, timeline, state, knowledgeSnapshot] = await Promise.all([
-    readProjectSnapshotMarkdown(root),
-    readHandoffArtifact(root),
-    readProjectTimeline(root),
-    readStateJson(root),
-    readKnowledgeSnapshot(root),
-  ]);
-
   if (format === 'json') {
+    await ensureUnderstanding(root);
+    const [snapshot, handoff, timeline, state, knowledgeSnapshot] = await Promise.all([
+      readProjectSnapshotMarkdown(root),
+      readHandoffArtifact(root),
+      readProjectTimeline(root),
+      readStateJson(root),
+      readKnowledgeSnapshot(root),
+    ]);
     const taskAnchor = state?.currentTask?.trim() || '';
     if (!handoff) {
       console.error('contorium export: handoff not generated');
       process.exit(1);
     }
+    const dashState = await loadDashboardState(root);
+    const governanceText = await buildDashboardExportText(root, dashState);
     await printJson({
       taskAnchor: taskAnchor || '(not set)',
       ...buildUnderstandingExportJson({
@@ -558,26 +589,18 @@ async function cmdExport(root: string): Promise<void> {
         projectSnapshot: snapshot,
         knowledgeSnapshot: knowledgeSnapshot ?? undefined,
       }),
+      governance_export: governanceText ?? undefined,
     });
     return;
   }
 
-  const activeFiles = (state?.openFiles ?? []).map(basenameOf).slice(0, 8);
-  const gitFiles = [...(state?.gitStaged ?? []), ...(state?.gitWorking ?? [])].map(basenameOf).slice(0, 8);
-
-  process.stdout.write(
-    formatCanonicalAiMarkdown({
-      taskAnchor: state?.currentTask?.trim() || '(not set)',
-      snapshotMarkdown: snapshot,
-      activeFiles: activeFiles.length ? activeFiles : ['(none)'],
-      recentGitActivity: gitFiles.length ? gitFiles : ['(none)'],
-      handoff,
-      timeline,
-      knowledgeSnapshot,
-      instruction: 'Continue from the current handoff and workspace state.',
-      notes: state?.notes?.trim() || undefined,
-    }),
-  );
+  const dashState = await loadDashboardState(root);
+  const text = await buildDashboardExportText(root, dashState);
+  if (!text) {
+    console.error('contorium export: not ready — run sync or governance review');
+    process.exit(1);
+  }
+  process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
 async function main(): Promise<void> {
@@ -626,6 +649,26 @@ async function main(): Promise<void> {
     case 'attach':
       await cmdAttach(root);
       return;
+    case 'governance':
+      await cmdGovernance(root);
+      return;
+    case 'get-governance':
+    case 'get_governance':
+      await cmdGetGovernance(root);
+      return;
+    case 'check-action':
+    case 'check_action':
+      await cmdCheckAction(root);
+      return;
+    case 'update-project-intent':
+    case 'update_project_intent':
+      await cmdUpdateProjectIntent(root);
+      return;
+    case 'control': {
+      const sub = process.argv[3];
+      await cmdControl(root, sub);
+      return;
+    }
     case 'dashboard': {
       const sub = process.argv[3];
       await cmdDashboardControl(root, sub ?? 'help');

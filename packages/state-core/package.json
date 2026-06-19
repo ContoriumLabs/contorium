@@ -1,6 +1,6 @@
 {
   "name": "@contora/state-core",
-  "version": "0.9.5",
+  "version": "1.0.1",
   "description": "Tool-agnostic Contorium workspace scan, bootstrap, and dual-mode state inputs (IDE + MCP + CLI).",
   "license": "MIT",
   "repository": {
@@ -40,6 +40,8 @@
   ],
   "scripts": {
     "build": "tsc -p ./",
+    "test": "npm run build && node scripts/test-v3-core.mjs",
+    "test:v3-core": "node scripts/test-v3-core.mjs",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {

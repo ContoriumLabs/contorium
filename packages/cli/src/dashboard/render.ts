@@ -1,9 +1,16 @@
 import { buildChpHandoffStateSync, formatChpCompact, formatUnderstandingMiniGraph } from '@contora/state-core';
 import type { GraphNode, KeyChange } from '@contora/state-core';
 import {
-  renderCognitiveInsightsLines,
   renderCognitiveModeSelectorLines,
 } from './cognitiveModePanel.js';
+import {
+  DASHBOARD_TITLE_V4,
+  renderDecisionFeedLines,
+  renderDecisionTraceLines,
+  renderGovernanceRawLines,
+  renderGovernanceSummaryLines,
+  renderScopeMapLines,
+} from './governancePanel.js';
 import { renderKeyHintLines } from './keyHints.js';
 import { liveSectionTitle, monitoringBadge, statusGlyph } from './statusAnimation.js';
 import { progressBar, projectLabel, projectMetrics, sectionDivider } from './uiHelpers.js';
@@ -382,22 +389,33 @@ function projectStatusFullLines(state: DashboardState, c: Record<string, ColorFn
   ];
 }
 
-function copyToAiCompactLines(state: DashboardState, c: Record<string, ColorFn>, width: number): string[] {
-  const chp = buildChpHandoffStateSync({
-    workspaceRoot: state.workspaceRoot,
-    handoff: state.handoff,
-    change: state.change,
-    currentTask: state.status.currentTask,
-    lastWriter: state.status.lastWriter,
-  });
+function exportGovernanceCompactLines(
+  state: DashboardState,
+  c: Record<string, ColorFn>,
+  width: number,
+): string[] {
+  const hasReview = Boolean(state.governance?.review);
   const lines = [
-    truncate('Press [c] to copy context', width),
-    truncate('Paste into your next AI chat', width),
+    truncate(hasReview ? 'Press [c] Export Governance Context' : 'Press [c] to copy context', width),
+    truncate(hasReview ? 'Governance YAML + rules for AI chat' : 'Paste into your next AI chat', width),
   ];
-  if (chp) {
-    lines.push(truncate(formatChpCompact(chp), width));
+  if (state.governance?.review) {
+    const r = state.governance.review!;
+    lines.push(truncate(`${r.risk.toUpperCase()} · ${state.governance.decision_action}`, width));
+    lines.push(truncate(r.file, width));
   } else {
-    lines.push(c.dim('Waiting for code changes…'));
+    const chp = buildChpHandoffStateSync({
+      workspaceRoot: state.workspaceRoot,
+      handoff: state.handoff,
+      change: state.change,
+      currentTask: state.status.currentTask,
+      lastWriter: state.status.lastWriter,
+    });
+    if (chp) {
+      lines.push(truncate(formatChpCompact(chp), width));
+    } else {
+      lines.push(c.dim('Run governance cycle or save changes…'));
+    }
   }
   return lines;
 }
@@ -417,20 +435,33 @@ export function renderExpanded(state: DashboardState, ctx: RenderContext): strin
   const c = createColors(ctx.useColor);
   const w = ctx.width;
   const colW = Math.max(28, Math.floor((w - 5) / 2));
-  const modeActive = ctx.cognitiveModeActive ?? 'A';
-  const injectionPending = state.handoffInjection?.status === 'pending';
   const tick = uiTick(ctx);
+  const injectionPending = state.handoffInjection?.status === 'pending';
+  const gov = state.governance;
+  const modeActive = ctx.cognitiveModeActive ?? 'A';
 
   const left = [
-    ...panelSection('Runtime Feed', runtimeFeedLines(state, c, colW), c, colW, tick),
-    ...panelSection('Structure View', structureLines(state, c, colW).slice(0, 6), c, colW, tick),
-    ...panelSection('Copy To AI', copyToAiCompactLines(state, c, colW), c, colW, tick),
+    ...panelSection('Decision Feed', renderDecisionFeedLines(state, gov, ctx.useColor, colW), c, colW, tick),
+    ...panelSection('Scope Map', renderScopeMapLines(gov, ctx.useColor, colW), c, colW, tick),
+    ...panelSection(
+      'Export Context',
+      exportGovernanceCompactLines(state, c, colW),
+      c,
+      colW,
+      tick,
+    ),
   ];
 
   const right = [
-    ...panelSection('Project Status', projectStatusFullLines(state, c, colW), c, colW, tick),
     ...panelSection(
-      'Cognitive Mode',
+      'Governance Summary',
+      renderGovernanceSummaryLines(gov, ctx.useColor, colW),
+      c,
+      colW,
+      tick,
+    ),
+    ...panelSection(
+      'View Mode',
       renderCognitiveModeSelectorLines({
         selection: ctx.cognitiveModeSelection ?? 'A',
         active: modeActive,
@@ -443,8 +474,10 @@ export function renderExpanded(state: DashboardState, ctx: RenderContext): strin
       tick,
     ),
     ...panelSection(
-      'Cognitive Insights',
-      renderCognitiveInsightsLines(ctx.cognitiveInsights, modeActive, ctx.useColor, colW),
+      modeActive === 'B' ? 'Governance View' : 'Decision Trace',
+      modeActive === 'B'
+        ? renderGovernanceRawLines(gov, ctx.useColor, colW)
+        : renderDecisionTraceLines(gov, ctx.useColor, colW),
       c,
       colW,
       tick,
@@ -453,7 +486,7 @@ export function renderExpanded(state: DashboardState, ctx: RenderContext): strin
 
   const inner = Math.max(40, w - 4);
   const top = `┌${'─'.repeat(inner)}┐`;
-  const titleText = `${c.bold('CONTORIUM • Runtime Cognitive Cortex')}${monitoringBadge(tick, ctx.live === true, c)}`;
+  const titleText = `${c.bold(DASHBOARD_TITLE_V4)}${monitoringBadge(tick, ctx.live === true, c)}`;
   const title = `│ ${padVisible(titleText, inner)} │`;
   const colSep = `├${'─'.repeat(colW)}┬${'─'.repeat(Math.max(0, inner - colW - 1))}┤`;
   const body = mergeColumns(left, right, w).map((line) => `│ ${padVisible(line, inner)} │`);
@@ -462,6 +495,7 @@ export function renderExpanded(state: DashboardState, ctx: RenderContext): strin
     useColor: ctx.useColor,
     width: inner,
     view: 'expanded',
+    hasGovernanceReview: Boolean(gov?.review),
   });
   const footRows = keyLines.map((line) => `│ ${padVisible(line, inner)} │`);
   const bottom = `└${'─'.repeat(inner)}┘`;

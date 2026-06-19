@@ -100,7 +100,7 @@ Expanded stays open until **Space** or **q** (CLI default `--timeout 0`).
 | Impact Graph | **`understanding_graph.json`** (preferred) or `graph.json` |
 | Structure View | `graph.json` / cognitive snapshot |
 | Project Status | handoff risk, git counts |
-| **Copy To AI** | CHP commands + semi-auto injection hint |
+| **Copy To AI** | CHP commands + semi-auto injection hint + **GOVERNANCE:** appendix when artifacts exist |
 
 ---
 
@@ -111,7 +111,7 @@ Expanded stays open until **Space** or **q** (CLI default `--timeout 0`).
 | **Enter** / **i** | Confirm semi-auto runtime injection (when pending) |
 | **n** | Skip injection for this runtime session |
 | **Space** | Toggle Passive ↔ Expanded |
-| **c** | **Copy To AI** — handoff markdown to clipboard |
+| **c** | **Copy To AI** — unified export (handoff + governance appendix) to clipboard |
 | **q** | Quit dashboard worker |
 | **v** / **m** | Legacy expand / minimize (still supported) |
 

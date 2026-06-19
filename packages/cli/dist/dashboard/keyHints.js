@@ -12,9 +12,10 @@ export function renderKeyHintLines(args) {
                 : '[space] Minimize   [c] Copy   [q] Quit   ↑↓ Mode   Enter Apply'), w),
         ];
     }
+    const copyLabel = args.hasGovernanceReview ? '[c] Export Governance' : '[c] Copy To AI';
     const toggle = args.view === 'compact' ? '[space] Expand' : '[space] Minimize';
     return [
-        truncate(dim(`[c] Copy To AI   ${toggle}   [q] Quit`), w),
+        truncate(dim(`${copyLabel}   ${toggle}   [q] Quit`), w),
         truncate(dim('↑↓ Select Mode   Enter Apply'), w),
     ];
 }

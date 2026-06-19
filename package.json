@@ -2,7 +2,7 @@
   "name": "contorium",
   "displayName": "Contorium",
   "description": "Contorium: local workspace memory (task, notes, editors, Git), event JSONL, heuristic intent/ranking, ignore rules, token budget, optional BYOK (OpenAI / Claude / Gemini / DeepSeek) — export AI-ready context to clipboard (markdown, JSON, etc.).",
-  "version": "0.9.5",
+  "version": "1.0.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -48,7 +48,15 @@
     "commands": [
       {
         "command": "contora.exportAIContext",
-        "title": "Contorium: Copy AI-ready context (clipboard)"
+        "title": "Contorium: Export AI context (inject into chat)"
+      },
+      {
+        "command": "contora.smartGovernanceInject",
+        "title": "Contorium: Smart inject (governance → AI)"
+      },
+      {
+        "command": "contora.diffGovernanceInject",
+        "title": "Contorium: Diff mode inject (governance → AI)"
       },
       {
         "command": "contora.saveStateNow",
@@ -85,6 +93,30 @@
       {
         "command": "contora.hideDashboard",
         "title": "Contorium: Hide Runtime Dashboard"
+      },
+      {
+        "command": "contora.controlGovernance",
+        "title": "Contorium: View Rules"
+      },
+      {
+        "command": "contora.getGovernance",
+        "title": "Contorium: View Rules"
+      },
+      {
+        "command": "contora.controlCheck",
+        "title": "Contorium: Review Change"
+      },
+      {
+        "command": "contora.checkAction",
+        "title": "Contorium: Review Change"
+      },
+      {
+        "command": "contora.controlIntent",
+        "title": "Contorium: Edit Direction"
+      },
+      {
+        "command": "contora.updateProjectIntent",
+        "title": "Contorium: Edit Direction"
       }
     ],
     "keybindings": [
@@ -156,6 +188,28 @@
           ],
           "default": "markdown",
           "description": "Export: markdown / cursor fences / JSON (schema v2 Lite) / Claude framing / OpenAI messages JSON."
+        },
+        "contora.exportDelivery": {
+          "type": "string",
+          "enum": [
+            "chat",
+            "clipboard",
+            "both"
+          ],
+          "default": "chat",
+          "description": "Where Export AI context goes: inject into the current Cursor/VS Code AI chat (default), copy to clipboard only, or both. Chat injection uses editor focus + paste — not an official API; press Enter to send after inject."
+        },
+        "contora.governanceReviewScope": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "current_file",
+            "open_files",
+            "git_staged",
+            "git_commit"
+          ],
+          "default": "auto",
+          "description": "Governance review scope: auto merges current file, open files, git staged, and last commit; or restrict to one scope."
         },
         "contora.persistEventLog": {
           "type": "boolean",
@@ -306,6 +360,8 @@
     "install:mcp": "npm install --prefix packages/mcp --no-fund --no-audit",
     "build:mcp": "npm run install:mcp && node scripts/clean-dist.mjs packages/mcp && node scripts/run-tsc.mjs packages/mcp",
     "compile": "node scripts/ensure-dev-deps.mjs && npm run version:sync && npm run build:runtime && npm run build:state-core && node scripts/materialize-deps-for-vsix.mjs && node scripts/ensure-dev-deps.mjs && npm run build:cli && npm run build:mcp && node scripts/run-tsc.mjs .",
+    "test": "npm run build:state-core && npm run test:v3-core --prefix packages/state-core",
+    "test:v3-core": "npm run test:v3-core --prefix packages/state-core",
     "publish:npm": "npm run compile && node scripts/publish-npm.mjs",
     "publish:npm:dry-run": "npm run compile && node scripts/publish-npm.mjs --dry-run",
     "postversion": "node scripts/sync-version.mjs",
@@ -317,8 +373,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@contora/runtime": "file:.vscode-pack/contora-runtime-0.9.5.tgz",
-    "@contora/state-core": "file:.vscode-pack/contora-state-core-0.9.5.tgz",
+    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.0.1.tgz",
+    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.0.1.tgz",
     "simple-git": "^3.22.0"
   }
 }

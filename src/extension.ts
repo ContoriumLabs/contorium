@@ -32,6 +32,13 @@ import {
   PRODUCT_DISPLAY_NAME,
 } from './constants';
 import { ContoraSidebarProvider } from './ui/sidebarProvider';
+import { buildGovernanceExportAppendix, runAndPersistGovernanceReview } from './ai/governanceReviewBridge';
+import {
+  deliverExportText,
+  formatExportDeliveryMessage,
+  readExportDelivery,
+} from './ai/injectIntoAiChat';
+import { runGovernanceInject } from './ai/runGovernanceInject';
 import { ContoraKeyManager } from './ai/auth/keyManager';
 import { buildAiReadyJsonExport, buildAiReadyMarkdownExport } from './ai/buildAiReadyExport';
 import { compressExportJsonForBudget, compressExportMarkdownForBudget } from './ai/aiReadyExportCompression';
@@ -52,6 +59,9 @@ import {
   showRuntimeDashboard,
 } from './dashboard/autoAttach';
 import { scheduleDashboardWake, scheduleRuntimeBootstrap } from './dashboard/wakeSpawn';
+import {
+  ideControlEnsureReady,
+} from './control/controlBridge';
 
 let scanners: WorkspaceScanner[] = [];
 let workspaceIgnoreMatcher: IgnoreMatcher | undefined;
@@ -296,6 +306,28 @@ function scheduleSidebarRefresh(sidebar: ContoraSidebarProvider): () => void {
   };
 }
 
+function scheduleGovernanceReviewRefresh(
+  sidebar: ContoraSidebarProvider,
+  stateManager: StateManager,
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return () => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      timer = undefined;
+      void (async () => {
+        const folder = stateManager.getPrimaryFolder();
+        if (folder) {
+          await sidebar.refreshGovernanceReview();
+        }
+        await sidebar.refresh();
+      })();
+    }, 550);
+  };
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   try {
     // Extension is CommonJS — state-core must expose "require" (see packages/state-core).
@@ -348,6 +380,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const refreshSidebarDebounced = scheduleSidebarRefresh(sidebar);
+  const refreshGovernanceDebounced = scheduleGovernanceReviewRefresh(sidebar, stateManager);
+
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      refreshGovernanceDebounced();
+    }),
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document.uri.scheme === 'file' && e.document.isDirty) {
+        refreshGovernanceDebounced();
+      }
+    }),
+    vscode.window.tabGroups.onDidChangeTabs(() => {
+      refreshGovernanceDebounced();
+    }),
+  );
 
   cognitionPipeline = new CognitionPipeline(stateManager);
   codeGraphParser = new CodeGraphParserService(cognitionPipeline, () => stateManager.getPrimaryFolder());
@@ -355,6 +402,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const onAfterScannerPersist = (): void => {
     refreshSidebarDebounced();
+    refreshGovernanceDebounced();
     cognitionPipeline?.scheduleUpdate(globalEventStore);
     const folder = stateManager.getPrimaryFolder();
     if (folder) {
@@ -376,6 +424,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     const st0 = await stateManager.load(folder);
+    void sidebar.refreshGovernanceReview();
     void sidebar.refresh();
 
     const [, matcher] = await Promise.all([
@@ -408,6 +457,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
 
     scheduleRuntimeBootstrap(context, folder.uri.fsPath);
+
+    void ideControlEnsureReady(folder).catch(() => undefined);
   };
 
   const runWorkspaceBootstrap = (): Promise<void> => {
@@ -523,19 +574,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const confirmedAiIntentGoals = await loadUsableIntentFocusLines(folder, state, es);
     const cognition = await loadCognitionExportContext(folder, state, confirmedAiIntentGoals);
 
-    const baseMd = buildAiReadyMarkdownExport({
-      state,
-      eventStore: es,
-      analysis,
-      instruction,
-      shouldIgnore: ig,
-      projectSnapshot: cognition.projectSnapshot,
-      builtState: cognition.builtState,
-      summary: cognition.summary,
-      handoff: cognition.handoff,
-      timeline: cognition.timeline,
-      knowledgeSnapshot: cognition.knowledgeSnapshot,
-    });
+    const review = await runAndPersistGovernanceReview(folder);
+    void sidebar.refresh();
+    const governanceSection = await buildGovernanceExportAppendix(folder, review);
+
+    const baseMd =
+      buildAiReadyMarkdownExport({
+        state,
+        eventStore: es,
+        analysis,
+        instruction,
+        shouldIgnore: ig,
+        projectSnapshot: cognition.projectSnapshot,
+        builtState: cognition.builtState,
+        summary: cognition.summary,
+        handoff: cognition.handoff,
+        timeline: cognition.timeline,
+        knowledgeSnapshot: cognition.knowledgeSnapshot,
+      }) +
+      '\n\n' +
+      governanceSection;
 
     const budget = exportTokenBudget();
     const fmt = readExportFormat();
@@ -556,6 +614,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         timeline: cognition.timeline,
         knowledgeSnapshot: cognition.knowledgeSnapshot,
       });
+      if (governanceSection.trim()) {
+        obj = {
+          ...obj,
+          notes: [obj.notes, governanceSection].filter(Boolean).join('\n\n'),
+        };
+      }
       if (budget > 0) {
         obj = compressExportJsonForBudget(obj, budget);
       }
@@ -588,7 +652,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       text = formatWithAdapter(fmt, md, payload, mode);
     }
 
-    await vscode.env.clipboard.writeText(text);
+    const delivery = readExportDelivery(cfg);
+    const deliverResult = await deliverExportText(text, delivery);
 
     const tok = estimateTokens(text);
     const fmtLabel =
@@ -602,7 +667,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               ? 'OpenAI messages'
               : 'Markdown';
     const note = budget > 0 && tok >= budget * 0.98 ? ' (near export token budget)' : '';
-    let msg = `${PRODUCT_DISPLAY_NAME}: Copied AI-ready context (${fmtLabel}, ~${tok} tokens)${note}`;
+    let msg = `${PRODUCT_DISPLAY_NAME}: ${formatExportDeliveryMessage(deliverResult, tok, fmtLabel, note)}`;
     if (!taskTrim) {
       msg += ' — AI continuity works better with a focus goal.';
     }
@@ -610,6 +675,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   context.subscriptions.push(vscode.commands.registerCommand('contora.exportAIContext', runExport));
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.smartGovernanceInject', () =>
+      runGovernanceInject(stateManager, 'smart'),
+    ),
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.diffGovernanceInject', () =>
+      runGovernanceInject(stateManager, 'diff'),
+    ),
+  );
 
   const runStartFreshAiSession = async (): Promise<void> => {
     const folder = stateManager.getPrimaryFolder();
@@ -800,6 +876,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       await hideRuntimeDashboard(folder);
     }),
+  );
+
+  async function runControlGovernance(): Promise<void> {
+    await sidebar.showGovernanceOverview();
+  }
+
+  async function runControlCheck(): Promise<void> {
+    await sidebar.showChangeReview();
+  }
+
+  async function runControlIntent(): Promise<void> {
+    await sidebar.promptEditDirection();
+  }
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.controlGovernance', runControlGovernance),
+    vscode.commands.registerCommand('contora.getGovernance', runControlGovernance),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.controlCheck', runControlCheck),
+    vscode.commands.registerCommand('contora.checkAction', runControlCheck),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.controlIntent', runControlIntent),
+    vscode.commands.registerCommand('contora.updateProjectIntent', runControlIntent),
   );
 
   context.subscriptions.push(

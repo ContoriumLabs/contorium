@@ -17,7 +17,7 @@ export function modeStatusLamp(
   tick = 0,
 ): string {
   if (active === 'B') {
-    return `${statusGlyph(tick, c.green, true)} Overlay Active`;
+    return `${statusGlyph(tick, c.green, true)} Governance Active`;
   }
   const pulse = STATUS_FRAMES[tick % STATUS_FRAMES.length]!;
   return `${c.dim(pulse)} Observation`;
@@ -41,7 +41,7 @@ export function renderCognitiveModeSelectorLines(args: {
     const b = args.selection === 'B' ? c.bold('B') : c.dim('B');
     return [
       lamp,
-      truncate(`${mark('A')}${a} Runtime   ${mark('B')}${b} Overlay`, args.width),
+      truncate(`${mark('A')}${a} Runtime   ${mark('B')}${b} Governance`, args.width),
     ];
   }
 
@@ -52,9 +52,9 @@ export function renderCognitiveModeSelectorLines(args: {
     lines.push(truncate(`   ${c.dim(subtitle)}`, args.width));
   };
 
-  row('A', 'Runtime', 'Project · Task · Change feed');
+  row('A', 'Runtime View', 'Project · Task · Decision feed');
   lines.push('');
-  row('B', 'Cognitive Overlay', 'Skills · Presets · Insights');
+  row('B', 'Governance View', 'Cycle · Violations · Inject');
   return lines;
 }
 

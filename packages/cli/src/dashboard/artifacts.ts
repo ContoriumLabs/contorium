@@ -10,6 +10,8 @@ import {
   readUnderstandingGraph,
   readWorkspaceStatus,
 } from '@contora/state-core';
+import { GOVERNANCE_ARTIFACT_FILES } from '@contora/state-core';
+import { loadGovernanceSnapshot } from './governanceDashboard.js';
 import type { DashboardState, RuntimeEvent } from './types.js';
 
 const ARTIFACT_FILES = [
@@ -26,6 +28,7 @@ const ARTIFACT_FILES = [
   'mcp.handoff-injection.json',
   'mcp/cognitive.mode.json',
   'mcp/cognitive-insights.json',
+  ...GOVERNANCE_ARTIFACT_FILES,
 ] as const;
 
 export async function artifactSignature(workspaceRoot: string): Promise<string> {
@@ -95,7 +98,7 @@ async function readRecentEvents(workspaceRoot: string, limit = 8): Promise<Runti
 }
 
 export async function loadDashboardState(workspaceRoot: string): Promise<DashboardState> {
-  const [status, change, handoff, understandingGraph, graph, snapshot, timeline, recentEvents, handoffInjection] =
+  const [status, change, handoff, understandingGraph, graph, snapshot, timeline, recentEvents, handoffInjection, governance] =
     await Promise.all([
     readWorkspaceStatus(workspaceRoot),
     readChangeArtifact(workspaceRoot),
@@ -106,6 +109,7 @@ export async function loadDashboardState(workspaceRoot: string): Promise<Dashboa
     readProjectTimeline(workspaceRoot),
     readRecentEvents(workspaceRoot),
     readHandoffInjectionState(workspaceRoot),
+    loadGovernanceSnapshot(workspaceRoot),
   ]);
 
   return {
@@ -128,5 +132,6 @@ export async function loadDashboardState(workspaceRoot: string): Promise<Dashboa
     timeline,
     recentEvents,
     handoffInjection,
+    governance,
   };
 }

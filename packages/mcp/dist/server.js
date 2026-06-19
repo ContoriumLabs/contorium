@@ -15,10 +15,12 @@ import { findWorkspaceRoot, initWorkspaceFromArgv, resolveWorkspaceRoot } from '
 import { ensureWorkspaceBootstrapped, startMcpLightSync } from './mcpBootstrap.js';
 import { ensureMcpDashboardAttached } from './runtimeAttach.js';
 import { readMcpAutoContext } from './autoContext.js';
-import { confirmHandoffInjection, prepareHandoffInjection, readHandoffInjectionState, setGitSubprocessAllowed, skipHandoffInjection, syncInjectionWithRuntime, } from '@contora/state-core';
+import { confirmHandoffInjection, prepareHandoffInjection, readHandoffInjectionState, setGitSubprocessAllowed, skipHandoffInjection, syncInjectionWithRuntime, getGuardReminder, } from '@contora/state-core';
 import { loadWorkspaceSnapshot } from './workspace.js';
 import { readRuntimeState } from './runtimeState.js';
 import { registerCognitiveTools } from './cognitive/cognitiveTools.js';
+import { registerGovernanceAuxTools } from './governanceTools.js';
+import { registerGovernanceV4Tools } from './governanceV4.js';
 import { resolveMcpStartupConfig } from './workspaceConfig.js';
 function mcpPackageVersion() {
     const pkgPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
@@ -43,6 +45,17 @@ Do NOT inject without user confirmation.
 
 For ongoing work use get_project_handoff, get_understanding_graph, get_recent_changes.
 
+V4 Governance Engine — single decision pipeline (before editing code):
+1. ensure_control_ready
+2. get_control_context
+3. resolve_scope_context { active_file, diff_text }
+4. run_governance_cycle { active_file, diff, mode: "soft" }
+   → decision.action: allow | warn | block | inject_fix
+5. If inject_fix or warn → generate_inject_payload { style: "full" }
+6. Optional export → export_governance_context { include: ["governance","state","inject"] }
+
+Auxiliary: update_project_intent, analyze_project, get_cognitive_state, get_change_log.
+
 Cognitive Overlay (optional — default Mode A = core runtime unchanged):
 - Mode A: default — core observation, project, task, feed
 - Mode B: set_cognitive_mode { mode: "B" } → A + get_skill_suggestions, get_model_preset, get_cognitive_insights
@@ -56,6 +69,8 @@ const workspaceRootSchema = z.object({
     workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
 });
 registerCognitiveTools(server, workspaceRootForTools);
+registerGovernanceAuxTools(server, workspaceRootForTools);
+registerGovernanceV4Tools(server, workspaceRootForTools);
 server.registerTool('store_memory', {
     description: 'Store important coding context into Contorium memory (persisted under .contora/mcp/).',
     inputSchema: z.object({
@@ -448,21 +463,25 @@ server.registerTool('get_project_handoff', {
             hint: 'Handoff artifact not generated yet — save code changes or run contorium sync.',
         });
     }
+    const guardReminder = process.env.CONTORIUM_GUARD_REMIND === '1' ? await getGuardReminder(root) : undefined;
+    const payload = {
+        workspaceRoot: root,
+        found: true,
+        ...(guardReminder ? { governance_reminder: guardReminder } : {}),
+    };
     if (format === 'markdown' || format === 'compact') {
         return textResult({
-            workspaceRoot: root,
-            found: true,
+            ...payload,
             format,
             text: result.text,
             state: result.state,
         });
     }
     if (format === 'json') {
-        return textResult({ workspaceRoot: root, found: true, chp: result.state });
+        return textResult({ ...payload, chp: result.state });
     }
     return textResult({
-        workspaceRoot: root,
-        found: true,
+        ...payload,
         handoff,
         chp: result.state,
         compact: result.text,
