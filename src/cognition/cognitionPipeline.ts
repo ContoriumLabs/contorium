@@ -9,7 +9,7 @@ import { deleteStateSummary } from '../intelligence/store';
 import { deleteIntentGraph } from '../intent-graph/store';
 import { deleteProjectBuiltState } from '../state-builder/store';
 import { deleteConflictsArtifact } from '../state-engine';
-import { deleteUnderstandingArtifacts } from '@contora/state-core';
+import { deleteUnderstandingArtifacts, deriveIntentGraphVNext, syncIntelligenceLayer } from '@contora/state-core';
 import { rebuildProjectStateArtifacts } from '../state-builder/rebuild';
 import type { StateManager } from '../state/stateManager';
 
@@ -133,6 +133,7 @@ export class CognitionPipeline {
         existing,
       });
       await writeIntentGraph(folder, graph);
+      await deriveIntentGraphVNext(folder.uri.fsPath).catch(() => undefined);
 
       // L1 events → L2 state → L3 normalize → L4 snapshot (L5 intent graph does not feed snapshot)
       await rebuildProjectStateArtifacts({
@@ -142,6 +143,8 @@ export class CognitionPipeline {
         summary,
         extraHotPaths: this.hotPaths.splice(0),
       });
+
+      await syncIntelligenceLayer(folder.uri.fsPath, 'ide', 'merged').catch(() => undefined);
     } catch (err) {
       console.error('[Contorium] cognition pipeline update failed:', err);
     } finally {

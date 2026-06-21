@@ -40,7 +40,7 @@ export async function runGovernanceInject(
   const delivery = readExportDelivery();
   const deliverResult = await deliverExportText(text, delivery);
   const tok = estimateTokens(text);
-  const label = mode === 'smart' ? 'Smart inject' : 'Diff inject';
+  const label = mode === 'smart' ? 'Context synthesis' : 'Diff-scoped synthesis';
   const msg = `${PRODUCT_DISPLAY_NAME}: ${label} — ${formatExportDeliveryMessage(deliverResult, tok, mode, '')}`;
   await vscode.window.showInformationMessage(msg);
 }

@@ -1,7 +1,8 @@
 # Contorium V3.1 — Final Engineering Closure
 
 > **Frozen layer** — `closureVersion: "1"` in `knowledge.json` metadata.  
-> Do not add features here; only bugfixes that preserve these boundaries.
+> Do not add features here; only bugfixes that preserve these boundaries.  
+> **PIL v3.0 operations:** [PIL_RUNTIME.md](./PIL_RUNTIME.md)
 
 Contorium at V3.1 is a **Project Cognitive Operating System**: workspace events compile into canonical state; the knowledge graph is the single structural truth; everything else is projection.
 

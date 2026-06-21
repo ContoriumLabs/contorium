@@ -11,10 +11,7 @@ import {
   buildSidebarProjectStatePanel,
   type SidebarProjectStatePanel,
 } from '../cognition/sidebarStateBuilderPanel';
-import {
-  buildSidebarUnderstandingPanel,
-  type SidebarUnderstandingPanel,
-} from '../cognition/sidebarHandoffPanel';
+import type { SidebarUnderstandingPanel } from '../cognition/sidebarHandoffPanel';
 import { StateManager } from '../state/stateManager';
 import type { ProjectState } from '../types/state';
 import { defaultProjectState } from '../types/state';
@@ -35,10 +32,13 @@ import {
   type SidebarAiIntentPanel,
   type SidebarByokPanelState,
 } from './sidebarViewModel';
+import type { SidebarV22View } from './sidebarV22Panels';
+import type { ExportMode, ExportProgressReporter, RunExportAIContextResult } from '../ai/runExportAIContext';
+import { ideCaptureFocus, ideCaptureNote, ideCaptureDecision } from '../pil/ideCapture';
 
 type WebviewToExt =
   | { type: 'ready' }
-  | { type: 'exportAIContext' }
+  | { type: 'exportAIContext'; mode?: 'cognitive-snapshot' | 'full-intelligence' }
   | { type: 'saveStateNow' }
   | { type: 'restoreSession' }
   | { type: 'configureApiKey' }
@@ -55,10 +55,92 @@ type WebviewToExt =
   | { type: 'updateProjectIntent' }
   | { type: 'updateTask'; value: string }
   | { type: 'updateNotes'; value: string }
+  | { type: 'captureNote'; value: string }
+  | { type: 'captureDecision'; selected: string; reason?: string }
   | { type: 'openFile'; relativePath: string }
   | { type: 'startFreshAiSession' };
 
 const TASK_MAX = 500;
+
+const EMPTY_UNDERSTANDING: SidebarUnderstandingPanel = {
+  handoff: {
+    summary: '',
+    goal: '',
+    currentFocus: '',
+    riskLevel: '',
+    changedCount: 0,
+    impactCount: 0,
+    nextActions: [],
+    updatedAt: 0,
+    empty: true,
+  },
+  impact: { modules: [], empty: true },
+  graph: { nodes: [], empty: true },
+  timeline: { entries: [], empty: true },
+  functionGraph: { trees: [], fileFlows: [], impactLines: [], empty: true },
+  knowledgeGraph: {
+    intentTrees: [],
+    reasonTraces: [],
+    inferenceTraces: [],
+    impactDetails: [],
+    hotspots: [],
+    avgConfidence: 0,
+    closureVersion: '—',
+    schemaVersion: '—',
+    parserBackend: '—',
+    empty: true,
+  },
+  intelligence: { healthScore: null, healthCategory: '—', knowledgeCoverage: null, empty: true },
+};
+
+/** Placeholder until v2.2 panel loads asynchronously (avoids pulling state-core readers on module load). */
+const EMPTY_V22_PLACEHOLDER: SidebarV22View = {
+  cognition: {
+    currentFocus: '',
+    intent: '—',
+    state: '—',
+    understanding: '—',
+    confidence: '—',
+  },
+  intelligence: {
+    healthScore: null,
+    healthCategory: '—',
+    knowledgeCoverage: null,
+    confidenceIndex: null,
+    timelineSummary: '—',
+    impactRadius: null,
+    empty: true,
+  },
+  decision: {
+    decisionSnapshot: '—',
+    graphSummary: '—',
+    decisionLinks: [],
+    decisionHistory: [],
+    empty: true,
+  },
+  graph: {
+    intentGraph: '—',
+    structureGraph: '—',
+    impactOverlay: '—',
+    evolutionTimeline: '—',
+    hotspots: [],
+    empty: true,
+  },
+  activity: { lines: [] },
+  structure: {
+    stateBuilder: '—',
+    moduleMap: [],
+    openProblems: [],
+    linkedDecisions: [],
+    nextCognition: '—',
+    empty: true,
+  },
+  exportLayer: {
+    tokenEstimate: 0,
+    injectPreview: 'Cognitive Snapshot · ~300–800 tokens',
+    mcpSnapshotHint: 'MCP: transfer_context · transfer_intelligence · transfer_handoff',
+  },
+};
 
 const EMPTY_INTENT_GRAPH: SidebarIntentGraphPanel = {
   projectIntent: '',
@@ -91,29 +173,11 @@ const EMPTY_CONFLICTS: SidebarConflictsPanel = {
   empty: true,
 };
 
-const EMPTY_UNDERSTANDING: SidebarUnderstandingPanel = {
-  handoff: {
-    summary: '',
-    goal: '',
-    currentFocus: '',
-    riskLevel: '',
-    changedCount: 0,
-    impactCount: 0,
-    nextActions: [],
-    updatedAt: 0,
-    empty: true,
-  },
-  impact: { modules: [], empty: true },
-  graph: { nodes: [], empty: true },
-  timeline: { entries: [], empty: true },
-  functionGraph: { trees: [], fileFlows: [], impactLines: [], empty: true },
-  knowledgeGraph: { intentTrees: [], reasonTraces: [], inferenceTraces: [], impactDetails: [], hotspots: [], avgConfidence: 0, closureVersion: '—', schemaVersion: '—', parserBackend: '—', empty: true },
-};
-
 export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'contora.sidebar';
   /** Bust on layout changes so Reload Window picks up sidebar HTML. */
   private static htmlTemplateCache: string | undefined;
+  private static htmlTemplateVersion = 5;
 
   private view?: vscode.WebviewView;
   private folder: vscode.WorkspaceFolder | undefined;
@@ -126,6 +190,18 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   private webviewScriptReady = false;
   /** Fast workspace shell painted at least once. */
   private webviewBaseHydrated = false;
+  private exportInFlight = false;
+  private exportRunner?: (
+    report: ExportProgressReporter,
+    mode: ExportMode,
+  ) => Promise<RunExportAIContextResult>;
+
+  registerExportRunner(
+    runner: (report: ExportProgressReporter, mode: ExportMode) => Promise<RunExportAIContextResult>,
+  ): void {
+    this.exportRunner = runner;
+  }
+
   constructor(
     private readonly ctx: vscode.ExtensionContext,
     private readonly stateManager: StateManager,
@@ -147,6 +223,14 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private postExportProgress(update: {
+    phase: string;
+    label: string;
+    percent: number;
+  }): void {
+    this.view?.webview.postMessage({ type: 'exportProgress', ...update });
+  }
+
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
     this.view = webviewView;
     webviewView.webview.options = {
@@ -163,7 +247,31 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (msg.type === 'exportAIContext') {
-        await vscode.commands.executeCommand('contora.exportAIContext');
+        if (this.exportInFlight) {
+          return;
+        }
+        this.exportInFlight = true;
+        const mode: ExportMode = msg.mode === 'full-intelligence' ? 'full-intelligence' : 'cognitive-snapshot';
+        const report: ExportProgressReporter = (update) => this.postExportProgress(update);
+        try {
+          if (this.exportRunner) {
+            await this.exportRunner(report, mode);
+          } else {
+            report({ phase: 'sync', label: 'Starting export…', percent: 2 });
+            await vscode.commands.executeCommand(
+              mode === 'full-intelligence' ? 'contora.exportFullIntelligence' : 'contora.exportAIContext',
+            );
+            report({ phase: 'done', label: 'Export complete', percent: 100 });
+          }
+        } catch (err) {
+          report({
+            phase: 'error',
+            label: err instanceof Error ? err.message : 'Export failed',
+            percent: 0,
+          });
+        } finally {
+          this.exportInFlight = false;
+        }
         return;
       }
       if (msg.type === 'saveStateNow') {
@@ -227,9 +335,33 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
       if (msg.type === 'updateTask') {
         const task = (msg.value ?? '').slice(0, TASK_MAX);
-        await this.stateManager.update(folder, { currentTask: task });
+        if (task.trim()) {
+          await ideCaptureFocus(folder.uri.fsPath, task);
+        } else {
+          await this.stateManager.update(folder, { currentTask: '' });
+        }
+        await this.stateManager.load(folder);
         this.events?.add({ type: 'task_update', task, timestamp: Date.now() });
         this.onAfterTaskUpdated?.(folder, task);
+        void this.pushStateToWebview();
+        return;
+      }
+      if (msg.type === 'captureNote') {
+        const text = (msg.value ?? '').trim();
+        if (text) {
+          await ideCaptureNote(folder.uri.fsPath, text);
+          await this.stateManager.load(folder);
+          void vscode.window.showInformationMessage(`${PRODUCT_DISPLAY_NAME}: Project note captured.`);
+        }
+        void this.pushStateToWebview();
+        return;
+      }
+      if (msg.type === 'captureDecision') {
+        const selected = (msg.selected ?? '').trim();
+        if (selected) {
+          await ideCaptureDecision(folder.uri.fsPath, { selected, reason: msg.reason?.trim() });
+          void vscode.window.showInformationMessage(`${PRODUCT_DISPLAY_NAME}: Decision recorded.`);
+        }
         void this.pushStateToWebview();
         return;
       }
@@ -558,12 +690,11 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
 
-      const settled = await Promise.allSettled([
+      const settledCore = await Promise.allSettled([
         this.loadByokPanelState(),
         buildSidebarProjectStatePanel(folder),
         buildSidebarGraphPanel(folder),
         buildSidebarConflictsPanel(folder),
-        buildSidebarUnderstandingPanel(folder),
         this.readAiIntentForFolder(folder, state),
         buildSidebarGovernanceStatus(
           folder.uri.fsPath,
@@ -576,15 +707,16 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
 
       const pick = <T>(i: number, fallback: T): T =>
-        settled[i]?.status === 'fulfilled' ? (settled[i] as PromiseFulfilledResult<T>).value : fallback;
+        settledCore[i]?.status === 'fulfilled'
+          ? (settledCore[i] as PromiseFulfilledResult<T>).value
+          : fallback;
 
       const byok = pick(0, byokDefault);
       const projectState = pick(1, { ...EMPTY_PROJECT_STATE });
       const intentGraph = pick(2, { ...EMPTY_INTENT_GRAPH });
       const stateConflicts = pick(3, { ...EMPTY_CONFLICTS });
-      const understandingPanel = pick(4, { ...EMPTY_UNDERSTANDING });
-      const aiIntent = pick(5, { goals: [] } as SidebarAiIntentPanel);
-      const governanceStatus = pick(6, {
+      const aiIntent = pick(4, { goals: [] } as SidebarAiIntentPanel);
+      const governanceStatus = pick(5, {
         active: false,
         constitutionLoaded: false,
         truthLoaded: false,
@@ -615,23 +747,68 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         injectPreview: 'Governance not loaded',
       });
 
-      for (const result of settled) {
+      for (const result of settledCore) {
         if (result.status === 'rejected') {
           console.warn(`[${PRODUCT_DISPLAY_NAME}] sidebar panel load:`, result.reason);
         }
       }
 
       const base = buildSidebarWebviewState(state, this.events, ver);
-      const merged: Record<string, unknown> = {
+      const mergedCore: Record<string, unknown> = {
         ...base,
         projectState,
         intentGraph,
         stateConflicts,
-        understandingPanel,
+        understandingPanel: { ...EMPTY_UNDERSTANDING },
         aiIntent,
         governanceStatus,
+        v22View: { ...EMPTY_V22_PLACEHOLDER },
       };
-      this.postWebviewState(seq, merged, byok, false);
+      this.postWebviewState(seq, mergedCore, byok, false);
+
+      // Phase 2 — heavy PIL readers; yield so core UI paints first.
+      await new Promise((r) => setTimeout(r, 16));
+      if (seq !== this.pushStateSeq || !this.view) {
+        return;
+      }
+
+      try {
+        const [{ buildSidebarUnderstandingPanel }, v22Mod] = await Promise.all([
+          import('../cognition/sidebarHandoffPanel'),
+          import('./sidebarV22Panels'),
+        ]);
+        const understandingPanel = await buildSidebarUnderstandingPanel(folder).catch(
+          () => ({ ...EMPTY_UNDERSTANDING }),
+        );
+        if (seq !== this.pushStateSeq || !this.view) {
+          return;
+        }
+
+        const v22View = await v22Mod
+          .buildSidebarV22View(
+            folder,
+            state,
+            governanceStatus,
+            understandingPanel,
+            projectState,
+            intentGraph,
+            this.events,
+          )
+          .catch(() => v22Mod.EMPTY_V22);
+
+        if (seq !== this.pushStateSeq || !this.view) {
+          return;
+        }
+
+        this.postWebviewState(
+          seq,
+          { ...mergedCore, understandingPanel, v22View },
+          byok,
+          false,
+        );
+      } catch (err) {
+        console.warn(`[${PRODUCT_DISPLAY_NAME}] sidebar heavy panel load:`, err);
+      }
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar state push failed:`, err);
       try {
@@ -668,7 +845,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   private getHtml(webview: vscode.Webview): string {
     const nonce = String(Math.random()).slice(2);
     const cspAttr = this.buildCspAttr(webview, nonce);
-    if (ContoraSidebarProvider.htmlTemplateCache) {
+    if (ContoraSidebarProvider.htmlTemplateCache && ContoraSidebarProvider.htmlTemplateVersion === 5) {
       return ContoraSidebarProvider.htmlTemplateCache
         .replace(/__NONCE__/g, nonce)
         .replace(/__CSP_ATTR__/g, cspAttr);
@@ -1151,7 +1328,183 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       color: var(--vscode-descriptionForeground);
     }
     .cr-ai-foot-ctx { color: var(--vscode-textLink-foreground); cursor: default; }
-    .cr-actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+    .cr-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; margin-bottom: 0; }
+    .cr-export-progress { margin-top: 2px; }
+    .cr-export-progress[hidden] { display: none !important; }
+    .cr-export-progress-track {
+      height: 3px;
+      border-radius: 999px;
+      background: var(--vscode-widget-border, rgba(127, 127, 127, 0.22));
+      overflow: hidden;
+    }
+    .cr-export-progress-bar {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: var(--vscode-progressBar-background, var(--vscode-button-background));
+      transition: width 0.28s ease;
+    }
+    .cr-export-progress-label {
+      margin: 5px 2px 0;
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--vscode-descriptionForeground);
+    }
+    .cr-export-progress-label--done {
+      color: var(--vscode-testing-iconPassed, #3fb950);
+    }
+    .cr-export-progress-label--error {
+      color: var(--vscode-errorForeground, #f85149);
+    }
+    button.cr-primary.cr-primary--busy {
+      opacity: 0.92;
+      pointer-events: none;
+    }
+    button.cr-primary .cr-export-spin {
+      display: none;
+      align-items: center;
+    }
+    button.cr-primary.cr-primary--busy .cr-export-spin {
+      display: inline-flex;
+      animation: cr-export-spin 0.85s linear infinite;
+    }
+    @keyframes cr-export-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .cr-actions-advanced {
+      border-radius: 8px;
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.2));
+      background: var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.08));
+      overflow: hidden;
+      transition: border-color 0.18s ease, background 0.18s ease;
+    }
+    .cr-actions-advanced[open] {
+      border-color: rgba(127, 127, 127, 0.28);
+      background: linear-gradient(
+        180deg,
+        rgba(127, 127, 127, 0.1) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.06)) 100%
+      );
+    }
+    .cr-actions-advanced > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      cursor: pointer;
+      padding: 8px 10px;
+      list-style: none;
+      user-select: none;
+    }
+    .cr-actions-advanced > summary::-webkit-details-marker { display: none; }
+    .cr-actions-advanced-summary-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .cr-actions-advanced-chevron {
+      font-size: 10px;
+      opacity: 0.7;
+      transition: transform 0.18s ease;
+    }
+    .cr-actions-advanced[open] .cr-actions-advanced-chevron { transform: rotate(90deg); }
+    .cr-actions-advanced-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+    }
+    .cr-actions-advanced-hint {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.72;
+      white-space: nowrap;
+    }
+    .cr-actions-advanced-panel {
+      padding: 0 10px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .cr-actions-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .cr-actions-group + .cr-actions-group {
+      padding-top: 10px;
+      border-top: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.16));
+    }
+    .cr-actions-group-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.8;
+    }
+    .cr-actions-group-desc {
+      margin: 0;
+      font-size: 10px;
+      line-height: 1.4;
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.78;
+    }
+    button.cr-action-transfer {
+      width: 100%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 9px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--vscode-font-family);
+      color: var(--vscode-button-secondaryForeground);
+      background: var(--vscode-button-secondaryBackground);
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.22));
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    button.cr-action-transfer:hover {
+      background: var(--vscode-button-secondaryHoverBackground);
+    }
+    button.cr-action-transfer:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    .cr-actions-workspace {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    button.cr-action-workspace {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 7px 6px;
+      font-size: 11px;
+      font-family: var(--vscode-font-family);
+      color: var(--vscode-foreground);
+      background: var(--vscode-input-background, rgba(0, 0, 0, 0.12));
+      border: 1px dashed var(--vscode-widget-border, rgba(127, 127, 127, 0.3));
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button.cr-action-workspace:hover {
+      border-style: solid;
+      background: var(--vscode-toolbar-hoverBackground);
+    }
+    .cr-actions-group-desc code {
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(127, 127, 127, 0.14);
+    }
     button.cr-primary {
       width: 100%;
       display: flex;
@@ -1538,6 +1891,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     .cr-stack { margin-top: 10px; }
     .cr-stack:first-of-type { margin-top: 14px; }
     .cr-stack-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       font-size: 9px;
       font-weight: 700;
       letter-spacing: 0.1em;
@@ -1572,6 +1928,177 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
     .cr-stack-fold[open] > summary::before { transform: rotate(90deg); }
     .cr-stack-fold-body { padding: 0 8px 8px; }
+    .cr-v22-fields { display: flex; flex-direction: column; gap: 8px; }
+    .cr-v22-row { display: flex; flex-direction: column; gap: 2px; }
+    .cr-v22-row .cr-psb-k { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.72; }
+    .cr-v22-focus {
+      width: 100%;
+      margin: 0 0 6px;
+      font-size: 12px;
+      line-height: 1.45;
+      font-family: inherit;
+      color: var(--vscode-foreground);
+      background: transparent;
+      border: none;
+      border-bottom: 1px dashed rgba(127, 127, 127, 0.22);
+      border-radius: 0;
+      padding: 1px 2px 3px;
+      min-height: 0;
+      resize: none;
+      outline: none;
+      box-shadow: none;
+      cursor: text;
+      transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        border-radius 0.16s ease,
+        padding 0.16s ease,
+        box-shadow 0.16s ease;
+    }
+    .cr-v22-focus:not(:focus):hover {
+      border-bottom-color: rgba(127, 127, 127, 0.38);
+      background: rgba(127, 127, 127, 0.04);
+    }
+    .cr-v22-focus:not(:focus):placeholder-shown {
+      color: var(--vscode-descriptionForeground);
+    }
+    .cr-v22-focus::placeholder {
+      color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
+      opacity: 0.82;
+    }
+    .cr-v22-focus:focus,
+    .cr-v22-focus.cr-v22-focus--active {
+      min-height: 44px;
+      padding: 8px;
+      resize: vertical;
+      border: 1px solid var(--vscode-focusBorder, var(--vscode-widget-border, rgba(127, 127, 127, 0.45)));
+      border-radius: 6px;
+      background: var(--vscode-input-background, var(--cr-input-bg, #141414));
+      color: inherit;
+      box-shadow: 0 0 0 1px rgba(127, 127, 127, 0.08);
+    }
+    .cr-capture-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 4px;
+    }
+    .cr-v22-capture-input {
+      flex: 1;
+      min-width: 0;
+      font-size: 11px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--vscode-input-border, rgba(127,127,127,0.35));
+      background: var(--vscode-input-background, var(--cr-input-bg, #141414));
+      color: inherit;
+    }
+    .cr-tertiary-sm { font-size: 11px; padding: 6px 8px; }
+    .cr-live-badge {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--vscode-testing-iconPassed, #3fb950);
+      flex-shrink: 0;
+      animation: cr-live-pulse 2.2s ease-in-out infinite;
+    }
+    @keyframes cr-live-pulse {
+      0%, 100% { opacity: 0.4; transform: scale(0.85); }
+      50% { opacity: 1; transform: scale(1.15); }
+    }
+    .cr-module-card--cognition {
+      border-left: 3px solid var(--vscode-symbolIcon-arrayForeground, #c586c0);
+      background: linear-gradient(
+        165deg,
+        rgba(197, 134, 192, 0.12) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.1)) 52%
+      );
+    }
+    .cr-module-card--intelligence {
+      border-left: 3px solid var(--vscode-gitDecoration-addedResourceForeground, #73c991);
+      background: linear-gradient(
+        165deg,
+        rgba(115, 201, 145, 0.11) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.1)) 52%
+      );
+    }
+    .cr-module-card--decision {
+      border-left: 3px solid var(--vscode-charts-green, #89d185);
+      background: linear-gradient(
+        165deg,
+        rgba(137, 209, 133, 0.1) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.1)) 52%
+      );
+    }
+    .cr-module-card--graph {
+      border-left: 3px solid var(--vscode-symbolIcon-functionForeground, #b180d7);
+      background: linear-gradient(
+        165deg,
+        rgba(177, 128, 215, 0.09) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.08)) 55%
+      );
+    }
+    .cr-module-card--activity {
+      border-left: 3px solid var(--vscode-charts-orange, #d18616);
+      background: linear-gradient(
+        165deg,
+        rgba(209, 134, 22, 0.09) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.08)) 55%
+      );
+      padding: 8px 10px;
+    }
+    .cr-module-card--structure {
+      border-left: 3px solid var(--vscode-gitDecoration-untrackedResourceForeground, #75beff);
+      background: linear-gradient(
+        165deg,
+        rgba(117, 190, 255, 0.1) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.08)) 55%
+      );
+    }
+    .cr-module-card--export {
+      border-left: 3px solid var(--vscode-symbolIcon-keywordForeground, #569cd6);
+      background: linear-gradient(
+        165deg,
+        rgba(86, 156, 214, 0.09) 0%,
+        var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.08)) 55%
+      );
+    }
+    .cr-v22-row { min-width: 0; }
+    .cr-graph-line,
+    .cr-graph-muted,
+    .cr-graph-meta,
+    .cr-gov-inject-preview,
+    ul.cr-psb-list li,
+    ul.cr-activity-feed li,
+    .cr-graph-domain {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    .cr-val-flash {
+      animation: cr-val-flash 0.85s ease-out;
+    }
+    @keyframes cr-val-flash {
+      0% {
+        background-color: var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.28));
+        border-radius: 3px;
+      }
+      100% { background-color: transparent; }
+    }
+    details.cr-cortex {
+      background: linear-gradient(
+        165deg,
+        rgba(177, 128, 215, 0.07) 0%,
+        var(--vscode-sideBar-background, transparent) 60%
+      );
+    }
+    .cr-stack-fold.cr-stack-fold--structure {
+      background: linear-gradient(
+        165deg,
+        rgba(117, 190, 255, 0.06) 0%,
+        var(--vscode-input-background, rgba(0, 0, 0, 0.04)) 55%
+      );
+    }
     details.cr-cortex {
       margin-top: 12px;
       border-radius: 10px;
@@ -2075,218 +2602,154 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     </div>
   </header>
 
-  <div class="cr-stack" aria-label="Today">
-    <div class="cr-stack-label">Today</div>
-    <section class="cr-section cr-today-card" aria-label="Today">
-      <div class="cr-psb-block">
-        <div class="cr-ai-focus-row">
-          <span class="cr-psb-k">Current task</span>
-          <span class="cr-task-meta" style="display:flex;align-items:center;gap:6px">
-            <span id="taskCount">0 / ${TASK_MAX}</span>
-          </span>
+  <div class="cr-stack" aria-label="Cognition field">
+    <div class="cr-stack-label"><span>Cognition field</span><span class="cr-live-badge" title="Live updates" aria-label="Live"></span></div>
+    <section class="cr-section" id="crSecCognitionField" aria-label="Derived cognition">
+      <div class="cr-module-card cr-module-card--cognition">
+        <div class="cr-module-card-body cr-v22-fields">
+          <div class="cr-v22-row">
+            <span class="cr-psb-k">Current focus</span>
+            <textarea id="v22FocusInput" class="cr-v22-focus" rows="1" maxlength="${TASK_MAX}" placeholder="Declare project focus"></textarea>
+          </div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Intent</span><p id="v22Intent" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">State</span><p id="v22State" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Understanding</span><p id="v22Understanding" class="cr-graph-muted">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Confidence</span><p id="v22Confidence" class="cr-graph-meta">—</p></div>
         </div>
-        <textarea id="task" class="cr-task-input" rows="2" maxlength="${TASK_MAX}" placeholder="What are you working on right now?"></textarea>
       </div>
-      <div class="cr-psb-block">
-        <span class="cr-psb-k">Project goal</span>
-        <p id="todayProjectGoal" class="cr-graph-line">—</p>
-        <span id="todayDirectionUpdated" class="cr-graph-muted">—</span>
-      </div>
-      <div class="cr-psb-block">
-        <span class="cr-psb-k">Current stage</span>
-        <p id="todayStage" class="cr-graph-muted">—</p>
-      </div>
-      <div class="cr-psb-block" id="todayNextBlock" hidden>
-        <span class="cr-psb-k">Next action</span>
-        <p id="todayNext" class="cr-graph-line">—</p>
-      </div>
-      <div class="cr-today-status" id="todayWorkspaceStatus">
-        <span class="cr-dot cr-dot--pulse"></span>
-        <span id="aiTrackStatus">Workspace tracking active</span>
-      </div>
-    </section>
-  </div>
-
-  <div class="cr-actions" aria-label="Export AI context">
-    <button type="button" class="cr-primary" id="btnExport" title="Run governance review, build context, and inject into AI chat">
-      ${ico.copy}<span>Export AI context</span>${ico.spark}
-    </button>
-    <div class="cr-grid2">
-      <button type="button" class="cr-secondary" id="btnSave" title="Write state to disk">${ico.save}<span>Sync state to disk</span></button>
-      <button type="button" class="cr-secondary" id="btnRestore" title="Reopen editors from last saved state">${ico.history}<span>Restore editors</span></button>
-    </div>
-    <div class="cr-ai-card-foot" style="margin-top:0;padding-top:6px;border-top:none">
-      <span id="aiStatUpdated">—</span>
-      <span id="aiStatCtx" class="cr-ai-foot-ctx">—</span>
-    </div>
-  </div>
-  <span id="aiContextTokens" hidden aria-hidden="true">—</span>
-
-  <div class="cr-stack" aria-label="Governance">
-    <div class="cr-stack-label">Governance</div>
-    <section class="cr-section" id="crSecGovernance" aria-label="Governance status">
-      <div class="cr-module-card cr-module-card--governance">
-        <div class="cr-module-card-body">
-          <p class="cr-gov-status-line" id="govActiveLine"><span class="cr-gov-ok">✓</span><span id="govActiveLabel">Active</span></p>
-          <p class="cr-gov-status-line" id="govConstLine" hidden><span class="cr-gov-ok">✓</span> Constitution loaded</p>
-          <p class="cr-gov-status-line" id="govTruthLine" hidden><span class="cr-gov-ok">✓</span> Truth layer loaded</p>
-          <p class="cr-gov-status-line" id="govIdentityLine" hidden><span class="cr-gov-ok">✓</span> Identity loaded</p>
-          <div class="cr-gov-scope-row">
-            <label for="govReviewScope">Review scope</label>
-            <select id="govReviewScope" title="Which changes to include in governance review">
-              <option value="auto">Auto (merge all)</option>
-              <option value="current_file">Current file</option>
-              <option value="open_files">Open files</option>
-              <option value="git_staged">Git staged</option>
-              <option value="git_commit">Git commit (HEAD)</option>
-            </select>
+      <div class="cr-actions">
+        <button type="button" class="cr-primary" id="btnExport" title="Transfer context snapshot into current chat (~300–800 tokens)">
+          <span class="cr-export-spin" aria-hidden="true">${ico.refresh}</span>
+          ${ico.copy}<span id="btnExportLabel">Transfer Context</span>${ico.spark}
+        </button>
+        <details class="cr-actions-advanced">
+          <summary>
+            <span class="cr-actions-advanced-summary-left">
+              <span class="cr-actions-advanced-chevron" aria-hidden="true">▸</span>
+              <span class="cr-actions-advanced-title">More actions</span>
+            </span>
+            <span class="cr-actions-advanced-hint">Intelligence · workspace</span>
+          </summary>
+          <div class="cr-actions-advanced-panel">
+            <div class="cr-actions-group">
+              <span class="cr-actions-group-label">Capture</span>
+              <p class="cr-actions-group-desc">Current focus uses PIL capture on edit. Add notes and decisions below.</p>
+              <div class="cr-v22-row cr-capture-row">
+                <input type="text" id="v22CaptureNote" class="cr-v22-capture-input" maxlength="240" placeholder="Project note" aria-label="Project note" />
+                <button type="button" class="cr-action-workspace" id="btnCaptureNote" title="Append timestamped note to state">Note</button>
+              </div>
+              <div class="cr-v22-row cr-capture-row">
+                <input type="text" id="v22CaptureDecision" class="cr-v22-capture-input" maxlength="240" placeholder="Decision record" aria-label="Decision" />
+                <button type="button" class="cr-action-workspace" id="btnCaptureDecision" title="Append decision to log">Decision</button>
+              </div>
+            </div>
+            <div class="cr-actions-group">
+              <span class="cr-actions-group-label">Context transfer</span>
+              <button type="button" class="cr-action-transfer" id="btnExportFull" title="Transfer full intelligence into current chat (~3k–10k tokens)">
+                ${ico.copy}<span id="btnExportFullLabel">Transfer Intelligence</span>
+              </button>
+            </div>
+            <div class="cr-actions-group">
+              <span class="cr-actions-group-label">Workspace</span>
+              <p class="cr-actions-group-desc">Sync writes open files, git, and focus to <code>.contora/state.json</code>. Restore reopens saved editors.</p>
+              <div class="cr-actions-workspace">
+                <button type="button" class="cr-action-workspace" id="btnSave" title="Flush workspace tracking and persist to disk">${ico.save}<span>Sync state</span></button>
+                <button type="button" class="cr-action-workspace" id="btnRestore" title="Reopen editors from saved recent/open file list">${ico.history}<span>Restore</span></button>
+              </div>
+            </div>
           </div>
-          <div class="cr-gov-meta-grid">
-            <div><span>Protected paths</span><strong id="govProtectedCount">—</strong></div>
-            <div><span>Forbidden rules</span><strong id="govForbiddenCount">—</strong></div>
-            <div><span>Current file</span><strong id="govReviewFile">—</strong></div>
-            <div><span>Risk</span><strong id="govReviewRisk">—</strong></div>
-            <div><span>Change</span><strong id="govReviewChange">—</strong></div>
-            <div><span>Severity</span><strong id="govReviewSeverity">—</strong></div>
-            <div><span>Impact</span><strong id="govReviewImpact">—</strong></div>
-            <div><span>Confidence</span><strong id="govReviewConfidence">—</strong></div>
-            <div><span>Protected</span><strong id="govReviewProtected">—</strong></div>
-            <div><span>Truth impact</span><strong id="govReviewTruth">—</strong></div>
-            <div><span>Recommendation</span><strong id="govReviewRecommendation">—</strong></div>
-            <div><span>Source</span><strong id="govReviewSource">—</strong></div>
-            <div><span>Last check</span><strong id="govReviewTimestamp">—</strong></div>
+        </details>
+        <div id="crExportProgress" class="cr-export-progress" hidden>
+          <div class="cr-export-progress-track" aria-hidden="true">
+            <div id="crExportProgressBar" class="cr-export-progress-bar"></div>
           </div>
-          <div class="cr-gov-why-block" aria-label="Why chain">
-            <span class="cr-gov-inject-k">Why?</span>
-            <ul id="govReviewWhy" class="cr-gov-why-list"></ul>
-          </div>
-          <div class="cr-gov-inject-block" aria-label="Export injection preview">
-            <span class="cr-gov-inject-k">Export preview</span>
-            <p id="govInjectPreview" class="cr-gov-inject-preview">—</p>
-            <ul id="govInjectionRules" class="cr-gov-rules-list"></ul>
-            <p id="govTokenEstimate" class="cr-graph-muted">—</p>
-          </div>
-          <div class="cr-grid2">
-            <button type="button" class="cr-secondary" id="btnViewRules" title="View project rules">${ico.list}<span>Project rules</span></button>
-            <button type="button" class="cr-secondary" id="btnReviewChange" title="Why is this change high risk?">${ico.check}<span>Review change</span></button>
-          </div>
+          <p id="crExportProgressLabel" class="cr-export-progress-label" aria-live="polite"></p>
         </div>
       </div>
     </section>
   </div>
 
-  <details class="cr-stack cr-stack-fold" id="crSecWorkspaceHealth" aria-label="Workspace health">
-    <summary class="cr-stack-label" style="cursor:pointer">Workspace health</summary>
-    <div class="cr-stack-fold-body">
-  <section class="cr-section" id="crSecSnapshot">
-    <div class="cr-module-card cr-module-card--workspace">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Status</span></span>
-      </div>
-      <div class="cr-module-card-body">
-    <div class="cr-summary">
-      <div class="cr-sum-line" id="sumActive">
-        <span class="cr-sum-ico cr-sum-ico--files">${ico.list}</span>
-        <div class="cr-sum-main">
-          <span class="cr-sum-muted">Tracked files</span>
-          <div class="cr-sum-body" id="sumActiveBody">—</div>
+  <div class="cr-stack" aria-label="Intelligence core">
+    <div class="cr-stack-label"><span>Intelligence core</span><span class="cr-live-badge" title="Live updates" aria-label="Live"></span></div>
+    <section class="cr-section" id="crSecIntelligenceCore">
+      <div class="cr-module-card cr-module-card--intelligence">
+        <div class="cr-module-card-head">
+          <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>PIL metrics</span></span>
+          <span class="cr-graph-meta" id="v22HealthMeta">—</span>
+        </div>
+        <div class="cr-module-card-body cr-v22-fields">
+          <div class="cr-v22-row"><span class="cr-psb-k">Health score</span><p id="v22HealthScore" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Knowledge coverage</span><p id="v22Coverage" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Confidence index</span><p id="v22ConfIndex" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Timeline summary</span><p id="v22Timeline" class="cr-graph-muted">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Impact radius</span><p id="v22ImpactRadius" class="cr-graph-muted">—</p></div>
         </div>
       </div>
-      <div class="cr-sum-line" id="sumGit">
-        <span class="cr-sum-ico cr-sum-ico--git">${ico.branch}</span>
-        <div class="cr-sum-main">
-          <span class="cr-sum-muted">Git sync</span>
-          <div class="cr-sum-body" id="sumGitBody">—</div>
+    </section>
+  </div>
+
+  <div class="cr-stack" aria-label="Decision intelligence">
+    <div class="cr-stack-label"><span>Decision intelligence</span></div>
+    <section class="cr-section" id="crSecDecisionIntel">
+      <div class="cr-module-card cr-module-card--decision">
+        <div class="cr-module-card-body cr-v22-fields">
+          <div class="cr-v22-row"><span class="cr-psb-k">Decision snapshot</span><p id="v22DecSnapshot" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Decision graph</span><p id="v22DecGraph" class="cr-graph-muted">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Decision links</span><ul id="v22DecLinks" class="cr-psb-list"></ul></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Decision history</span><ul id="v22DecHistory" class="cr-psb-list"></ul></div>
         </div>
       </div>
-    </div>
-    </div>
-  </section>
-  <section class="cr-section" id="crSecHandoff" aria-label="Recent handoff">
-    <div class="cr-module-card cr-module-card--handoff">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Recent changes</span></span>
-        <span class="cr-graph-meta" id="handoffMeta">—</span>
-      </div>
-      <div class="cr-module-card-body">
-        <p id="handoffSummary" class="cr-graph-line">—</p>
-        <details class="cr-stack-fold">
-          <summary>Impact modules</summary>
-          <div class="cr-stack-fold-body">
-        <div id="uImpactBlock" class="cr-psb-panel" hidden>
-          <span class="cr-psb-k">Affected modules</span>
-          <div id="uImpactModules" class="cr-graph-domains"></div>
-        </div>
-          </div>
-        </details>
-        <details id="uTimelineDetails" class="cr-stack-fold" hidden>
-          <summary>Timeline (recent commits)</summary>
-          <ul id="uTimelineList" class="cr-psb-list"></ul>
-        </details>
-        <p id="handoffEmpty" class="cr-graph-empty">Analyzing recent code changes…</p>
-      </div>
-    </div>
-  </section>
+    </section>
+  </div>
+
+  <details class="cr-stack cr-stack-fold cr-cortex" id="crCortexDetails" open aria-label="Cognitive graph system">
+    <summary class="cr-cortex-summary">Cognitive graph system</summary>
+    <div class="cr-cortex-body cr-module-card cr-module-card--graph cr-v22-fields">
+      <div class="cr-v22-row"><span class="cr-psb-k">Intent graph</span><p id="v22GIntent" class="cr-graph-line">—</p></div>
+      <div class="cr-v22-row"><span class="cr-psb-k">Structure graph</span><p id="v22GStructure" class="cr-graph-line">—</p></div>
+      <div class="cr-v22-row"><span class="cr-psb-k">Impact overlay</span><p id="v22GImpact" class="cr-graph-line">—</p></div>
+      <div class="cr-v22-row"><span class="cr-psb-k">Evolution timeline</span><p id="v22GEvolution" class="cr-graph-muted">—</p></div>
+      <div class="cr-v22-row"><span class="cr-psb-k">Hotspots</span><div id="v22GHotspots" class="cr-graph-domains"></div></div>
     </div>
   </details>
 
-  <div class="cr-stack" aria-label="Activity">
-    <div class="cr-stack-label">Activity</div>
+  <div class="cr-stack" aria-label="Activity trace">
+    <div class="cr-stack-label"><span>Activity trace</span><span class="cr-live-badge" title="Live updates" aria-label="Live"></span></div>
     <section class="cr-section">
-      <ul id="activityStreamList" class="cr-activity-feed" aria-label="Recent workspace activity"></ul>
-      <p id="sumActivityBody" class="cr-graph-muted" style="margin:0">—</p>
+      <div class="cr-module-card cr-module-card--activity">
+        <ul id="v22ActivityList" class="cr-activity-feed" aria-label="Raw workspace events"></ul>
+        <p id="v22ActivityEmpty" class="cr-graph-muted">No recent events</p>
+      </div>
     </section>
   </div>
 
-  <details class="cr-stack cr-stack-fold" id="crSecProjectDetail" aria-label="Project detail">
-    <summary class="cr-stack-label" style="cursor:pointer">Project detail</summary>
-    <div class="cr-stack-fold-body">
-  <section class="cr-section" id="crSecProjectState" aria-label="Project state (State Builder)">
-    <div class="cr-module-card cr-module-card--state">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>State builder</span></span>
-        <span class="cr-graph-meta" id="psbMeta">—</span>
-      </div>
-      <div class="cr-module-card-body">
-    <div class="cr-psb-block" hidden aria-hidden="true">
-      <span class="cr-psb-k">Goal</span>
-      <p id="psbGoal" class="cr-graph-line">—</p>
-    </div>
-    <div class="cr-psb-block" hidden aria-hidden="true">
-      <span class="cr-psb-k">Current stage</span>
-      <p id="psbStage" class="cr-graph-muted">—</p>
-    </div>
-    <div class="cr-psb-panel" id="psbNextBlock" hidden>
-      <span class="cr-psb-k">Next actions</span>
-      <ul id="psbNext" class="cr-psb-list"></ul>
-    </div>
-    <p id="psbEmpty" class="cr-graph-empty">Building project state from workspace activity…</p>
-    <details class="cr-stack-fold">
-      <summary>More detail</summary>
-      <div class="cr-stack-fold-body">
-    <div id="psbModules" class="cr-graph-domains" hidden></div>
-    <div class="cr-psb-panel" id="psbDecisionsBlock" hidden>
-      <span class="cr-psb-k">Recent decisions</span>
-      <ul id="psbDecisions" class="cr-psb-list"></ul>
-    </div>
-    <div class="cr-psb-panel cr-psb-panel--warn" id="psbProblemsBlock" hidden>
-      <span class="cr-psb-k">Open problems</span>
-      <ul id="psbProblems" class="cr-psb-list cr-psb-list--warn"></ul>
-    </div>
-      </div>
-    </details>
-      </div>
-    </div>
-  </section>
+  <details class="cr-stack cr-stack-fold cr-stack-fold--structure" id="crSecStructureField" aria-label="Structure field">
+    <summary class="cr-stack-label" style="cursor:pointer;border-bottom:none;margin-bottom:0;padding-bottom:0"><span>Structure field</span></summary>
+    <div class="cr-stack-fold-body cr-module-card cr-module-card--structure cr-v22-fields">
+      <div class="cr-v22-row"><span class="cr-psb-k">State builder</span><p id="v22StructBuilder" class="cr-graph-line">—</p></div>
+      <div class="cr-v22-row"><span class="cr-psb-k">Module map</span><div id="v22StructModules" class="cr-graph-domains"></div></div>
+      <div class="cr-v22-row"><span class="cr-psb-k">Open problems</span><ul id="v22StructProblems" class="cr-psb-list cr-psb-list--warn"></ul></div>
+      <div class="cr-v22-row"><span class="cr-psb-k">Linked decisions</span><ul id="v22StructDecisions" class="cr-psb-list"></ul></div>
+      <div class="cr-v22-row"><span class="cr-psb-k">Next cognition</span><p id="v22StructNext" class="cr-graph-line">—</p></div>
     </div>
   </details>
 
-  <div id="crSecAiGoals" hidden aria-hidden="true">
-    <ul id="aiIntentGoals"></ul>
-    <button type="button" id="aiIntentGoalsToggle" hidden></button>
-    <p id="aiIntentEmpty"></p>
+  <div class="cr-stack" aria-label="Context export">
+    <div class="cr-stack-label"><span>Context export</span><span class="cr-live-badge" title="Live updates" aria-label="Live"></span></div>
+    <section class="cr-section" id="crSecContextExport">
+      <div class="cr-module-card cr-module-card--export">
+        <div class="cr-module-card-body cr-v22-fields">
+          <div class="cr-v22-row"><span class="cr-psb-k">MCP snapshot</span><p id="v22McpHint" class="cr-graph-muted">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Token estimate</span><p id="v22TokenEst" class="cr-graph-meta">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Payload preview</span><p id="v22InjectPreview" class="cr-gov-inject-preview">—</p></div>
+        </div>
+      </div>
+      <p class="cr-graph-muted" style="margin-top:6px;font-size:11px" id="aiStatUpdated">—</p>
+    </section>
   </div>
-  <p id="handoffIntent" hidden aria-hidden="true"></p>
+
+  <textarea id="task" hidden aria-hidden="true"></textarea>
+  <span id="taskCount" hidden aria-hidden="true">0</span>
 
   <div id="crOverlay" class="cr-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="crOverlayTitle">
     <div class="cr-overlay-backdrop" id="crOverlayBackdrop"></div>
@@ -2309,150 +2772,26 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   <span id="aiStatTierBadge" hidden aria-hidden="true"></span>
   <button type="button" id="btnJumpByok" hidden aria-hidden="true"></button>
 
-  <details class="cr-stack cr-cortex" id="crCortexDetails" aria-label="Knowledge graph">
-    <summary class="cr-cortex-summary">Knowledge graph</summary>
-    <div class="cr-cortex-body">
-
-  <section class="cr-section" id="crSecKnowledgeGraph" aria-label="Project knowledge graph">
-    <div class="cr-module-card cr-module-card--kg">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Project Knowledge Graph</span></span>
-        <span class="cr-graph-meta" id="kgMeta">—</span>
-      </div>
-      <div class="cr-module-card-body">
-        <div id="kgIntentTrees" class="cr-kg-roots" aria-label="Intent to module to file to function"></div>
-        <p id="kgEmpty" class="cr-graph-empty">Save code changes to build project cognitive graph…</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="cr-section" id="crSecHotspots" aria-label="Project hotspots">
-    <div class="cr-module-card cr-module-card--kg">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>Hotspots</span></span>
-        <span class="cr-graph-meta" id="kgHotspotsMeta">—</span>
-      </div>
-      <div class="cr-module-card-body">
-        <ul id="kgHotspotsList" class="cr-fn-impact-list" hidden aria-label="Active project hotspots"></ul>
-        <p id="kgHotspotsEmpty" class="cr-graph-empty">Hotspots appear after code edits and intent mapping…</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="cr-section" id="crSecIntentGraph" aria-label="Intent graph summary" hidden>
-    <div class="cr-module-card cr-module-card--intent">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Intent graph</span></span>
-        <span class="cr-graph-meta" id="graphMeta">—</span>
-      </div>
-      <div class="cr-module-card-body">
-    <p id="graphUnderstanding" class="cr-graph-line" hidden></p>
-    <p id="graphProblem" class="cr-graph-muted" hidden></p>
-    <div id="graphDomains" class="cr-graph-domains" hidden></div>
-    <ul id="graphIntentList" class="cr-graph-list" hidden aria-label="Active intent nodes"></ul>
-    <p id="graphEmpty" class="cr-graph-empty">Analyzing workspace… intent graph builds from recent activity.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="cr-section" id="crSecFunctionGraph" aria-label="Function graph">
-    <div class="cr-module-card cr-module-card--fngraph">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.code}</span><span>Function graph</span></span>
-        <span class="cr-graph-meta" id="fnGraphMeta">—</span>
-      </div>
-      <div class="cr-module-card-body">
-        <div id="fnFileFlows" class="cr-fn-flows" hidden aria-label="File to function flow"></div>
-        <ul id="fnGraphTrees" class="cr-fn-tree-root" hidden aria-label="Function call tree"></ul>
-        <p id="fnGraphEmpty" class="cr-graph-empty">Save code changes to build function call graph…</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="cr-section" id="crSecDepImpact" aria-label="Dependency impact" hidden>
-    <div class="cr-module-card cr-module-card--depimpact">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>Impact analysis</span></span>
-      </div>
-      <div class="cr-module-card-body">
-        <ul id="fnImpactList" class="cr-fn-impact-list" aria-label="Affected symbols"></ul>
-        <ul id="kgImpactDetail" class="cr-fn-impact-list" hidden aria-label="Intent-linked impact"></ul>
-      </div>
-    </div>
-  </section>
-
-  <section class="cr-section" id="crSecReasonTrace" aria-label="Reason trace" hidden>
-    <div class="cr-module-card cr-module-card--depimpact">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>Reason trace</span></span>
-      </div>
-      <div class="cr-module-card-body">
-        <ul id="reasonTraceList" class="cr-reason-list" aria-label="Why symbols matter"></ul>
-        <p id="reasonTraceEmpty" class="cr-graph-empty">Reason traces appear after intent ↔ function mapping.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="cr-section" id="crSecConflicts" aria-label="State conflicts (v2)" hidden>
-    <div class="cr-module-card cr-module-card--conflicts">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.history}</span><span>State conflicts</span></span>
-        <span class="cr-graph-meta cr-conf-meta" id="confMeta">—</span>
-      </div>
-      <div class="cr-module-card-body">
-        <ul id="confList" class="cr-psb-list cr-psb-list--warn" aria-label="Unresolved state conflicts"></ul>
-      </div>
-    </div>
-  </section>
-
-  <section class="cr-section" id="crSecRecent">
-    <div class="cr-module-card cr-module-card--files">
-      <div class="cr-module-card-head">
-        <span class="cr-sec-left"><span class="cr-sec-ico">${ico.file}</span><span>Active files</span></span>
-      </div>
-      <div class="cr-module-card-body">
-    <ul id="recent" class="cr-file-list"></ul>
-      </div>
-    </div>
-  </section>
-
-  <details class="cr-git" id="crGitDetails">
-    <summary><span class="cr-sec-ico" style="margin-right:2px">${ico.branch}</span> Git changes (synced)</summary>
-    <div class="cr-git-sub">
-      <div class="cr-git-label"><span class="cr-git-ico">${ico.check}</span> Staged</div>
-      <ul id="gitStaged" class="cr-file-list"></ul>
-    </div>
-    <div class="cr-git-sub">
-      <div class="cr-git-label"><span class="cr-git-ico">${ico.history}</span> Unstaged</div>
-      <ul id="gitWorking" class="cr-file-list"></ul>
-    </div>
-  </details>
-
-  <section class="cr-section" id="crByokSection">
-    <div class="cr-section-head">
-      <span class="cr-sec-left"><span class="cr-sec-ico">${ico.gear}</span><span>BYOK / Cloud AI</span></span>
-    </div>
-    <div class="cr-byok">
-      <p class="cr-byok-line cr-byok-muted" id="byokRuntime">—</p>
-      <p class="cr-byok-line" id="byokProvider">—</p>
-      <p class="cr-byok-line cr-byok-muted" id="byokKeys">—</p>
-      <p class="cr-byok-line cr-byok-muted" id="byokModel">—</p>
-      <p class="cr-byok-line cr-byok-muted" id="byokExport">—</p>
-      <p class="cr-byok-warn" id="byokWarn" hidden>Set <code>contora.aiProvider</code> and save the vendor API key in SecretStorage (never in <code>settings.json</code>).</p>
-      <div class="cr-grid2" style="margin-top:10px">
-        <button type="button" class="cr-secondary" id="btnByokKey" title="OpenAI / Anthropic / Gemini / DeepSeek">${ico.gear}<span>Configure API key…</span></button>
-        <button type="button" class="cr-secondary" id="btnByokSettings" title="Models, export format, token budget…">${ico.spark}<span>${PRODUCT_DISPLAY_NAME} settings</span></button>
-      </div>
-      <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
-        <button type="button" class="cr-tertiary" id="btnAiSemantic">Observe workspace (AI summary)</button>
-        <button type="button" class="cr-tertiary" id="btnAiIntent">Learn workspace intent (AI)</button>
-        <button type="button" class="cr-tertiary" id="btnAiCompress">Tighten context preview (AI)</button>
-      </div>
-    </div>
-  </section>
-
-    </div>
-  </details>
+  <div id="crSecAiGoals" hidden aria-hidden="true">
+    <ul id="aiIntentGoals"></ul>
+    <button type="button" id="btnViewRules" hidden></button>
+    <button type="button" id="btnReviewChange" hidden></button>
+    <select id="govReviewScope" hidden></select>
+    <ul id="recent"></ul>
+    <ul id="gitStaged"></ul>
+    <ul id="gitWorking"></ul>
+    <ul id="activityStreamList"></ul>
+    <p id="sumActivityBody"></p>
+    <span id="aiStatCtx"></span>
+    <span id="aiContextTokens"></span>
+    <p id="byokRuntime"></p><p id="byokProvider"></p><p id="byokKeys"></p><p id="byokModel"></p><p id="byokExport"></p><p id="byokWarn" hidden></p>
+    <button type="button" id="btnByokKey" hidden></button>
+    <button type="button" id="btnByokSettings" hidden></button>
+    <button type="button" id="btnAiSemantic" hidden></button>
+    <button type="button" id="btnAiIntent" hidden></button>
+    <button type="button" id="btnAiCompress" hidden></button>
+  </div>
+  <p id="handoffIntent" hidden aria-hidden="true"></p>
 
   <label class="cr-notes-label" for="notes"><span class="cr-sec-ico">${ico.note}</span> Context notes</label>
   <textarea id="notes" rows="3" placeholder="Notes for export — kept locally in workspace state."></textarea>
@@ -2473,6 +2812,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const vscode = acquireVsCodeApi();
     const TASK_MAX = ${TASK_MAX};
     const taskEl = document.getElementById('task');
+    const v22FocusEl = document.getElementById('v22FocusInput');
     const notesEl = document.getElementById('notes');
     const taskCountEl = document.getElementById('taskCount');
     const recentEl = document.getElementById('recent');
@@ -2561,6 +2901,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const uImpactModules = document.getElementById('uImpactModules');
     const uTimelineDetails = document.getElementById('uTimelineDetails');
     const uTimelineList = document.getElementById('uTimelineList');
+    const pilHealthMetaEl = document.getElementById('pilHealthMeta');
+    const pilHealthLineEl = document.getElementById('pilHealthLine');
+    const pilCoverageLineEl = document.getElementById('pilCoverageLine');
     const fnGraphMetaEl = document.getElementById('fnGraphMeta');
     const fnGraphTreesEl = document.getElementById('fnGraphTrees');
     const fnFileFlowsEl = document.getElementById('fnFileFlows');
@@ -2602,19 +2945,136 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     function paintTaskMeta() {
-      const n = taskEl.value.length;
+      const src = v22FocusEl || taskEl;
+      if (!src || !taskCountEl) return;
+      const n = src.value.length;
       taskCountEl.textContent = n + ' / ' + TASK_MAX;
     }
 
-    taskEl.addEventListener('input', () => {
-      paintTaskMeta();
-      debouncePost('updateTask', taskEl.value);
-    });
+    function bindFocusInput(el) {
+      if (!el) return;
+      function syncFocusRows() {
+        if (document.activeElement === el) {
+          el.rows = 3;
+          el.classList.add('cr-v22-focus--active');
+        } else {
+          el.classList.remove('cr-v22-focus--active');
+          const lineCount = el.value.split('\\n').length;
+          el.rows = Math.max(1, Math.min(2, lineCount || 1));
+        }
+      }
+      el.addEventListener('focus', syncFocusRows);
+      el.addEventListener('blur', syncFocusRows);
+      el.addEventListener('input', () => {
+        paintTaskMeta();
+        debouncePost('updateTask', el.value);
+        if (taskEl && taskEl !== el) taskEl.value = el.value;
+        if (document.activeElement !== el) syncFocusRows();
+      });
+      syncFocusRows();
+    }
+    bindFocusInput(v22FocusEl);
+    bindFocusInput(taskEl);
     notesEl.addEventListener('input', () => debouncePost('updateNotes', notesEl.value));
 
-    document.getElementById('btnExport').addEventListener('click', () => vscode.postMessage({ type: 'exportAIContext' }));
-    document.getElementById('btnSave').addEventListener('click', () => vscode.postMessage({ type: 'saveStateNow' }));
-    document.getElementById('btnRestore').addEventListener('click', () => vscode.postMessage({ type: 'restoreSession' }));
+    let exportBusy = false;
+    let exportResetTimer = null;
+    const btnExport = document.getElementById('btnExport');
+    const btnExportLabel = document.getElementById('btnExportLabel');
+    const btnExportFull = document.getElementById('btnExportFull');
+    const btnSave = document.getElementById('btnSave');
+    const btnRestore = document.getElementById('btnRestore');
+    const crExportProgress = document.getElementById('crExportProgress');
+    const crExportProgressBar = document.getElementById('crExportProgressBar');
+    const crExportProgressLabel = document.getElementById('crExportProgressLabel');
+    const exportLabelSnapshot = 'Transfer Context';
+
+    function setExportBusy(busy) {
+      exportBusy = busy;
+      if (btnExport) btnExport.classList.toggle('cr-primary--busy', busy);
+      if (btnExportFull) btnExportFull.disabled = busy;
+      if (btnSave) btnSave.disabled = busy;
+      if (btnRestore) btnRestore.disabled = busy;
+    }
+
+    function startExport(mode) {
+      if (exportBusy) return;
+      updateExportProgress({ phase: 'sync', label: 'Starting export…', percent: 2 });
+      vscode.postMessage({ type: 'exportAIContext', mode: mode });
+    }
+
+    function updateExportProgress(msg) {
+      if (!msg) return;
+      const phase = msg.phase || 'sync';
+      const label = msg.label || 'Working…';
+      const percent = typeof msg.percent === 'number' ? msg.percent : 0;
+
+      if (phase === 'done' || phase === 'error') {
+        setExportBusy(false);
+        if (crExportProgress) crExportProgress.hidden = false;
+        if (crExportProgressBar) {
+          crExportProgressBar.style.width = phase === 'done' ? '100%' : '0%';
+        }
+        if (crExportProgressLabel) {
+          crExportProgressLabel.textContent = label;
+          crExportProgressLabel.className =
+            'cr-export-progress-label' +
+            (phase === 'done' ? ' cr-export-progress-label--done' : ' cr-export-progress-label--error');
+        }
+        if (btnExportLabel) btnExportLabel.textContent = exportLabelSnapshot;
+        if (exportResetTimer) clearTimeout(exportResetTimer);
+        exportResetTimer = setTimeout(function () {
+          if (crExportProgress) crExportProgress.hidden = true;
+          if (crExportProgressLabel) crExportProgressLabel.className = 'cr-export-progress-label';
+          exportResetTimer = null;
+        }, phase === 'done' ? 2400 : 4200);
+        return;
+      }
+
+      if (crExportProgress) crExportProgress.hidden = false;
+      if (crExportProgressBar) {
+        crExportProgressBar.style.width = Math.max(4, Math.min(100, percent)) + '%';
+      }
+      if (crExportProgressLabel) {
+        crExportProgressLabel.textContent = label;
+        crExportProgressLabel.className = 'cr-export-progress-label';
+      }
+      if (btnExportLabel) btnExportLabel.textContent = label;
+      setExportBusy(true);
+    }
+
+    if (btnExport) {
+      btnExport.addEventListener('click', () => startExport('cognitive-snapshot'));
+    }
+    if (btnExportFull) {
+      btnExportFull.addEventListener('click', () => startExport('full-intelligence'));
+    }
+    if (btnSave) {
+      btnSave.addEventListener('click', () => vscode.postMessage({ type: 'saveStateNow' }));
+    }
+    if (btnRestore) {
+      btnRestore.addEventListener('click', () => vscode.postMessage({ type: 'restoreSession' }));
+    }
+    const btnCaptureNote = document.getElementById('btnCaptureNote');
+    const btnCaptureDecision = document.getElementById('btnCaptureDecision');
+    const v22CaptureNote = document.getElementById('v22CaptureNote');
+    const v22CaptureDecision = document.getElementById('v22CaptureDecision');
+    if (btnCaptureNote && v22CaptureNote) {
+      btnCaptureNote.addEventListener('click', () => {
+        const value = v22CaptureNote.value.trim();
+        if (!value) return;
+        vscode.postMessage({ type: 'captureNote', value });
+        v22CaptureNote.value = '';
+      });
+    }
+    if (btnCaptureDecision && v22CaptureDecision) {
+      btnCaptureDecision.addEventListener('click', () => {
+        const selected = v22CaptureDecision.value.trim();
+        if (!selected) return;
+        vscode.postMessage({ type: 'captureDecision', selected });
+        v22CaptureDecision.value = '';
+      });
+    }
     if (govReviewScope) {
       govReviewScope.addEventListener('change', () => {
         vscode.postMessage({ type: 'setReviewScope', value: govReviewScope.value || 'auto' });
@@ -2656,16 +3116,256 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       if (!s) return;
       const incomingTask = s.currentTask || '';
       const incomingNotes = s.notes || '';
-      const taskFocused = document.activeElement === taskEl;
+      const focusEl = v22FocusEl || taskEl;
+      const taskFocused = document.activeElement === focusEl || document.activeElement === taskEl;
       const notesFocused = document.activeElement === notesEl;
       const taskPending = typeof debounce !== 'undefined' && debounce;
-      if (!taskFocused && !taskPending && taskEl && taskEl.value !== incomingTask) {
-        taskEl.value = incomingTask;
+      if (!taskFocused && !taskPending && focusEl && focusEl.value !== incomingTask) {
+        focusEl.value = incomingTask;
+        if (taskEl && taskEl !== focusEl) taskEl.value = incomingTask;
         paintTaskMeta();
       }
       if (!notesFocused && notesEl && notesEl.value !== incomingNotes) {
         notesEl.value = incomingNotes;
       }
+    }
+
+    function ellipsizePathMiddle(str, maxLen) {
+      const s = (str == null ? '' : String(str)).trim();
+      if (!s) return '—';
+      const limit = maxLen || 52;
+      if (s.length <= limit) return s;
+      const pathSep = s.indexOf('/') >= 0 ? '/' : s.indexOf('\\\\') >= 0 ? '\\\\' : null;
+      if (pathSep) {
+        const parts = s.split(pathSep);
+        if (parts.length >= 3) {
+          const head = parts[0] + pathSep;
+          const tail = pathSep + parts.slice(-2).join(pathSep);
+          let combined = head + '…' + tail;
+          if (combined.length > limit) {
+            combined = head + '…' + parts[parts.length - 1];
+          }
+          if (combined.length <= limit) return combined;
+        }
+      }
+      const keep = Math.max(1, Math.floor((limit - 1) / 2));
+      return s.slice(0, keep) + '…' + s.slice(s.length - (limit - 1 - keep));
+    }
+
+    function formatDisplayText(text, opts) {
+      const raw = text == null || text === '' ? '—' : String(text);
+      if (raw === '—') return raw;
+      if (opts && opts.ellipsize) {
+        return ellipsizePathMiddle(raw, (opts && opts.maxLen) || 52);
+      }
+      return raw;
+    }
+
+    function flashEl(el) {
+      if (!el) return;
+      el.classList.remove('cr-val-flash');
+      void el.offsetWidth;
+      el.classList.add('cr-val-flash');
+    }
+
+    function setTextIfChanged(id, text, opts) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const raw = text == null || text === '' ? '—' : String(text);
+      const next = formatDisplayText(raw, opts || { ellipsize: true });
+      const prevRaw = el.getAttribute('data-raw') || '';
+      if (prevRaw === raw) return;
+      const hadValue = prevRaw && prevRaw !== '—';
+      el.setAttribute('data-raw', raw);
+      el.textContent = next;
+      el.title = raw.length > next.length ? raw : '';
+      if (hadValue && opts && opts.flash !== false) flashEl(el);
+    }
+
+    function fillV22List(el, items, opts) {
+      if (!el) return;
+      const list = items || [];
+      const key = JSON.stringify(list);
+      if (el.getAttribute('data-v22-key') === key) return;
+      el.setAttribute('data-v22-key', key);
+      const fmt = function (t) {
+        return formatDisplayText(t, { ellipsize: true, maxLen: (opts && opts.maxLen) || 52 });
+      };
+      if (!list.length) {
+        if (el.children.length === 1 && el.children[0].classList.contains('cr-graph-muted')) {
+          return;
+        }
+        el.innerHTML = '';
+        const li = document.createElement('li');
+        li.className = 'cr-graph-muted';
+        li.textContent = '—';
+        el.appendChild(li);
+        return;
+      }
+      while (el.children.length > list.length) {
+        el.removeChild(el.lastChild);
+      }
+      while (el.children.length < list.length) {
+        el.appendChild(document.createElement('li'));
+      }
+      for (let i = 0; i < list.length; i++) {
+        const li = el.children[i];
+        const raw = list[i];
+        const next = fmt(raw);
+        const prevRaw = li.getAttribute('data-raw') || '';
+        if (prevRaw === raw) continue;
+        const hadValue = prevRaw && prevRaw !== '—';
+        li.setAttribute('data-raw', raw);
+        li.textContent = next;
+        li.title = raw.length > next.length ? raw : '';
+        if (hadValue) flashEl(li);
+      }
+    }
+
+    function fillV22Domains(el, items) {
+      if (!el) return;
+      const list = items || [];
+      const key = JSON.stringify(list);
+      if (el.getAttribute('data-v22-key') === key) return;
+      el.setAttribute('data-v22-key', key);
+      if (!list.length) {
+        if (el.textContent === '—' && !el.children.length) return;
+        el.innerHTML = '';
+        el.textContent = '—';
+        return;
+      }
+      while (el.children.length > list.length) {
+        el.removeChild(el.lastChild);
+      }
+      while (el.children.length < list.length) {
+        const span = document.createElement('span');
+        span.className = 'cr-graph-domain';
+        el.appendChild(span);
+      }
+      for (let i = 0; i < list.length; i++) {
+        const span = el.children[i];
+        const raw = list[i];
+        const next = formatDisplayText(raw, { ellipsize: true, maxLen: 36 });
+        const prevRaw = span.getAttribute('data-raw') || '';
+        if (prevRaw === raw) continue;
+        const hadValue = prevRaw && prevRaw !== '—';
+        span.setAttribute('data-raw', raw);
+        span.textContent = next;
+        span.title = raw.length > next.length ? raw : '';
+        if (hadValue) flashEl(span);
+      }
+    }
+
+    function paintV22ActivityDelta(act) {
+      const actList = document.getElementById('v22ActivityList');
+      const actEmpty = document.getElementById('v22ActivityEmpty');
+      const lines = (act && act.lines) || [];
+      if (!actList) return;
+      const key = JSON.stringify(lines);
+      if (actList.getAttribute('data-v22-key') === key) {
+        if (actEmpty) actEmpty.hidden = lines.length > 0;
+        return;
+      }
+      actList.setAttribute('data-v22-key', key);
+      if (actEmpty) actEmpty.hidden = lines.length > 0;
+      while (actList.children.length > lines.length) {
+        actList.removeChild(actList.lastChild);
+      }
+      for (let i = actList.children.length; i < lines.length; i++) {
+        const li = document.createElement('li');
+        li.className = 'cr-activity-feed-row cr-activity-feed-enter';
+        actList.appendChild(li);
+      }
+      for (let i = 0; i < lines.length; i++) {
+        const li = actList.children[i];
+        const raw = lines[i];
+        const next = formatDisplayText(raw, { ellipsize: true, maxLen: 56 });
+        const prevRaw = li.getAttribute('data-raw') || '';
+        if (prevRaw === raw) continue;
+        const hadValue = prevRaw && prevRaw !== '—';
+        li.setAttribute('data-raw', raw);
+        li.textContent = next;
+        li.title = raw.length > next.length ? raw : '';
+        if (hadValue) {
+          li.classList.add('cr-activity-feed-row--flash');
+          flashEl(li);
+        }
+      }
+    }
+
+    function paintV22Delta(prev, next) {
+      const view = next || null;
+      if (!view) return;
+      const c = view.cognition || {};
+      const intel = view.intelligence || {};
+      const dec = view.decision || {};
+      const graph = view.graph || {};
+      const struct = view.structure || {};
+      const exp = view.exportLayer || {};
+
+      setTextIfChanged('v22Intent', c.intent);
+      setTextIfChanged('v22State', c.state);
+      setTextIfChanged('v22Understanding', c.understanding);
+      setTextIfChanged('v22Confidence', c.confidence);
+
+      setTextIfChanged('v22HealthMeta', intel.healthCategory || '—', { ellipsize: false, flash: false });
+      setTextIfChanged(
+        'v22HealthScore',
+        intel.healthScore != null ? Math.round(intel.healthScore * 100) + '% · ' + (intel.healthCategory || '') : 'Run sync to derive',
+        { ellipsize: false },
+      );
+      setTextIfChanged(
+        'v22Coverage',
+        intel.knowledgeCoverage != null ? Math.round(intel.knowledgeCoverage * 100) + '%' : '—',
+        { ellipsize: false },
+      );
+      setTextIfChanged(
+        'v22ConfIndex',
+        intel.confidenceIndex != null ? Math.round(intel.confidenceIndex * 100) + '%' : '—',
+        { ellipsize: false },
+      );
+      setTextIfChanged('v22Timeline', intel.timelineSummary);
+      setTextIfChanged(
+        'v22ImpactRadius',
+        intel.impactRadius != null ? String(intel.impactRadius) : '—',
+        { ellipsize: false },
+      );
+
+      setTextIfChanged('v22DecSnapshot', dec.decisionSnapshot);
+      setTextIfChanged('v22DecGraph', dec.graphSummary);
+      fillV22List(document.getElementById('v22DecLinks'), dec.decisionLinks);
+      fillV22List(document.getElementById('v22DecHistory'), dec.decisionHistory);
+
+      setTextIfChanged('v22GIntent', graph.intentGraph);
+      setTextIfChanged('v22GStructure', graph.structureGraph);
+      setTextIfChanged('v22GImpact', graph.impactOverlay);
+      setTextIfChanged('v22GEvolution', graph.evolutionTimeline);
+      fillV22Domains(document.getElementById('v22GHotspots'), graph.hotspots);
+
+      paintV22ActivityDelta(view.activity || { lines: [] });
+
+      setTextIfChanged('v22StructBuilder', struct.stateBuilder);
+      fillV22Domains(document.getElementById('v22StructModules'), struct.moduleMap);
+      fillV22List(document.getElementById('v22StructProblems'), struct.openProblems);
+      fillV22List(document.getElementById('v22StructDecisions'), struct.linkedDecisions);
+      setTextIfChanged('v22StructNext', struct.nextCognition);
+
+      setTextIfChanged('v22McpHint', exp.mcpSnapshotHint);
+      setTextIfChanged(
+        'v22TokenEst',
+        exp.tokenEstimate ? '~' + exp.tokenEstimate + ' tokens' : '—',
+        { ellipsize: false },
+      );
+      setTextIfChanged('v22InjectPreview', exp.injectPreview);
+    }
+
+    function paintV22View(v) {
+      paintV22Delta(null, v);
+    }
+
+    function setText(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text || '—';
     }
 
     function paintStateDelta(prev, s, byokPayload) {
@@ -2691,6 +3391,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       ) {
         paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
       }
+      if (!jsonEq(prev.v22View, s.v22View)) {
+        paintV22Delta(prev.v22View || null, s.v22View || null);
+      }
       if (!jsonEq(prev.intentGraph, s.intentGraph)) {
         paintGraphPanel(s.intentGraph || null);
       }
@@ -2699,12 +3402,6 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
       if (!jsonEq(prev.governanceStatus, s.governanceStatus)) {
         paintGovernancePanel(s.governanceStatus || null);
-      }
-      if (
-        !jsonEq(prev.governanceStatus, s.governanceStatus) ||
-        !jsonEq(prev.projectState, s.projectState)
-      ) {
-        paintTodayFromPanels(s.governanceStatus || null, s.projectState || null);
       }
       if (!jsonEq(prev.understandingPanel, s.understandingPanel)) {
         paintUnderstandingPanel(s.understandingPanel || null);
@@ -2721,10 +3418,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintLists(s);
       paintSummary(s);
       paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
+      paintV22View(s.v22View || null);
       paintGraphPanel(s.intentGraph || null);
       paintProjectStatePanel(s.projectState || null);
       paintGovernancePanel(s.governanceStatus || null);
-      paintTodayFromPanels(s.governanceStatus || null, s.projectState || null);
       paintUnderstandingPanel(s.understandingPanel || null);
       paintConflictsPanel(s.stateConflicts || null);
       bumpTrackStatus(s);
@@ -2741,6 +3438,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         goals: (s.aiIntent && s.aiIntent.goals) || [],
         activityGoals: s.activityObservedGoals || [],
         activityStream: s.activityStreamItems || [],
+        v22View: s.v22View,
       });
     }
 
@@ -3719,6 +4417,20 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintKnowledgeGraphPanel(kg);
       paintFunctionGraphPanel(fg);
       paintReasonTracePanel(kg);
+      const intel = p && p.intelligence ? p.intelligence : null;
+      if (pilHealthMetaEl && pilHealthLineEl && pilCoverageLineEl) {
+        if (!intel || intel.empty) {
+          pilHealthMetaEl.textContent = '—';
+          pilHealthLineEl.textContent = 'Run sync to derive health metrics';
+          pilCoverageLineEl.textContent = 'Knowledge coverage: —';
+        } else {
+          const scorePct = intel.healthScore != null ? Math.round(intel.healthScore * 100) + '%' : '—';
+          pilHealthMetaEl.textContent = intel.healthCategory || '—';
+          pilHealthLineEl.textContent = 'Health score: ' + scorePct + ' · ' + (intel.healthCategory || '—');
+          const covPct = intel.knowledgeCoverage != null ? Math.round(intel.knowledgeCoverage * 100) + '%' : '—';
+          pilCoverageLineEl.textContent = 'Knowledge coverage: ' + covPct;
+        }
+      }
       if (!h || h.empty) {
         handoffMetaEl.textContent = 'building…';
         handoffSummaryEl.textContent = '—';
@@ -4104,6 +4816,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       if (!msg) return;
       if (msg.type === 'overlay') {
         renderOverlay(msg.overlay);
+        return;
+      }
+      if (msg.type === 'exportProgress') {
+        updateExportProgress(msg);
         return;
       }
       if (msg.type !== 'state') return;

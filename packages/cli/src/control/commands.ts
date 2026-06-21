@@ -1,4 +1,4 @@
-import { createControlSurface } from '@contora/state-core';
+import { createControlSurface, deriveProjectIntelligenceHealth, syncIntelligenceLayer } from '@contora/state-core';
 
 function isPathLike(value: string): boolean {
   return (
@@ -42,29 +42,14 @@ function hasFlag(name: string): boolean {
   return process.argv.includes(name);
 }
 
-export const CONTROL_USAGE = `Contorium control-core — unified closed loop (IDE / MCP / CLI)
+export const CONTROL_USAGE = `Contorium cognition inspect — legacy control path (prefer: contorium cognition inspect …)
 
-MCP-parity top-level commands:
-  contorium get-governance [path]                    get_governance
-  contorium check-action [path] --target <file>      check_action
-  contorium update-project-intent [path] "<text>"    update_project_intent
+  contorium cognition inspect governance [path]
+  contorium cognition inspect check [path] --target <file>
+  contorium cognition inspect health [path]
+  contorium cognition inspect ready [path]
 
-  (underscore aliases: get_governance, check_action, update_project_intent)
-
-  contorium control governance [path]              Read constitution / truth / identity
-  contorium control check [path] --target <file>   Pre-action guard check
-  contorium control intent [path] "<text>"         Update user intent overlay
-  contorium control analyze [path]                 Full project snapshot
-  contorium control execute [path] --target <file> Check + audit + cognitive feedback
-  contorium control ready [path]                   Ensure governance + sync
-
-Options (check / check-action / execute):
-  --target <path>       Relative file path
-  --description <text>  Planned change description
-  --snippet <text>      Code snippet for hardcode detection
-  --confirmed           User confirmed override
-  --strict              Block confirm without prior user approval (execute only)
-  --no-audit            Skip change-log (execute only)
+  Legacy: contorium control · contorium inspect · contorium system-inspection
 `;
 
 export async function cmdGetGovernance(root: string): Promise<void> {
@@ -138,6 +123,12 @@ export async function cmdControl(root: string, sub: string | undefined): Promise
     case 'ready': {
       const result = await control.ensureReady();
       console.log(JSON.stringify({ workspaceRoot: root, source: 'cli', ...result }, null, 2));
+      return;
+    }
+    case 'health': {
+      await syncIntelligenceLayer(root, 'cli', 'merged').catch(() => undefined);
+      const health = await deriveProjectIntelligenceHealth(root);
+      console.log(JSON.stringify({ workspaceRoot: root, found: true, health }, null, 2));
       return;
     }
     default:

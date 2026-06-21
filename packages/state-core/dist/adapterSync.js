@@ -45,6 +45,7 @@ const dashboardActivity_js_1 = require("./dashboardActivity.js");
 const workspaceScanner_js_1 = require("./scanner/workspaceScanner.js");
 const init_js_1 = require("./governance/init.js");
 const cognitiveProjection_js_1 = require("./governance/cognitiveProjection.js");
+const syncIntelligenceLayer_js_1 = require("./intelligence/syncIntelligenceLayer.js");
 async function countEventLines(workspaceRoot) {
     const { readdir, readFile } = await Promise.resolve().then(() => __importStar(require('node:fs/promises')));
     const { join } = await Promise.resolve().then(() => __importStar(require('node:path')));
@@ -97,6 +98,7 @@ async function syncWorkspaceState(workspaceRoot, writer, options) {
         });
         const written = await (0, bootstrapState_js_1.readStateJson)(resolved);
         await (0, cognitiveProjection_js_1.syncCognitiveLayer)(resolved, written).catch(() => undefined);
+        await (0, syncIntelligenceLayer_js_1.syncIntelligenceLayer)(resolved, writer, 'scan-driven').catch(() => undefined);
         return {
             mode: 'scan-driven',
             created: true,
@@ -133,6 +135,7 @@ async function syncWorkspaceState(workspaceRoot, writer, options) {
     const updated = shouldWrite || (eventCount === 0 && !!options?.forceArtifacts);
     // V3.2 — always refresh cognitive projection after sync (closed loop).
     await (0, cognitiveProjection_js_1.syncCognitiveLayer)(resolved, written).catch(() => undefined);
+    await (0, syncIntelligenceLayer_js_1.syncIntelligenceLayer)(resolved, writer, dual.mode).catch(() => undefined);
     if (updated || gitChanged || recentChanged) {
         await (0, dashboardActivity_js_1.bumpWorkspaceActivity)(resolved, {
             source: writer,

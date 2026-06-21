@@ -3,13 +3,12 @@ import {
   skipHandoffInjection,
 } from '@contora/state-core';
 import { artifactSignature, loadDashboardState } from './artifacts.js';
-import { buildDashboardExportText } from './exportContext.js';
+import { buildDashboardExportText, buildTransferContextText } from './exportContext.js';
 import { tryClaimDashboardWorker, unregisterDashboardWorker } from './daemon.js';
 import { releaseDashboardSpawnLock } from './spawnLock.js';
 import { copyToClipboardAsync } from '../handoff/clipboard.js';
 import { setupKeyboard } from './input.js';
 import { renderExpanded, renderIdleLine } from './render.js';
-import { renderCompactView } from './renderCompact.js';
 import { readDashboardCognitiveInsights } from './cognitiveInsights.js';
 import type { DashboardCognitiveInsights } from './cognitiveInsights.js';
 import { consumeDashboardSignal } from './signals.js';
@@ -89,13 +88,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function resolveInitialFsm(options: AttachOptions): Promise<DashboardFsmState> {
-  if (options.startExpanded) {
-    return 'expanded';
-  }
-  if (options.autoAttach) {
+  if (options.startExpanded || options.autoAttach) {
     const session = await detectIdeSession(options.workspaceRoot);
     if (session.active) {
-      return 'passive';
+      return 'expanded';
     }
   }
   return 'idle';
@@ -144,7 +140,7 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   let liveUntil = 0;
   let alternateActive = false;
   let tickCount = 0;
-  let cognitiveModeSelection: ContoriumMcpMode = 'A';
+  let cognitiveModeSelection: 'A' | 'B' | 'C' = 'A';
   let cognitiveModeActive: ContoriumMcpMode = 'A';
   let cognitiveInsights: DashboardCognitiveInsights | undefined;
   let copyInFlight = false;
@@ -190,9 +186,6 @@ export async function runAttach(options: AttachOptions): Promise<void> {
       clearScreen();
       process.stdout.write('\n');
     }
-    if (next === 'expanded') {
-      enterExpandedScreen();
-    }
     fsm = next;
     if (fsm === 'expanded') {
       expandedAt = Date.now();
@@ -233,6 +226,9 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   };
 
   const buildCopyText = async (): Promise<string | undefined> =>
+    buildTransferContextText(options.workspaceRoot);
+
+  const buildRuntimeInjectText = async (): Promise<string | undefined> =>
     buildDashboardExportText(options.workspaceRoot, lastData, filter);
 
   const copyToAi = (): void => {
@@ -242,26 +238,23 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     showFlash('Copying…', 6000);
     void buildCopyText().then((text) => {
       if (!text) {
-        showFlash('Export: not ready — run governance cycle or save changes');
+        showFlash('Transfer Context: not ready — run sync or set focus');
         return;
       }
       copyInFlight = true;
       void copyToClipboardAsync(text).then((ok) => {
         copyInFlight = false;
         if (ok) {
-          const label = lastData.governance?.review
-            ? 'Governance context exported'
-            : 'Context exported (governance appendix included)';
-          showFlash(label);
+          showFlash('Transfer Context copied — paste in new chat');
           return;
         }
-        showFlash('Clipboard unavailable — run: contorium handoff --copy');
+        showFlash('Clipboard unavailable — run: contorium transfer context --copy');
       });
     });
   };
 
   const injectHandoff = async (): Promise<void> => {
-    const text = await buildCopyText();
+    const text = await buildRuntimeInjectText();
     if (!text) {
       showFlash('Inject: not ready — save changes or run sync');
       return;
@@ -290,14 +283,6 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   const injectionPending = (): boolean =>
     lastData.handoffInjection?.status === 'pending';
 
-  const toggleView = (): void => {
-    if (fsm === 'passive') {
-      fsm = transition('expanded');
-    } else if (fsm === 'expanded') {
-      fsm = transition('passive');
-    }
-  };
-
   const refreshCognitiveInsights = async (): Promise<void> => {
     cognitiveInsights = await readDashboardCognitiveInsights(options.workspaceRoot);
   };
@@ -320,8 +305,12 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   };
 
   const applyCognitiveModeSelection = async (): Promise<void> => {
+    if (cognitiveModeSelection === 'C') {
+      showFlash('Debug Trace — view-only (not persisted to MCP)', 2500);
+      return;
+    }
     if (cognitiveModeSelection === cognitiveModeActive) {
-      showFlash(`Mode ${cognitiveModeActive} already active`, 2000);
+      showFlash(`Mode ${cognitiveModeActive === 'A' ? 'Live Cognition' : 'Governance Overlay'} already active`, 2000);
       return;
     }
     const result = await applyCognitiveModeFromDashboard(options.workspaceRoot, cognitiveModeSelection);
@@ -350,17 +339,9 @@ export async function runAttach(options: AttachOptions): Promise<void> {
       void persistStatus('idle', line);
       return;
     }
-    if (fsm === 'passive') {
-      const lines = renderCompactView(lastData, ctx());
-      const flashLine = flashMsg ? `\x1b[2m${flashMsg}\x1b[0m` : undefined;
-      writeCompactLayout(lines, flashLine);
-      writeCompactLayout(lines, flashLine);
-      persistStatusIfChanged('passive', flashMsg ?? lines[1] ?? '[Contorium] compact');
-      return;
-    }
     const frame = renderExpanded(lastData, ctx());
     const frameWithFlash = flashMsg ? `${frame}\n\x1b[2m${flashMsg}\x1b[0m` : frame;
-    persistStatusIfChanged('expanded', '[●] Contorium dashboard expanded', frameWithFlash);
+    persistStatusIfChanged('expanded', '[●] Contorium dashboard', frameWithFlash);
     if (options.headless) {
       return;
     }
@@ -375,6 +356,10 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   if (!options.headless && process.stdout.isTTY) {
     hideCursor();
   }
+  if (fsm === 'expanded') {
+    expandedAt = Date.now();
+    enterExpandedScreen();
+  }
   render();
   maybeAutoInjectionFlash();
   teardownKeys = options.headless
@@ -384,22 +369,23 @@ export async function runAttach(options: AttachOptions): Promise<void> {
           return setupKeyboard((key, raw) => {
     const modeSelectUp = raw === '\u001b[A' || key === 'k';
     const modeSelectDown = raw === '\u001b[B' || key === 'j';
-    if ((fsm === 'passive' || fsm === 'expanded') && modeSelectUp) {
-      cognitiveModeSelection = 'A';
+    const cycleViewMode = (dir: 1 | -1): void => {
+      const order: Array<'A' | 'B' | 'C'> = ['A', 'B', 'C'];
+      const idx = order.indexOf(cognitiveModeSelection);
+      const next = order[(idx + dir + order.length) % order.length]!;
+      cognitiveModeSelection = next;
       render();
+    };
+    if (fsm === 'expanded' && modeSelectUp) {
+      cycleViewMode(-1);
       return;
     }
-    if ((fsm === 'passive' || fsm === 'expanded') && modeSelectDown) {
-      cognitiveModeSelection = 'B';
-      render();
+    if (fsm === 'expanded' && modeSelectDown) {
+      cycleViewMode(1);
       return;
     }
     if (key === 'q' || key === '\u0003') {
       stopping = true;
-      return;
-    }
-    if (key === ' ') {
-      toggleView();
       return;
     }
     if (key === 'c') {
@@ -415,15 +401,10 @@ export async function runAttach(options: AttachOptions): Promise<void> {
       return;
     }
     if (
-      (fsm === 'passive' || fsm === 'expanded') &&
+      fsm === 'expanded' &&
       (key === '\r' || key === '\n' || key === 'o')
     ) {
       void applyCognitiveModeSelection();
-      return;
-    }
-    // legacy aliases
-    if (key === 'v' && fsm === 'passive') {
-      fsm = transition('expanded');
       return;
     }
           });
@@ -447,17 +428,13 @@ export async function runAttach(options: AttachOptions): Promise<void> {
         updateCount = 0;
         render();
       } else if (session.active && fsm === 'idle') {
-        fsm = transition('passive');
+        fsm = transition('expanded');
       }
 
       const signal = await consumeDashboardSignal(options.workspaceRoot, lastSignalAt);
       if (signal) {
         lastSignalAt = signal.at;
-        if (signal.action === 'expand' && fsm === 'passive') {
-          fsm = transition('expanded');
-        } else if (signal.action === 'minimize' && fsm === 'expanded') {
-          fsm = transition('passive');
-        } else if (signal.action === 'filter') {
+        if (signal.action === 'filter') {
           filter = signal.filter?.trim() || undefined;
           render();
         } else if (signal.action === 'clear-filter') {
@@ -466,17 +443,8 @@ export async function runAttach(options: AttachOptions): Promise<void> {
         }
       }
 
-      if (
-        fsm === 'expanded' &&
-        options.timeoutMs > 0 &&
-        expandedAt > 0 &&
-        Date.now() - expandedAt >= options.timeoutMs
-      ) {
-        fsm = transition('passive');
-      }
-
       tickCount += 1;
-      if (fsm === 'passive' || fsm === 'expanded') {
+      if (fsm === 'expanded') {
         render();
       }
 

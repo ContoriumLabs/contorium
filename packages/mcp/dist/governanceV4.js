@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { buildGovernanceReviewArtifact, compileGovernanceInjectPrompt, createControlSurface, buildGovernanceExportAppendixFull, formatReviewForInject, getGovernanceSummary, matchProtectedPath, mergeReviewArtifacts, readGovernanceReview, readStateJson, readUserRequestOverlay, reviewGitCommitChanges, reviewGitStagedChanges, reviewOpenFilesChanges, writeGovernanceReview, listGitStagedRelativePaths, persistGovernanceCycleArtifacts, } from '@contora/state-core';
+import { buildGovernanceReviewArtifact, compileGovernanceInjectPrompt, createControlSurface, buildGovernanceExportAppendixFull, formatReviewForInject, getGovernanceSummary, matchProtectedPath, mergeReviewArtifacts, readGovernanceReview, readStateJson, readUserRequestOverlay, reviewGitCommitChanges, reviewGitStagedChanges, reviewOpenFilesChanges, writeGovernanceReview, listGitStagedRelativePaths, persistGovernanceCycleArtifacts, syncIntelligenceLayer, } from '@contora/state-core';
 import { loadWorkspaceSnapshot } from './workspace.js';
 function textResult(data) {
     return {
@@ -234,13 +234,13 @@ function mapDecisionAction(review, mode) {
 }
 function suggestNextAction(review, decision) {
     if (!review) {
-        return 'No review artifact — call run_governance_cycle with active_file and diff';
+        return 'No review artifact — call derive_decision_provenance with active_file and diff';
     }
     switch (decision) {
         case 'block':
             return 'Stop — governance block. Ask user before proceeding.';
         case 'inject_fix':
-            return 'Call generate_inject_payload then proceed with user acknowledgment.';
+            return 'Call synthesize_context_payload then proceed with user acknowledgment.';
         case 'warn':
             return 'Proceed with caution — include governance context in next model turn.';
         default:
@@ -382,6 +382,7 @@ export async function runGovernanceCycle(root, input) {
         catch {
             // non-fatal
         }
+        await syncIntelligenceLayer(root, 'mcp').catch(() => undefined);
     }
     return result;
 }
@@ -480,14 +481,53 @@ export async function ensureControlReadyV4(root) {
     };
 }
 // ─── MCP tool registration ─────────────────────────────────────────────────
+const cycleInputSchema = z.object({
+    workspaceRoot: z.string().optional(),
+    active_file: z.string().optional(),
+    diff: z
+        .object({
+        text: z.string().optional(),
+        lines_added: z.number().int().min(0).optional(),
+        lines_removed: z.number().int().min(0).optional(),
+    })
+        .optional(),
+    scope_mode: scopeModeSchema.optional(),
+    scope_preference: z
+        .enum(['auto', 'current_file', 'open_files', 'git_staged', 'git_commit'])
+        .optional(),
+    scoped_files: z.array(scopedFileSchema).optional(),
+    mode: cycleModeSchema.optional().describe('strict | soft | advisory'),
+    user_confirmed: z.boolean().optional(),
+    persist: z.boolean().optional(),
+    audit: z.boolean().optional().describe('Append strict audit record only'),
+});
+function makeCycleHandler(resolveRoot) {
+    return async (args) => {
+        const root = args.workspaceRoot ? args.workspaceRoot : await resolveRoot();
+        return textResult(await runGovernanceCycle(root, {
+            active_file: args.active_file,
+            diff: args.diff,
+            scope_mode: args.scope_mode,
+            scope_preference: args.scope_preference,
+            scoped_files: args.scoped_files,
+            mode: args.mode,
+            user_confirmed: args.user_confirmed,
+            persist: args.persist,
+            audit: args.audit,
+        }));
+    };
+}
+function registerToolAlias(server, name, description, inputSchema, handler) {
+    server.registerTool(name, { description, inputSchema }, handler);
+}
 export function registerGovernanceV4Tools(server, resolveRoot) {
-    server.registerTool('get_control_context', {
-        description: '[Governance V4] Unified MCP context: project state, git, governance summary, review snapshot.',
-        inputSchema: workspaceRootSchema,
-    }, async ({ workspaceRoot: override }) => {
+    const cycleHandler = makeCycleHandler(resolveRoot);
+    const getContextHandler = async ({ workspaceRoot: override }) => {
         const root = override ? override : await resolveRoot();
         return textResult(await getControlContext(root));
-    });
+    };
+    registerToolAlias(server, 'get_control_context', '[Legacy] Decision provenance context — prefer get_decision_context.', workspaceRootSchema, getContextHandler);
+    registerToolAlias(server, 'get_decision_context', '[Decision Provenance · read] Project state, git, and latest decision snapshot.', workspaceRootSchema, getContextHandler);
     server.registerTool('resolve_scope_context', {
         description: '[Governance V4] Resolve diff/file/project into primary, related, risk, and dependency file scopes.',
         inputSchema: z.object({
@@ -510,74 +550,57 @@ export function registerGovernanceV4Tools(server, resolveRoot) {
             scope_preference: args.scope_preference,
         }));
     });
-    server.registerTool('run_governance_cycle', {
-        description: '[Governance V4 · CORE] Single governance decision pipeline — review + violations + decision + inject hint. Replaces check_action / validate_governance / run_governance_review.',
-        inputSchema: z.object({
-            workspaceRoot: z.string().optional(),
-            active_file: z.string().optional(),
-            diff: z
-                .object({
-                text: z.string().optional(),
-                lines_added: z.number().int().min(0).optional(),
-                lines_removed: z.number().int().min(0).optional(),
-            })
-                .optional(),
-            scope_mode: scopeModeSchema.optional(),
-            scope_preference: z
-                .enum(['auto', 'current_file', 'open_files', 'git_staged', 'git_commit'])
-                .optional(),
-            scoped_files: z.array(scopedFileSchema).optional(),
-            mode: cycleModeSchema.optional().describe('strict | soft | advisory'),
-            user_confirmed: z.boolean().optional(),
-            persist: z.boolean().optional(),
-            audit: z.boolean().optional().describe('Write change-log on strict execute'),
-        }),
-    }, async (args) => {
-        const root = args.workspaceRoot ? args.workspaceRoot : await resolveRoot();
-        return textResult(await runGovernanceCycle(root, {
-            active_file: args.active_file,
-            diff: args.diff,
-            scope_mode: args.scope_mode,
-            scope_preference: args.scope_preference,
-            scoped_files: args.scoped_files,
-            mode: args.mode,
-            user_confirmed: args.user_confirmed,
-            persist: args.persist,
-            audit: args.audit,
-        }));
+    const provenanceDescriptions = {
+        derive: '[Decision Provenance · derive] Derive decision provenance chain (review → decision → scope → trace). Records only — no code execution.',
+        trace: '[Decision Provenance · derive] Alias of derive_decision_provenance.',
+        snapshot: '[Decision Provenance · project] Persist decision provenance snapshot for the workspace.',
+        legacy_build: '[Legacy alias] Same as derive_decision_provenance.',
+        legacy_run: '[Legacy alias] Same as derive_decision_provenance.',
+        legacy_trace: '[Legacy alias] Same as derive_decision_provenance.',
+    };
+    for (const [name, description] of [
+        ['derive_decision_provenance', provenanceDescriptions.derive],
+        ['derive_decision_trace', provenanceDescriptions.trace],
+        ['decision_snapshot', provenanceDescriptions.snapshot],
+        ['build_decision_provenance', provenanceDescriptions.legacy_build],
+        ['run_governance_cycle', provenanceDescriptions.legacy_run],
+        ['trace_governance_cycle', provenanceDescriptions.legacy_trace],
+    ]) {
+        registerToolAlias(server, name, description, cycleInputSchema, cycleHandler);
+    }
+    const synthesizeSchema = z.object({
+        workspaceRoot: z.string().optional(),
+        active_file: z.string().optional(),
+        user_task: z.string().optional(),
+        project_goal: z.string().optional(),
+        style: injectStyleSchema.optional(),
+        refresh_cycle: z.boolean().optional(),
+        cycle_mode: cycleModeSchema.optional(),
     });
-    server.registerTool('generate_inject_payload', {
-        description: '[Governance V4] Build inject prompt from governance decision (replaces compile_governance_inject).',
-        inputSchema: z.object({
-            workspaceRoot: z.string().optional(),
-            active_file: z.string().optional(),
-            user_task: z.string().optional(),
-            project_goal: z.string().optional(),
-            style: injectStyleSchema.optional(),
-            refresh_cycle: z.boolean().optional(),
-            cycle_mode: cycleModeSchema.optional(),
-        }),
-    }, async (args) => {
+    const synthesizeHandler = async (args) => {
         const root = args.workspaceRoot ? args.workspaceRoot : await resolveRoot();
         return textResult(await generateInjectPayload(root, args));
+    };
+    registerToolAlias(server, 'synthesize_context_payload', '[Project Intelligence · synthesize] Synthesize structured context from decision provenance (no autonomous action).', synthesizeSchema, synthesizeHandler);
+    registerToolAlias(server, 'generate_inject_payload', '[Legacy alias] Same as synthesize_context_payload.', synthesizeSchema, synthesizeHandler);
+    const exportSchema = z.object({
+        workspaceRoot: z.string().optional(),
+        active_file: z.string().optional(),
+        include: z.array(z.enum(['governance', 'diff', 'inject', 'state'])).optional(),
+        refresh_cycle: z.boolean().optional(),
     });
-    server.registerTool('export_governance_context', {
-        description: '[Governance V4] Unified governance export (replaces get_governance_export_section).',
-        inputSchema: z.object({
-            workspaceRoot: z.string().optional(),
-            active_file: z.string().optional(),
-            include: z.array(z.enum(['governance', 'diff', 'inject', 'state'])).optional(),
-            refresh_cycle: z.boolean().optional(),
-        }),
-    }, async (args) => {
+    const exportHandler = async (args) => {
         const root = args.workspaceRoot ? args.workspaceRoot : await resolveRoot();
         return textResult(await exportGovernanceContext(root, args));
-    });
-    server.registerTool('ensure_control_ready', {
-        description: '[Governance V4] Bootstrap governance layer and verify policy loaded.',
-        inputSchema: workspaceRootSchema,
-    }, async ({ workspaceRoot: override }) => {
+    };
+    registerToolAlias(server, 'export_decision_provenance', '[Decision Provenance · read] Export decision / scope / trace appendix for AI context.', exportSchema, exportHandler);
+    registerToolAlias(server, 'export_governance_context', '[Legacy alias] Same as export_decision_provenance.', exportSchema, exportHandler);
+    const inspectReadyHandler = async ({ workspaceRoot: override }) => {
         const root = override ? override : await resolveRoot();
         return textResult(await ensureControlReadyV4(root));
-    });
+    };
+    registerToolAlias(server, 'inspect_cognition_ready', '[Cognition · inspect] Verify Decision Provenance layer is initialized.', workspaceRootSchema, inspectReadyHandler);
+    registerToolAlias(server, 'inspect_system_ready', '[Legacy alias] Same as inspect_cognition_ready.', workspaceRootSchema, inspectReadyHandler);
+    registerToolAlias(server, 'inspect_control_ready', '[Legacy alias] Same as inspect_cognition_ready.', workspaceRootSchema, inspectReadyHandler);
+    registerToolAlias(server, 'ensure_control_ready', '[Legacy alias] Same as inspect_cognition_ready.', workspaceRootSchema, inspectReadyHandler);
 }

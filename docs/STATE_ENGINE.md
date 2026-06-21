@@ -1,5 +1,7 @@
 # Contorium State Engine (v1 + v2 Safe)
 
+> **PIL context:** [PIL_RUNTIME.md](./PIL_RUNTIME.md) · [PROJECT_INTELLIGENCE_LAYER.md](./PROJECT_INTELLIGENCE_LAYER.md)
+
 Install and daily use: [IDE_EXTENSION.md](./IDE_EXTENSION.md) · [MCP.md](./MCP.md) · [README](../README.md#documentation-install--use--uninstall)
 
 ## v2 Safe State Engine (current)

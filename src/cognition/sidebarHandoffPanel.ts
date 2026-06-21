@@ -5,6 +5,7 @@ import {
   readProjectGraph,
   readProjectKnowledgeGraph,
   readProjectTimeline,
+  readProjectIntelligenceHealth,
 } from '@contora/state-core';
 import { buildFunctionGraphView, type FunctionGraphView } from './functionGraphTree';
 import { buildSidebarKnowledgeGraphPanel, type SidebarKnowledgeGraphPanel } from './knowledgeGraphView';
@@ -35,6 +36,13 @@ export interface SidebarUnderstandingPanel {
   };
   functionGraph: FunctionGraphView;
   knowledgeGraph: SidebarKnowledgeGraphPanel;
+  /** PIL v1.1.3 — intelligence health & coverage (.contora/intelligence/health.json) */
+  intelligence: {
+    healthScore: number | null;
+    healthCategory: string;
+    knowledgeCoverage: number | null;
+    empty: boolean;
+  };
 }
 
 const EMPTY: SidebarUnderstandingPanel = {
@@ -54,17 +62,19 @@ const EMPTY: SidebarUnderstandingPanel = {
   timeline: { entries: [], empty: true },
   functionGraph: { trees: [], fileFlows: [], impactLines: [], empty: true },
   knowledgeGraph: { intentTrees: [], reasonTraces: [], inferenceTraces: [], impactDetails: [], hotspots: [], avgConfidence: 0, closureVersion: '—', schemaVersion: '—', parserBackend: '—', empty: true },
+  intelligence: { healthScore: null, healthCategory: '—', knowledgeCoverage: null, empty: true },
 };
 
 export async function buildSidebarUnderstandingPanel(
   folder: vscode.WorkspaceFolder,
 ): Promise<SidebarUnderstandingPanel> {
   const root = folder.uri.fsPath;
-  const [handoff, graph, timeline, knowledge] = await Promise.all([
+  const [handoff, graph, timeline, knowledge, pilHealth] = await Promise.all([
     readHandoffArtifact(root),
     readProjectGraph(root),
     readProjectTimeline(root),
     readProjectKnowledgeGraph(root),
+    readProjectIntelligenceHealth(root),
   ]);
 
   if (!handoff && !graph?.nodes?.length) {
@@ -109,6 +119,12 @@ export async function buildSidebarUnderstandingPanel(
     timeline: { entries: timelineEntries, empty: !timelineEntries.length },
     functionGraph,
     knowledgeGraph: buildSidebarKnowledgeGraphPanel(knowledge),
+    intelligence: {
+      healthScore: pilHealth?.metrics.health_score ?? null,
+      healthCategory: pilHealth?.metrics.health_category ?? '—',
+      knowledgeCoverage: pilHealth?.metrics.knowledge_coverage ?? null,
+      empty: !pilHealth?.metrics,
+    },
   };
 }
 

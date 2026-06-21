@@ -38,6 +38,16 @@ export const CONTORA_INTELLIGENCE_DIR = 'intelligence';
 /** v0.7 Intent Graph Layer output directory under `.contora/` */
 export const CONTORA_INTENT_GRAPH_DIR = 'intent-graph';
 
+/** vNext Intent Graph Layer (Project Intelligence) under `.contora/intent/` */
+export const CONTORA_INTENT_VNEXT_DIR = 'intent';
+export const CONTORA_INTENT_VNEXT_GRAPH_FILE = 'intent_graph.json';
+export const CONTORA_INTENT_VNEXT_NODES_FILE = 'intent_nodes.json';
+export const CONTORA_WHY_LAYER_FILE = 'why.json';
+
+/** vNext cross-tool project identity under `.contora/identity/` */
+export const CONTORA_IDENTITY_DIR = 'identity';
+export const CONTORA_PROJECT_IDENTITY_FILE = 'project_identity.json';
+
 /** Derived semantic summary written by intelligence layer */
 export const CONTORA_STATE_SUMMARY_FILE = 'state-summary.json';
 

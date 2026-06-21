@@ -98,6 +98,7 @@ export async function applyDualModeWorkspaceInput(
       const boot = core.bootstrapStateFromScan(scan);
       await core.writeStateJson(root, boot, { mode: 'scan-driven', writer: 'ide' });
       await core.rebuildArtifactsFromScan(root, scan, boot, 'ide', { skipGitTimeline: true });
+      await core.syncIntelligenceLayer(root, 'ide', 'scan-driven').catch(() => undefined);
       return fromBootstrap(boot);
     }
 
@@ -114,6 +115,7 @@ export async function applyDualModeWorkspaceInput(
       (eventCount === 0 && next.recentFiles.length > state.recentFiles.length)
     ) {
       await core.writeStateJson(root, dual.state, { mode: dual.mode, writer: 'ide' });
+      await core.syncIntelligenceLayer(root, 'ide', dual.mode).catch(() => undefined);
     }
     return next;
   } catch (err) {

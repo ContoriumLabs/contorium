@@ -33,6 +33,12 @@ export interface BootstrapStateJson {
   notes: string;
   lastUpdated: number;
   source?: StateSourceMetadata;
+  /** Descriptive confidence metadata (CONFIDENCE dimension). */
+  cognition?: {
+    confidence: number;
+    category: 'stable' | 'evolving' | 'experimental';
+    freshness: 'recent' | 'historical';
+  };
 }
 
 export interface DualModeInput {

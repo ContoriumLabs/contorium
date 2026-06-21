@@ -42,6 +42,8 @@ import { readRuntimeState } from './runtimeState.js';
 import { registerCognitiveTools } from './cognitive/cognitiveTools.js';
 import { registerGovernanceAuxTools } from './governanceTools.js';
 import { registerGovernanceV4Tools } from './governanceV4.js';
+import { registerIntelligenceTools } from './intelligenceTools.js';
+import { registerPilRuntimeTools } from './pilRuntime.js';
 import { resolveMcpStartupConfig } from './workspaceConfig.js';
 
 function mcpPackageVersion(): string {
@@ -60,32 +62,37 @@ function textResult(data: unknown) {
   };
 }
 
-const MCP_SERVER_INSTRUCTIONS = `Contorium MCP — persistent project memory for AI coding.
+const MCP_SERVER_INSTRUCTIONS = `Contorium MCP — AI Project Intelligence Layer (PIL Runtime).
 
-On every NEW chat when a runtime is active:
-1. Call get_handoff_injection_status first.
-2. If pending is true, ask the user: "Contorium has active project context. Inject it? (Y/n)"
-3. On Y → confirm_handoff_injection. On N → skip_handoff_injection.
-Do NOT inject without user confirmation.
+Contorium captures, structures, preserves, retrieves and transfers project intelligence.
+It does NOT execute work, make decisions, or recommend actions.
 
-For ongoing work use get_project_handoff, get_understanding_graph, get_recent_changes.
+PIL Core objects: STATE · INTENT · DECISION · WHY
+Dimensions: TIMELINE · IMPACT · CONFIDENCE
+Systems: PROVENANCE · EVOLUTION
 
-V4 Governance Engine — single decision pipeline (before editing code):
-1. ensure_control_ready
-2. get_control_context
-3. resolve_scope_context { active_file, diff_text }
-4. run_governance_cycle { active_file, diff, mode: "soft" }
-   → decision.action: allow | warn | block | inject_fix
-5. If inject_fix or warn → generate_inject_payload { style: "full" }
-6. Optional export → export_governance_context { include: ["governance","state","inject"] }
+PIL Runtime Contract (v3.0 — preferred):
 
-Auxiliary: update_project_intent, analyze_project, get_cognitive_state, get_change_log.
+  Inspect — retrieve intelligence records
+    inspect_state · inspect_intent · inspect_decision · inspect_timeline
+    inspect_graph · inspect_confidence · inspect_impact · inspect_evolution · inspect_provenance · inspect_health · inspect_why
 
-Cognitive Overlay (optional — default Mode A = core runtime unchanged):
-- Mode A: default — core observation, project, task, feed
-- Mode B: set_cognitive_mode { mode: "B" } → A + get_skill_suggestions, get_model_preset, get_cognitive_insights
-- Dashboard (primary): Contorium Dashboard passive/expanded — ↑↓ select A/B · Enter apply
-- CLI fallback: contorium-mcp mode-panel [--workspace PATH]`;
+  Transfer — export for AI continuity
+    transfer_context (~300–800 tokens) — Intelligence Transfer, Context mode
+    transfer_intelligence (~8000 tokens) — Intelligence Transfer, Full mode
+    transfer_handoff (~100–300 tokens) — compact handoff for new-chat injection
+
+  Capture — write intelligence records
+    capture_focus · capture_note · capture_decision
+
+New chat with active runtime:
+1. get_handoff_injection_status → if pending, offer Runtime Transfer (confirm/skip_handoff_injection)
+2. Or call transfer_context / transfer_intelligence for Intelligence Transfer
+
+Legacy tools (still available): get_project_* · get_cognitive_snapshot · get_full_intelligence
+
+Decision Provenance: inspect_cognition_ready → get_decision_context → derive_decision_provenance
+Cognitive overlay (display-only): get_cognitive_mode · get_skill_suggestions`;
 
 const server = new McpServer(
   {
@@ -102,6 +109,8 @@ const workspaceRootSchema = z.object({
 registerCognitiveTools(server, workspaceRootForTools);
 registerGovernanceAuxTools(server, workspaceRootForTools);
 registerGovernanceV4Tools(server, workspaceRootForTools);
+registerIntelligenceTools(server, workspaceRootForTools);
+registerPilRuntimeTools(server, workspaceRootForTools);
 
 server.registerTool(
   'store_memory',
@@ -482,7 +491,7 @@ server.registerTool(
   'get_project_intent',
   {
     description:
-      '[Deprecated V3.1] Intent merged into handoff.json — returns current_focus from handoff or legacy intent.json.',
+      '[Project Intelligence · read-only] Project intent summary — prefer get_project_intent_graph for full why/design graph.',
     inputSchema: z.object({
       workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
     }),

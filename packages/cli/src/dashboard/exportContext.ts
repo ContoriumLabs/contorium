@@ -1,7 +1,15 @@
-import { buildGovernanceAwareExportText } from '@contora/state-core';
+import {
+  buildGovernanceAwareExportText,
+  loadTransferExportInput,
+  buildTransferContextSnapshot,
+  formatTransferContextMarkdown,
+  finalizeTransferContextText,
+  setGitSubprocessAllowed,
+  syncWorkspaceState,
+} from '@contora/state-core';
 import type { DashboardState } from './types.js';
 
-/** Unified export for dashboard [c], handoff --copy, inject, and contorium export. */
+/** Unified export for legacy handoff --copy, inject, and contorium export. */
 export async function buildDashboardExportText(
   workspaceRoot: string,
   state: DashboardState,
@@ -17,4 +25,14 @@ export async function buildDashboardExportText(
     filter,
     review: state.governance?.review ?? null,
   });
+}
+
+/** PIL Transfer Context — Cognitive Snapshot for dashboard [c] (v3.0). */
+export async function buildTransferContextText(workspaceRoot: string): Promise<string | undefined> {
+  setGitSubprocessAllowed(true);
+  await syncWorkspaceState(workspaceRoot, 'cli', { refreshGit: true, forceArtifacts: true });
+  const input = await loadTransferExportInput(workspaceRoot);
+  const snapshot = await buildTransferContextSnapshot(input);
+  const raw = formatTransferContextMarkdown(snapshot);
+  return finalizeTransferContextText(raw, false);
 }

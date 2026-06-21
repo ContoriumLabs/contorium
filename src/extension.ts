@@ -39,17 +39,18 @@ import {
   readExportDelivery,
 } from './ai/injectIntoAiChat';
 import { runGovernanceInject } from './ai/runGovernanceInject';
+import { runExportAIContext, type ExportMode, type ExportProgressReporter } from './ai/runExportAIContext';
+import { readExportFormat } from './ai/exportFormat';
 import { ContoraKeyManager } from './ai/auth/keyManager';
 import { buildAiReadyJsonExport, buildAiReadyMarkdownExport } from './ai/buildAiReadyExport';
 import { compressExportJsonForBudget, compressExportMarkdownForBudget } from './ai/aiReadyExportCompression';
 import { readExportLlmFallbackEnabled, readResolvedExportTokenBudget } from './ai/exportBudget';
 import { ProviderManager } from './ai/providers/providerManager';
-import { registerPhase3AiRuntime } from './ai/registerPhase3';
 import { clearLastIntentStore } from './ai/runtime/intent/lastIntentStore';
 import { clearSemanticSummaryCache } from './ai/runtime/semanticSummary/summaryCache';
 import { loadUsableIntentFocusLines } from './core/memory/intentStore';
-import { CognitionPipeline } from './cognition/cognitionPipeline';
-import { CodeGraphParserService } from './cognition/codeGraphParserService';
+import type { CognitionPipeline } from './cognition/cognitionPipeline';
+import type { CodeGraphParserService } from './cognition/codeGraphParserService';
 import { loadCognitionExportContext } from './cognition/loaders';
 import {
   endDashboardSession,
@@ -91,23 +92,6 @@ function eventsInPrompt(): number {
   return typeof n === 'number' && n >= 0 ? Math.min(200, n) : 50;
 }
 
-function readExportFormat(): ExportFormat {
-  const raw = vscode.workspace.getConfiguration(CONTORA_CONFIG_SECTION).get<string>('exportFormat');
-  if (raw === 'mcp') {
-    return 'markdown';
-  }
-  if (
-    raw === 'json' ||
-    raw === 'cursor' ||
-    raw === 'markdown' ||
-    raw === 'claude' ||
-    raw === 'openai'
-  ) {
-    return raw;
-  }
-  return 'markdown';
-}
-
 function maxPriorityFilesCap(strategyMax: number): number {
   const n = vscode.workspace.getConfiguration(CONTORA_CONFIG_SECTION).get<number>('maxPriorityFiles');
   const cap = typeof n === 'number' && n >= 1 ? Math.min(40, n) : 12;
@@ -145,6 +129,48 @@ function applyIgnoreToMemory(memory: WorkspaceMemory, ig: (p: string) => boolean
 let globalEventStore: EventStore | undefined;
 let cognitionPipeline: CognitionPipeline | undefined;
 let codeGraphParser: CodeGraphParserService | undefined;
+let cognitionInitPromise: Promise<void> | undefined;
+
+/** Defer tree-sitter / cognition pipeline so activate returns before heavy modules load. */
+const COGNITION_DEFER_MS = 2_000;
+const CONTROL_ENSURE_DEFER_MS = 4_000;
+const BOOTSTRAP_DEFER_MS = 150;
+
+function scheduleCognitionServices(
+  context: vscode.ExtensionContext,
+  stateManager: StateManager,
+  eventStore?: EventStore,
+): void {
+  const runUpdate = (): void => {
+    cognitionPipeline?.scheduleUpdate(eventStore);
+  };
+  if (cognitionInitPromise) {
+    void cognitionInitPromise.then(runUpdate);
+    return;
+  }
+  cognitionInitPromise = new Promise((resolve) => {
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const [{ CognitionPipeline: Pipeline }, { CodeGraphParserService: ParserService }] =
+            await Promise.all([
+              import('./cognition/cognitionPipeline'),
+              import('./cognition/codeGraphParserService'),
+            ]);
+          cognitionPipeline = new Pipeline(stateManager);
+          codeGraphParser = new ParserService(cognitionPipeline, () => stateManager.getPrimaryFolder());
+          codeGraphParser.activate(context);
+          cognitionPipeline.scheduleUpdate(eventStore);
+        } catch (err) {
+          cognitionInitPromise = undefined;
+          console.warn(`[${PRODUCT_DISPLAY_NAME}] cognition services init failed:`, err);
+        } finally {
+          resolve();
+        }
+      })();
+    }, COGNITION_DEFER_MS);
+  });
+}
 
 /** Baseline for “session shift” detection (Current focus + top paths). Reset on workspace sync / Start fresh. */
 let sessionBoundaryBaseline: { focus: string; paths: string[] } | undefined;
@@ -329,11 +355,7 @@ function scheduleGovernanceReviewRefresh(
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  try {
-    // Extension is CommonJS — state-core must expose "require" (see packages/state-core).
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require('@contora/state-core');
-  } catch (err) {
+  void import('@contora/state-core').catch((err) => {
     console.error(
       `[${PRODUCT_DISPLAY_NAME}] Failed to load @contora/state-core — run "npm run compile" and Reload Window:`,
       err,
@@ -341,7 +363,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showErrorMessage(
       `${PRODUCT_DISPLAY_NAME}: state-core failed to load. Run npm run compile in the repo, then Developer: Reload Window.`,
     );
-  }
+  });
 
   const stateManager = new StateManager();
   void (async () => {
@@ -396,14 +418,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  cognitionPipeline = new CognitionPipeline(stateManager);
-  codeGraphParser = new CodeGraphParserService(cognitionPipeline, () => stateManager.getPrimaryFolder());
-  codeGraphParser.activate(context);
-
   const onAfterScannerPersist = (): void => {
     refreshSidebarDebounced();
     refreshGovernanceDebounced();
-    cognitionPipeline?.scheduleUpdate(globalEventStore);
+    if (cognitionPipeline) {
+      cognitionPipeline.scheduleUpdate(globalEventStore);
+    } else {
+      scheduleCognitionServices(context, stateManager, globalEventStore);
+    }
     const folder = stateManager.getPrimaryFolder();
     if (folder) {
       scheduleDashboardWake(context, folder.uri.fsPath, 'scanner-persist');
@@ -424,13 +446,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     const st0 = await stateManager.load(folder);
-    void sidebar.refreshGovernanceReview();
-    void sidebar.refresh();
+    refreshSidebarDebounced();
 
-    const [, matcher] = await Promise.all([
-      mergeDiskIfEnabled(stateManager, globalEventStore),
-      ensureIgnoreMatcher(folder),
-    ]);
+    const matcher = await ensureIgnoreMatcher(folder);
+    void mergeDiskIfEnabled(stateManager, globalEventStore);
     const eventCount = globalEventStore?.getAll().length ?? 0;
 
     bindIgnoreFileWatcher(folder, matcher);
@@ -450,7 +469,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     })();
 
-    cognitionPipeline?.scheduleUpdate(globalEventStore);
+    scheduleCognitionServices(context, stateManager, globalEventStore);
     sessionBoundaryBaseline = {
       focus: (st0.currentTask ?? '').trim(),
       paths: topWorkspacePathsFromState(st0),
@@ -458,7 +477,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     scheduleRuntimeBootstrap(context, folder.uri.fsPath);
 
-    void ideControlEnsureReady(folder).catch(() => undefined);
+    setTimeout(() => {
+      void ideControlEnsureReady(folder).catch(() => undefined);
+    }, CONTROL_ENSURE_DEFER_MS);
   };
 
   const runWorkspaceBootstrap = (): Promise<void> => {
@@ -539,142 +560,83 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const contoraKeys = new ContoraKeyManager(context.secrets);
   const aiProviders = new ProviderManager(contoraKeys);
 
-  const runExport = async () => {
-    const folder = stateManager.getPrimaryFolder();
-    if (!folder) {
-      await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
-      return;
-    }
-    if (!(await ensureWorkspaceReady())) {
-      return;
-    }
-    if (!workspaceIgnoreMatcher) {
-      await ensureIgnoreMatcher(folder);
-    }
-    const es = globalEventStore;
-    if (!es) {
-      return;
-    }
-    for (const s of scanners) {
-      await s.flushNow();
-    }
-    await cognitionPipeline?.flushNow(es);
-    const state = await stateManager.load(folder);
-    const taskTrim = (state.currentTask ?? '').trim();
-    const sessionId = state.sessionId ?? 'unknown';
-    const cfg = vscode.workspace.getConfiguration(CONTORA_CONFIG_SECTION);
-    const mode = modeEngine.normalizeMode(cfg.get<string>('defaultAIMode'));
-    const strategy = getModeStrategy(mode);
-    const ig = shouldIgnore();
-
-    const evAll = es.getAll();
-    const evRank = evAll.length > 500 ? evAll.slice(-500) : evAll;
-    const analysis = analyzeActivity(evRank, state, ig);
-    const instruction = modeEngine.getInstruction(mode);
-    const confirmedAiIntentGoals = await loadUsableIntentFocusLines(folder, state, es);
-    const cognition = await loadCognitionExportContext(folder, state, confirmedAiIntentGoals);
-
-    const review = await runAndPersistGovernanceReview(folder);
-    void sidebar.refresh();
-    const governanceSection = await buildGovernanceExportAppendix(folder, review);
-
-    const baseMd =
-      buildAiReadyMarkdownExport({
-        state,
-        eventStore: es,
-        analysis,
-        instruction,
-        shouldIgnore: ig,
-        projectSnapshot: cognition.projectSnapshot,
-        builtState: cognition.builtState,
-        summary: cognition.summary,
-        handoff: cognition.handoff,
-        timeline: cognition.timeline,
-        knowledgeSnapshot: cognition.knowledgeSnapshot,
-      }) +
-      '\n\n' +
-      governanceSection;
-
-    const budget = exportTokenBudget();
-    const fmt = readExportFormat();
-    const allowLlmCompress = readExportLlmFallbackEnabled(cfg);
-    let text: string;
-
-    if (fmt === 'json') {
-      let obj = buildAiReadyJsonExport({
-        state,
-        eventStore: es,
-        analysis,
-        instruction,
-        shouldIgnore: ig,
-        projectSnapshot: cognition.projectSnapshot,
-        builtState: cognition.builtState,
-        summary: cognition.summary,
-        handoff: cognition.handoff,
-        timeline: cognition.timeline,
-        knowledgeSnapshot: cognition.knowledgeSnapshot,
-      });
-      if (governanceSection.trim()) {
-        obj = {
-          ...obj,
-          notes: [obj.notes, governanceSection].filter(Boolean).join('\n\n'),
-        };
+  const runExport = async (
+    reporter?: ExportProgressReporter,
+    showToast = true,
+    mode: ExportMode = 'cognitive-snapshot',
+  ) => {
+    const result = await runExportAIContext(
+      {
+        stateManager,
+        ensureWorkspaceReady,
+        ensureIgnoreMatcher,
+        getEventStore: () => globalEventStore,
+        getScanners: () => scanners,
+        getCognitionPipeline: () => cognitionPipeline,
+        shouldIgnore,
+        memoryBuilder,
+        modeEngine,
+        aiProviders,
+        eventsInPrompt,
+        readExportFormat,
+        onAfterGovernanceReview: () => {
+          void sidebar.refresh();
+        },
+      },
+      reporter,
+      mode,
+    );
+    if (showToast && result.message) {
+      if (result.ok) {
+        await vscode.window.showInformationMessage(result.message);
+      } else {
+        await vscode.window.showWarningMessage(result.message);
       }
-      if (budget > 0) {
-        obj = compressExportJsonForBudget(obj, budget);
-      }
-      text = JSON.stringify(obj, null, 2);
-      if (budget > 0 && estimateTokens(text) > budget) {
-        text = trimStringToTokenBudget(text, budget);
-      }
-    } else {
-      let md = baseMd;
-      if (budget > 0) {
-        md = await compressExportMarkdownForBudget(baseMd, budget, fmt, aiProviders, allowLlmCompress);
-      }
-      const recent = es.getLast(eventsInPrompt());
-      const memory = memoryBuilder.build(state, recent, sessionId);
-      applyIgnoreToMemory(memory, ig);
-      memory.priorityFiles = [];
-      memory.semanticSummary = '';
-      memory.recentEvents = [];
-      memory.aiSemanticSummary = undefined;
-      const payload = buildContextPayloadV2(
-        memory,
-        [],
-        '',
-        analysis,
-        mode,
-        instruction,
-        strategy.strategyLabel,
-        undefined,
-      );
-      text = formatWithAdapter(fmt, md, payload, mode);
     }
-
-    const delivery = readExportDelivery(cfg);
-    const deliverResult = await deliverExportText(text, delivery);
-
-    const tok = estimateTokens(text);
-    const fmtLabel =
-      fmt === 'json'
-        ? 'compressed JSON'
-        : fmt === 'cursor'
-          ? 'Cursor fences'
-          : fmt === 'claude'
-            ? 'Claude'
-            : fmt === 'openai'
-              ? 'OpenAI messages'
-              : 'Markdown';
-    const note = budget > 0 && tok >= budget * 0.98 ? ' (near export token budget)' : '';
-    let msg = `${PRODUCT_DISPLAY_NAME}: ${formatExportDeliveryMessage(deliverResult, tok, fmtLabel, note)}`;
-    if (!taskTrim) {
-      msg += ' — AI continuity works better with a focus goal.';
-    }
-    await vscode.window.showInformationMessage(msg);
+    return result;
   };
 
-  context.subscriptions.push(vscode.commands.registerCommand('contora.exportAIContext', runExport));
+  sidebar.registerExportRunner(async (reporter, mode) => runExport(reporter, false, mode));
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.exportAIContext', () =>
+      vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `${PRODUCT_DISPLAY_NAME}: Transfer Context`,
+          cancellable: false,
+        },
+        async (progress) => {
+          let lastPercent = 0;
+          await runExport((update) => {
+            const increment = Math.max(0, update.percent - lastPercent);
+            lastPercent = update.percent;
+            progress.report({ message: update.label, increment });
+          }, true, 'cognitive-snapshot');
+        },
+      ),
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.exportFullIntelligence', () =>
+      vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `${PRODUCT_DISPLAY_NAME}: Transfer Intelligence`,
+          cancellable: false,
+        },
+        async (progress) => {
+          let lastPercent = 0;
+          await runExport((update) => {
+            const increment = Math.max(0, update.percent - lastPercent);
+            lastPercent = update.percent;
+            progress.report({ message: update.label, increment });
+          }, true, 'full-intelligence');
+        },
+      ),
+    ),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('contora.smartGovernanceInject', () =>
@@ -730,31 +692,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('contora.startFreshAiSession', runStartFreshAiSession),
   );
 
-  registerPhase3AiRuntime(
-    context,
-    {
-      stateManager,
-      getEventStore: () => globalEventStore,
-      memoryBuilder,
-      modeEngine,
-      flushScanners: async () => {
-        for (const s of scanners) {
-          await s.flushNow();
-        }
-      },
-      eventsInPrompt,
-      exportTokenBudget,
-      maxPriorityFilesCap,
-      shouldIgnore,
-      refreshSidebar: () => {
-        void sidebar.refresh();
-      },
-      flushCognition: async () => {
-        await cognitionPipeline?.flushNow(globalEventStore);
-      },
-    },
-    { keys: contoraKeys, providers: aiProviders },
-  );
+  setTimeout(() => {
+    void import('./ai/registerPhase3')
+      .then(({ registerPhase3AiRuntime }) => {
+        registerPhase3AiRuntime(
+          context,
+          {
+            stateManager,
+            getEventStore: () => globalEventStore,
+            memoryBuilder,
+            modeEngine,
+            flushScanners: async () => {
+              for (const s of scanners) {
+                await s.flushNow();
+              }
+            },
+            eventsInPrompt,
+            exportTokenBudget,
+            maxPriorityFilesCap,
+            shouldIgnore,
+            refreshSidebar: () => {
+              void sidebar.refresh();
+            },
+            flushCognition: async () => {
+              if (!cognitionPipeline) {
+                scheduleCognitionServices(context, stateManager, globalEventStore);
+                await cognitionInitPromise;
+              }
+              await cognitionPipeline?.flushNow(globalEventStore);
+            },
+          },
+          { keys: contoraKeys, providers: aiProviders },
+        );
+      })
+      .catch((err) => {
+        console.warn(`[${PRODUCT_DISPLAY_NAME}] Phase3 AI runtime registration failed:`, err);
+      });
+  }, 0);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('contora.saveStateNow', async () => {
@@ -923,8 +897,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push({ dispose: () => cognitionPipeline?.dispose() });
   context.subscriptions.push({ dispose: () => codeGraphParser?.dispose() });
 
-  // Return quickly from activate; bootstrap scanners / disk replay in the background.
-  void runWorkspaceBootstrap();
+  // Return quickly from activate; bootstrap scanners / disk replay after a short yield.
+  setTimeout(() => void runWorkspaceBootstrap(), BOOTSTRAP_DEFER_MS);
 }
 
 export function deactivate(): void {

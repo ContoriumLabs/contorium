@@ -1,9 +1,8 @@
 # Contorium V3 Core — Architecture & Usage
 
-**V3 Core** is the minimum defensible layer of Contorium: **Governance + Cognitive MVP + Lightweight Guard**. It sits on top of the existing **V3.1 Project Understanding** pipeline (`handoff`, `graph`, knowledge graph) without replacing it.
+> **Current PIL operations:** [PIL_RUNTIME.md](./PIL_RUNTIME.md). This document covers the **V3 Core** governance + guard layer on top of V3.1 understanding artifacts.
 
-> Design reference: internal upgrade notes (`v3升级文档.md`, `v3.2补充.md`).  
-> V3.1 cognitive compiler rules remain frozen in [ENGINEERING_CLOSURE.md](./ENGINEERING_CLOSURE.md).
+**V3 Core** is the minimum defensible layer of Contorium: **Governance + Cognitive MVP + Lightweight Guard**.
 
 ---
 

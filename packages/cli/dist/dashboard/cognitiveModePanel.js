@@ -6,10 +6,10 @@ function colors(useColor) {
 }
 export function modeStatusLamp(active, c, tick = 0) {
     if (active === 'B') {
-        return `${statusGlyph(tick, c.green, true)} Governance Active`;
+        return `${statusGlyph(tick, c.green, true)} Governance Overlay`;
     }
     const pulse = STATUS_FRAMES[tick % STATUS_FRAMES.length];
-    return `${c.dim(pulse)} Observation`;
+    return `${c.dim(pulse)} Live Cognition`;
 }
 export function renderCognitiveModeSelectorLines(args) {
     const c = colors(args.useColor);
@@ -21,7 +21,7 @@ export function renderCognitiveModeSelectorLines(args) {
         const b = args.selection === 'B' ? c.bold('B') : c.dim('B');
         return [
             lamp,
-            truncate(`${mark('A')}${a} Runtime   ${mark('B')}${b} Governance`, args.width),
+            truncate(`${mark('A')}${a} Observation   ${mark('B')}${b} Cognition`, args.width),
         ];
     }
     const lines = [modeStatusLamp(args.active, c, tick), ''];
@@ -30,9 +30,11 @@ export function renderCognitiveModeSelectorLines(args) {
         lines.push(truncate(`${mark(mode)} ${mode}  ${titleStyled}`, args.width));
         lines.push(truncate(`   ${c.dim(subtitle)}`, args.width));
     };
-    row('A', 'Runtime View', 'Project · Task · Decision feed');
+    row('A', 'Live Cognition', 'STATE · INTENT · DECISION · WHY · Streams');
     lines.push('');
-    row('B', 'Governance View', 'Cycle · Violations · Inject');
+    row('B', 'Governance Overlay', 'Policy · Violations · Scope');
+    lines.push('');
+    row('C', 'Debug Trace', 'Provenance · Raw review (view-only)');
     return lines;
 }
 export function renderCognitiveInsightsLines(insights, modeActive, useColor, width) {

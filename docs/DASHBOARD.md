@@ -1,8 +1,8 @@
-# Contorium Runtime Dashboard (CRBP)
+# Contorium Runtime Dashboard
 
-Low-presence **Passive** status line + on-demand **Expanded** panels. Shared across **IDE**, **CLI**, and **MCP** via the same `.contora/` artifacts.
+**Cognitive State** terminal UI — shared across **IDE**, **CLI**, and **MCP** via the same `.contora/` artifacts.
 
-Overview: [INSTALL.md](./INSTALL.md) · [CLI](./CLI.md) · [MCP](./MCP.md)
+- [PIL Runtime Guide](./PIL_RUNTIME.md) · [INSTALL](./INSTALL.md) · [CLI](./CLI.md) · [MCP](./MCP.md)
 
 ---
 
@@ -10,166 +10,141 @@ Overview: [INSTALL.md](./INSTALL.md) · [CLI](./CLI.md) · [MCP](./MCP.md)
 
 | Principle | Implementation |
 |-----------|----------------|
-| **Zero commands (normal use)** | Bootstrap + Passive + inject prompt are automatic |
+| **Zero commands (normal use)** | Bootstrap + dashboard attach are automatic |
 | **Single source of truth** | `handoff.json` + `state.json` — not `dashboard.status.json` |
 | **Dashboard is a view** | Worker reads artifacts; does not own business state |
-| **CHP v1 handoff** | Compact line: `task \| last \| agent` |
-
-`runtime_id` lives in `.contora/runtime.bootstrap.json` only — not in handoff/CHP state.
+| **Main content never clipped** | Cognitive core + dimensions + streams render in full |
+| **Shortcuts footer** | Pinned at bottom; truncated first if terminal is too short |
 
 ---
 
-## Normal use (no commands)
-
-| Action | How |
-|--------|-----|
-| See runtime status | Passive line appears automatically (terminal + IDE status bar) |
-| Expand full dashboard | **Space** in Contorium dashboard terminal |
-| New AI chat inject | Auto `[?]` when runtime active → **Enter/i** · **n** · or IDE/Agent dialog |
-| Copy handoff | **c** in terminal |
-
-**Do not use** `contorium handoff --show` or `--prompt-new-chat` in daily workflow — those are debug-only.
-
-## State machine
+## States
 
 ```text
-Idle ──(runtime bootstrap)──► Passive ──(Space)──► Expanded
-  ▲                              │                      │
-  └──────── session end ─────────┴──── Space / q ──────┘
+Idle ──(runtime bootstrap)──► Cognitive State dashboard
+  ▲                                    │
+  └──────── session end ───────────────┘
 ```
 
 | State | Display |
 |-------|---------|
 | **Idle** | `[○] Contorium waiting for IDE session…` |
-| **Passive** | `[●] [Contorium] task: … \| last: … \| agent: …` + optional **mini-graph** (`⤷ a→b→c`) |
-| **Expanded** | Full panels + **fullscreen** (CLI alternate screen / IDE Webview) · **LIVE** refresh |
+| **Active** | Full-screen **Cognitive State** panel (alternate-screen TUI on CLI) |
+
+There is **no compact/expand toggle**. When runtime is active, the full cognitive dashboard is shown.
 
 ---
 
-## Automatic triggers (no manual attach)
-
-| Source | When | Action |
-|--------|------|--------|
-| **MCP initialize** | Codex / Claude / Cursor starts MCP | `bootstrap --source mcp` |
-| **IDE workspace open** | Extension loads folder | `bootstrap --source ide` |
-| **CLI init** | `contorium init` | `bootstrap --source cli` |
-| **File / git change** | Save, sync, MCP reactive sync | `wake` → refresh Passive / Expanded (artifact watch) |
-
-Users do **not** run `contorium attach` or `dashboard show` in normal workflows.
-
----
-
-## Passive compact line (CHP v1)
-
-Example (with mini-graph and pending injection):
+## UI layout (Cognitive State)
 
 ```text
-[●] [Contorium] task: fix MCP bootstrap | last: calculateRisk() | agent: mcp · ⤷ calculateRisk→updateGraph · [?] Enter/i inject · n skip
+┌──────────────────────────────────────────────────────────────┐
+│ CONTORIUM • Cognitive State                    [+] LIVE      │
+│ Project: … | Agent: … | Stage: …                           │
+│ Focus: … | Confidence: …                                   │
+├──────────────────────────────────────────────────────────────┤
+│ [+] STATE          │ [+] INTENT                             │
+│ …                  │ …                                      │
+├────────────────────┼─────────────────────────────────────────┤
+│ [·] DECISION       │ [·] WHY                                │
+│ …                  │ …                                      │
+├──────────────────────────────────────────────────────────────┤
+│ [+] Cognitive Streams                                      │
+│ ▶ Change Stream / Cognitive Health / Evolution               │
+├──────────────────────────────────────────────────────────────┤
+│ View Mode: ● Live  ○ Governance  ○ Debug                   │
+├──────────────────────────────────────────────────────────────┤
+│ Shortcuts                                                  │
+│ [c]       Copy PIL context to clipboard                    │
+│ [i]       Inject compact handoff to AI chat                 │
+│ …                                                          │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-When no injection pending:
+| Region | Content |
+|--------|---------|
+| **Level 1 — Cognitive Core** | Project, agent, stage, focus, confidence |
+| **Level 2 — Dimensions** | STATE · INTENT · DECISION · WHY (2×2 grid) |
+| **Level 3 — Streams** | Change · Health · Evolution (content varies by view mode) |
+| **View Mode** | Live Cognition · Governance Overlay · Debug Trace |
+| **Shortcuts** | Key bindings with descriptions (English) |
 
-```text
-[●] [Contorium] task: fix MCP bootstrap | last: calculateRisk() | agent: mcp · ⤷ calculateRisk→updateGraph · Space toggle · c Copy To AI · q quit
-```
-
-| Field | Source |
-|-------|--------|
-| `task` | `state.json` → `currentTask` or `handoff.current_focus` |
-| `last` | Most recent symbol in `handoff.key_changes` |
-| `agent` | `state.source.lastWriter` (`ide` / `mcp` / `cli`) |
-
-**IDE status bar** reads `handoff.json` + `state.json` directly (survives if dashboard worker stops).  
-**Expanded mode indicator** may still read `dashboard.status.json` for view mode only.
+`[+]` / `[·]` markers indicate live vs static modules (fixed-width animation).
 
 ---
 
-## Expanded panels (fullscreen)
+## View modes
 
-| Platform | Behavior |
-|----------|----------|
-| **CLI** | Alternate-screen TTY · wide layout dual-column · **LIVE** badge on artifact change · call-chain tree |
-| **IDE** | **Webview panel** beside editor — live refresh from `dashboard.status.json.frame` (~700ms) |
+| Mode | Key cycle | Content |
+|------|-----------|---------|
+| **Live Cognition** (default) | `A` | Change · Health · Evolution streams |
+| **Governance Overlay** | `B` | Policy snapshot · violations · decision |
+| **Debug Trace** | `C` | Decision provenance · raw review (preview-only) |
 
-Expanded stays open until **Space** or **q** (CLI default `--timeout 0`).
-
-| Section | Data source |
-|---------|-------------|
-| Function Updates | `handoff.json` / `change.json` |
-| Agent Timeline | `.contora/events/*.jsonl` |
-| Impact Graph | **`understanding_graph.json`** (preferred) or `graph.json` |
-| Structure View | `graph.json` / cognitive snapshot |
-| Project Status | handoff risk, git counts |
-| **Copy To AI** | CHP commands + semi-auto injection hint + **GOVERNANCE:** appendix when artifacts exist |
+- **`↑` / `↓`** — select view mode  
+- **`Enter`** — apply Live or Governance to MCP runtime (Debug is view-only)  
 
 ---
 
-## Keyboard (CLI dashboard terminal)
+## Keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
-| **Enter** / **i** | Confirm semi-auto runtime injection (when pending) |
-| **n** | Skip injection for this runtime session |
-| **Space** | Toggle Passive ↔ Expanded |
-| **c** | **Copy To AI** — unified export (handoff + governance appendix) to clipboard |
-| **q** | Quit dashboard worker |
-| **v** / **m** | Legacy expand / minimize (still supported) |
+| **`c`** | Copy PIL context (`transfer context`) |
+| **`i`** | Inject compact handoff (when injection pending) |
+| **`n`** | Skip injection (when pending) |
+| **`q`** | Quit dashboard worker |
+| **`↑` / `↓`** | Cycle view mode |
+| **`Enter`** | Apply selected view mode |
+
+When the terminal is too short, the **Shortcuts** section truncates first and shows:
+
+```text
+Scroll or resize terminal to view all shortcuts
+```
+
+Main cognitive content is **never** truncated.
 
 ---
 
-## IDE controls
+## Automatic triggers
 
-| Action | How |
-|--------|-----|
-| Expand dashboard | Status bar click · **Ctrl+Shift+C** → **Webview panel** (live Expanded view) |
-| Semi-auto inject | Status bar **`[?] Inject runtime?`** → **Inject** / **Skip** → clipboard |
-| Minimize | **Ctrl+Shift+M** · close Webview panel |
-| Disable auto-attach | Setting: `contora.autoAttachDashboard` = `false` |
+| Source | When | Action |
+|--------|------|--------|
+| **MCP initialize** | AI host starts MCP | `bootstrap --source mcp` |
+| **IDE workspace open** | Extension loads folder | `bootstrap --source ide` |
+| **CLI init** | `contorium init` | `bootstrap --source cli` |
+| **File / git change** | Save, sync, reactive sync | Artifact watch → dashboard refresh |
 
-Terminal tab name: **Contorium Dashboard** (background worker; optional).
+Users do **not** run `contorium dashboard attach` in normal workflows.
 
 ---
 
-## CLI commands (debug only)
+## IDE integration
+
+- **Status bar** — compact CHP line from `handoff.json` + optional mini-graph  
+- **Webview panel** — may mirror expanded frame from `dashboard.status.json`  
+- Setting: `contora.autoAttachDashboard` (default `true`)
+
+---
+
+## Data sources
+
+| UI region | Primary artifacts |
+|-----------|-------------------|
+| Cognitive Core | `state.json`, `handoff.json`, intelligence health |
+| STATE | `state.json`, `change.json`, recent events |
+| INTENT | intent graph, handoff goal/summary |
+| DECISION / WHY | `governance/review.json`, decision graph, reason chains |
+| Streams | events, timeline, evolution, impact, health metrics |
+
+---
+
+## Debug commands
 
 | Command | Purpose |
 |---------|---------|
-| `contorium handoff --show` | Force expand (prefer **Space**) |
-| `contorium handoff --prompt-new-chat` | Force inject prompt (normally automatic) |
-| `contorium handoff --copy-to-ai` | Manual clipboard |
-| `contorium attach . --auto` | Manual worker |
+| `contorium dashboard attach [path]` | Manual attach (dev) |
+| `contorium dashboard once [path]` | Single-frame dump |
 
----
-
-## Artifact files
-
-```text
-.contora/
-├── handoff.json              # AI handoff (source of truth for task/changes)
-├── state.json                # Task anchor, source.lastWriter
-├── change.json               # Recent file/symbol changes
-├── graph.json                # Change-neighborhood graph
-├── understanding_graph.json  # Call chains + impact (Runtime Understanding Graph)
-├── runtime.bootstrap.json    # runtime_id, bootstrap metadata (session-level)
-├── mcp.auto-context.md       # written after user confirms semi-auto injection
-├── mcp.handoff-injection.json # pending / injected / skipped per runtime_id
-├── dashboard.status.json     # View mode only (not business state)
-├── dashboard.signal.json     # expand / minimize / filter signals
-└── dashboard.session.json    # IDE/MCP session marker
-```
-
----
-
-## Worker internals (maintainers)
-
-- **Refresh:** `fs.watch` on `.contora/` (not tight polling on large repos)
-- **Package:** `packages/cli/src/dashboard/`
-- **Bootstrap:** `packages/cli/src/runtime/bootstrap.ts`
-
----
-
-## Related docs
-
-- [CLI handoff & dashboard commands](./CLI.md)
-- [MCP bootstrap on initialize](./MCP.md)
-- [IDE Extension status bar](./IDE_EXTENSION.md)
+Normal users should rely on automatic bootstrap only.

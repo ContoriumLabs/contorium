@@ -124,5 +124,5 @@ export declare function loadGovernanceArtifactBundle(workspaceRoot: string): Pro
 export declare function loadGovernanceDashboardSnapshot(workspaceRoot: string): Promise<GovernanceDashboardSnapshot>;
 /** Markdown supplement — DECISION / SCOPE / TRACE (三端共用). */
 export declare function buildGovernanceSupplement(bundle: GovernanceArtifactBundle): string;
-export declare const GOVERNANCE_ARTIFACT_FILES: readonly ["governance/review.json", "governance/decision.json", "governance/scope.json", "governance/trace.json", "governance/trace-full.json", "governance/cycle.json", "mcp/governance-cycle.json"];
+export declare const GOVERNANCE_ARTIFACT_FILES: readonly ["governance/review.json", "governance/decision.json", "governance/scope.json", "governance/trace.json", "governance/trace-full.json", "governance/decision_graph.json", "governance/cycle.json", "mcp/governance-cycle.json"];
 //# sourceMappingURL=governanceArtifacts.d.ts.map

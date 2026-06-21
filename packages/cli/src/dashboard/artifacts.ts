@@ -9,6 +9,11 @@ import {
   readProjectTimeline,
   readUnderstandingGraph,
   readWorkspaceStatus,
+  readProjectEvolutionTimeline,
+  readEvolutionGraph,
+  readProvenanceChain,
+  readImpactGraph,
+  readProjectIntelligenceHealth,
 } from '@contora/state-core';
 import { GOVERNANCE_ARTIFACT_FILES } from '@contora/state-core';
 import { loadGovernanceSnapshot } from './governanceDashboard.js';
@@ -20,6 +25,7 @@ const ARTIFACT_FILES = [
   'handoff.json',
   'graph.json',
   'graph/knowledge.json',
+  'graph/knowledge_graph.json',
   'graph/snapshot.json',
   'understanding_graph.json',
   'timeline.json',
@@ -29,6 +35,14 @@ const ARTIFACT_FILES = [
   'mcp/cognitive.mode.json',
   'mcp/cognitive-insights.json',
   ...GOVERNANCE_ARTIFACT_FILES,
+  'timeline/project_timeline.json',
+  'graph/impact_graph.json',
+  'confidence/confidence_index.json',
+  'provenance/provenance_chain.json',
+  'evolution/evolution_graph.json',
+  'decision/decision_log.json',
+  'intelligence/health.json',
+  'intelligence/repository_state.json',
 ] as const;
 
 export async function artifactSignature(workspaceRoot: string): Promise<string> {
@@ -98,8 +112,23 @@ async function readRecentEvents(workspaceRoot: string, limit = 8): Promise<Runti
 }
 
 export async function loadDashboardState(workspaceRoot: string): Promise<DashboardState> {
-  const [status, change, handoff, understandingGraph, graph, snapshot, timeline, recentEvents, handoffInjection, governance] =
-    await Promise.all([
+  const [
+    status,
+    change,
+    handoff,
+    understandingGraph,
+    graph,
+    snapshot,
+    timeline,
+    recentEvents,
+    handoffInjection,
+    governance,
+    intelligenceHealth,
+    evolutionTimeline,
+    evolutionGraph,
+    provenanceChain,
+    impactGraph,
+  ] = await Promise.all([
     readWorkspaceStatus(workspaceRoot),
     readChangeArtifact(workspaceRoot),
     readHandoffArtifact(workspaceRoot),
@@ -110,6 +139,11 @@ export async function loadDashboardState(workspaceRoot: string): Promise<Dashboa
     readRecentEvents(workspaceRoot),
     readHandoffInjectionState(workspaceRoot),
     loadGovernanceSnapshot(workspaceRoot),
+    readProjectIntelligenceHealth(workspaceRoot),
+    readProjectEvolutionTimeline(workspaceRoot),
+    readEvolutionGraph(workspaceRoot),
+    readProvenanceChain(workspaceRoot),
+    readImpactGraph(workspaceRoot),
   ]);
 
   return {
@@ -133,5 +167,10 @@ export async function loadDashboardState(workspaceRoot: string): Promise<Dashboa
     recentEvents,
     handoffInjection,
     governance,
+    intelligenceHealth: intelligenceHealth ?? undefined,
+    evolutionTimeline: evolutionTimeline ?? undefined,
+    evolutionGraph: evolutionGraph ?? undefined,
+    provenanceChain: provenanceChain ?? undefined,
+    impactGraph: impactGraph ?? undefined,
   };
 }

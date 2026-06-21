@@ -1,7 +1,38 @@
 # Contorium CLI
 
-The CLI is a **peer Runtime Adapter** with IDE and MCP, sharing `@contora/state-core` and `.contora/`.  
-Overview: [INSTALL.md](./INSTALL.md) · [README](../README.md)
+The CLI is a **peer PIL Runtime** with IDE and MCP, sharing `@contora/state-core` and `.contora/`.
+
+- [PIL Runtime Guide](./PIL_RUNTIME.md) · [INSTALL](./INSTALL.md) · [README](../README.md) · [Dashboard](./DASHBOARD.md)
+
+---
+
+## PIL commands (v3.0 — primary)
+
+Three capability groups mirror MCP and IDE:
+
+### Inspect
+
+```bash
+contorium inspect state|intent|decision|timeline|graph|confidence|impact|evolution|provenance|health|why|handoff [path]
+```
+
+### Transfer
+
+```bash
+contorium transfer context [path] [--format json|markdown] [--copy]
+contorium transfer intelligence [path] [--copy]
+contorium transfer handoff [path] [--copy]
+```
+
+### Capture
+
+```bash
+contorium capture focus [path] --text "<focus>"
+contorium capture note [path] --text "<note>"
+contorium capture decision [path] --selected "<choice>" [--reason "..."]
+```
+
+Legacy aliases: `snapshot copy` → `transfer context` · `export intelligence` → `transfer intelligence`
 
 ---
 
@@ -9,29 +40,18 @@ Overview: [INSTALL.md](./INSTALL.md) · [README](../README.md)
 
 | Phase | Command |
 |-------|---------|
+| **PIL Inspect** | `contorium inspect state\|health\|intent\|… [path]` |
+| **PIL Transfer** | `contorium transfer context\|intelligence\|handoff [path] [--copy]` |
+| **PIL Capture** | `contorium capture focus\|note\|decision [path] --text …` |
 | **Install** | `npm install && npm run compile` (contorium repo root) |
 | **Verify** | `npx contorium status .` or `npx contorium --help` |
-| **Global (optional)** | Repo root `npm link` → `contorium status .` anywhere |
 | **Init** | `npx contorium init [path]` |
 | **Refresh** | `npx contorium sync [path]` |
-| **L4 snapshot** | `npx contorium snapshot [path]` |
-| **Handoff (CHP v1)** | `npx contorium handoff` · `--copy-to-ai` (manual copy) |
-| **Dashboard** | **No command** — auto Passive; **Space** → Expanded |
-| **Semi-auto inject** | **No command** — auto on new AI chat; debug: `--prompt-new-chat` |
-| **Cognitive summary** | `npx contorium graph-snapshot [path]` |
-| **Knowledge graph** | `npx contorium knowledge [path]` |
-| **Change / graph / timeline** | `npx contorium change\|graph\|timeline [path]` |
-| **AI-ready export** | `npx contorium export [path]` or `--format json` |
-| **Governance review** | `npx contorium governance review [path] --target <file>` |
-| **Governance cycle** | `npx contorium governance cycle [path] [--target <file>]` |
-| **Governance export** | `npx contorium governance export [path] [--copy]` |
-| **Control surface** | `npx contorium control governance\|check\|intent\|analyze\|execute\|ready [path]` |
-| **Runtime bootstrap** | `npx contorium bootstrap [path] [--source ide\|mcp\|cli]` |
-| **Status** | `npx contorium status [path]` |
-| **Runtime dashboard** | Zero CLI commands — edit files → auto Passive (see below) |
-| **state.json** | `npx contorium state [path]` |
-| **Uninstall** | `npm unlink -g contorium` (if linked); no daemon |
-| **Clear data (optional)** | `Remove-Item -Recurse -Force .contora` (PowerShell) |
+| **Bootstrap** | `npx contorium bootstrap [path] [--source ide\|mcp\|cli]` |
+| **Dashboard** | Automatic after bootstrap — Cognitive State TUI (see [DASHBOARD.md](./DASHBOARD.md)) |
+| **Decision derive** | `npx contorium decision derive [path]` |
+| **Governance** | `npx contorium governance review\|cycle\|export [path]` |
+| **Legacy export** | `npx contorium export [path]` · `npx contorium handoff --copy-to-ai` |
 
 Default `[path]` is the current directory.
 
@@ -79,16 +99,17 @@ contorium status E:\path\to\your-project
 | `contorium status [path]` | JSON summary (mode, source, git counts) | — |
 | `contorium state [path]` | Full `state.json` | `get_workspace_context` |
 
-### Runtime dashboard (CRBP — automatic, zero commands)
+### Runtime dashboard (automatic)
 
-When Codex / Claude / Gemini **starts Contorium MCP**, the server runs bootstrap and attaches a Passive dashboard worker. **You never run attach or handoff --show in normal use.**
+When MCP or IDE bootstraps the workspace, a **Cognitive State** dashboard worker attaches to the terminal. No manual `attach` in normal use.
 
-| What | How (no command) |
-|------|------------------|
-| **Passive line** | Appears automatically in Contorium terminal / IDE status bar |
-| **Expanded view** | Press **Space** in the Contorium dashboard terminal |
-| **Semi-auto inject** | New AI chat → `[?]` on Passive line → **Enter/i** or **n** |
-| **Copy To AI** | Press **c** in dashboard terminal |
+| Action | Key / behavior |
+|--------|----------------|
+| Copy context | **`c`** |
+| Inject handoff | **`i`** or **Enter** (when injection pending) |
+| Quit | **`q`** |
+| View mode | **`↑` / `↓`** — Live · Governance Overlay · Debug Trace |
+| Apply mode | **Enter** |
 
 See [DASHBOARD.md](./DASHBOARD.md).
 
@@ -127,38 +148,55 @@ See [DASHBOARD.md](./DASHBOARD.md).
 | `contorium timeline [path]` | `timeline.json` | `get_project_timeline` |
 | `contorium export [path] [--format json\|markdown]` | Unified export (handoff + governance appendix) | combined tools |
 
-### Governance (`.contora/governance/*`)
+### Decision Provenance (preferred — [Language Spec](./CONTORIUM_LANGUAGE_SPEC.md))
 
 Unified artifacts under `.contora/governance/` — see [INSTALL.md](./INSTALL.md#architecture-three-adapters).
 
 | Command | Purpose | Writes |
 |---------|---------|--------|
-| `contorium governance review [path] --target <file>` | Run governance review on a target file | `review.json` only |
-| `contorium governance cycle [path] [--target <file>]` | Full governance cycle (calls MCP dist when available) | decision, scope, trace, cycle |
-| `contorium governance export [path] [--copy]` | Export governance appendix; `--copy` to clipboard | — |
+| `contorium decision derive [path] [--target <file>]` | Derive decision provenance chain | decision, scope, trace, cycle |
+| `contorium decision snapshot [path] [--target <file>]` | Project decision snapshot (alias of derive) | same as derive |
+| `contorium decision synthesize [path] [--copy]` | Synthesize cognition export; `--copy` to clipboard | — |
+| `contorium understand [path] --target <file>` | Change understanding for scope | `review.json` only |
 
 **PowerShell:**
 
 ```powershell
-npx contorium governance review . --target src/foo.ts
-npx contorium governance cycle .
-npx contorium governance export . --copy
+npx contorium understand . --target src/foo.ts
+npx contorium decision derive .
+npx contorium decision synthesize . --copy
 ```
 
-### Control surface (control-core)
-
-Mirrors MCP auxiliary governance tools:
+### Cognition inspect (preferred)
 
 | Command | Purpose | MCP equivalent |
 |---------|---------|----------------|
-| `contorium control governance [path]` | Read governance rules | `get_control_context` |
-| `contorium control check [path] --target <file>` | Review an action | check via governance engine |
-| `contorium control intent [path] "<text>"` | Update project direction | `update_project_intent` |
-| `contorium control analyze [path]` | Analyze project | `analyze_project` |
-| `contorium control execute [path] --target <file>` | Validate governance loop | — |
-| `contorium control ready [path]` | Bootstrap governance + sync | `ensure_control_ready` |
+| `contorium cognition inspect governance [path]` | Inspect decision provenance rules | `get_decision_context` |
+| `contorium cognition inspect check [path] --target <file>` | Change understanding check | check via governance engine |
+| `contorium cognition inspect intent [path] "<text>"` | Record project direction | `record_project_intent` |
+| `contorium cognition inspect analyze [path]` | Project cognition snapshot | `analyze_project` |
+| `contorium cognition inspect health [path]` | Derive intelligence health & coverage | `get_project_intelligence_health` |
+| `contorium cognition inspect ready [path]` | Verify provenance layer ready | `inspect_cognition_ready` |
 
-Legacy aliases also work: `get-governance`, `check-action`, `update-project-intent`.
+Legacy aliases: `contorium control …` · `contorium inspect …` · `contorium system-inspection …`
+
+### Governance (legacy path)
+
+| Command | Purpose | Preferred replacement |
+|---------|---------|----------------------|
+| `contorium governance review [path] --target <file>` | Change understanding | `contorium understand` |
+| `contorium governance cycle [path] [--target <file>]` | Full provenance derive | `contorium decision derive` |
+| `contorium governance export [path] [--copy]` | Synthesize export | `contorium decision synthesize` |
+
+### Control surface (legacy — control-core)
+
+| Command | Purpose | Preferred replacement |
+|---------|---------|----------------------|
+| `contorium control governance [path]` | Read governance rules | `cognition inspect governance` |
+| `contorium control check [path] --target <file>` | Review an action | `cognition inspect check` |
+| `contorium control intent [path] "<text>"` | Update project direction | `cognition inspect intent` |
+| `contorium control analyze [path]` | Analyze project | `cognition inspect analyze` |
+| `contorium control ready [path]` | Bootstrap governance + sync | `cognition inspect ready` |
 
 **PowerShell:**
 

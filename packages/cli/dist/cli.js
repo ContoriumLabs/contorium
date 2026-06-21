@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as path from 'node:path';
-import { buildUnderstandingExportJson, confirmHandoffInjection, filterMappingsByConfidence, getProjectHandoff, prepareHandoffInjection, readChangeArtifact, readHandoffArtifact, readKnowledgeSnapshot, readProjectGraph, readProjectKnowledgeGraph, readProjectSnapshotMarkdown, readProjectTimeline, readStateJson, readWorkspaceStatus, setGitSubprocessAllowed, skipHandoffInjection, syncWorkspaceState, } from '@contora/state-core';
+import { buildUnderstandingExportJson, confirmHandoffInjection, filterMappingsByConfidence, getProjectHandoff, prepareHandoffInjection, readChangeArtifact, readHandoffArtifact, readKnowledgeSnapshot, readProjectGraph, readProjectKnowledgeGraph, readProjectSnapshotMarkdown, readProjectTimeline, readStateJson, readWorkspaceStatus, setGitSubprocessAllowed, skipHandoffInjection, syncWorkspaceState, loadTransferExportInput, buildTransferContextSnapshot, buildFullIntelligenceMarkdown, formatTransferContextMarkdown, formatTransferContextJson, finalizeTransferContextText, } from '@contora/state-core';
 import { isDashboardWorkerRunning, readDashboardStatus, runAttach, wakeDashboardOnActivity, writeDashboardSignal, } from './dashboard/index.js';
 import { loadDashboardState } from './dashboard/artifacts.js';
 import { buildDashboardExportText } from './dashboard/exportContext.js';
@@ -10,42 +10,37 @@ import { stopDashboardWorker } from './dashboard/daemon.js';
 import { bootstrapContoriumRuntime } from './runtime/bootstrap.js';
 import { copyToClipboard } from './handoff/clipboard.js';
 import { cmdGovernance } from './governance/commands.js';
+import { cmdDecision } from './decision/commands.js';
+import { cmdCognition } from './cognition/commands.js';
 import { cmdCheckAction, cmdControl, cmdGetGovernance, cmdUpdateProjectIntent, } from './control/commands.js';
-const USAGE = `Contorium CLI — runtime adapter (same state-core as IDE / MCP)
+import { cmdPil } from './pil/commands.js';
+const USAGE = `Contorium CLI — PIL Runtime (AI Project Intelligence Layer)
 
-Usage:
+Shared core: @contora/state-core · same intelligence model as IDE / MCP
+
+PIL Runtime Contract (v3.0 — preferred):
+  contorium inspect <state|intent|decision|timeline|graph|confidence|health|why|handoff> [path]
+  contorium transfer <context|intelligence|handoff> [path] [--format json|markdown] [--copy]
+  contorium capture <focus|note|decision> [path] --text|--selected ...
+
+Workspace:
   contorium init [workspaceRoot]       Bootstrap or merge .contora/state.json
   contorium sync [workspaceRoot]       Rescan workspace and refresh state (one-shot)
-  contorium snapshot [workspaceRoot]   Print PROJECT SNAPSHOT markdown
   contorium status [workspaceRoot]     JSON summary (mode, source, git counts)
-  contorium state [workspaceRoot]      Print state.json (pretty JSON)
 
-V3.1 understanding (mirrors MCP get_project_*):
-  contorium handoff [path] [--format compact|markdown|json]   get_handoff (default: compact)
-  contorium handoff --show | --hide | --copy-to-ai | --filter  Dashboard signals (debug)
-  contorium handoff --prompt-new-chat              Debug: force inject prompt (TTY)
-  contorium change [path]                             change.json
-  contorium graph [path]                              graph.json (change neighborhood)
-  contorium timeline [path]                           timeline.json
-  contorium knowledge [path] [--min-confidence N]     knowledge graph (default filter 0.7)
-  contorium graph-snapshot [path]                     cognitive snapshot (compact)
-  contorium export [path] [--format json|markdown]    unified export (handoff + governance)
-
-Governance (unified .contora/governance/* artifacts):
-  contorium governance review [path] --target <file>
-  contorium governance cycle [path] [--target <file>]
-  contorium governance export [path] [--copy]
-
-Control surface (control-core):
-  contorium control governance [path]               get_governance
-  contorium control check [path] --target <file>    check_action
-  contorium control intent [path] "<text>"          update_project_intent
-  contorium control analyze [path]                  analyze_project
-  contorium control execute [path] --target <file>  validate_governance loop
-  contorium control ready [path]                    bootstrap governance + sync
-
-Runtime (CRBP — auto attach via IDE / MCP initialize / workspace activity):
+Runtime (CRBP):
   contorium bootstrap [path] [--source ide|mcp|cli]   Runtime attach (MCP calls on init)
+
+Legacy (still supported — prefer PIL commands above):
+  contorium state [path]                → inspect state
+  contorium snapshot [path]             PROJECT SNAPSHOT markdown
+  contorium snapshot copy [path]        → transfer context
+  contorium export intelligence [path]    → transfer intelligence
+  contorium handoff / change / graph / timeline / knowledge
+  contorium export [path]               governance + handoff (legacy)
+  contorium graph-snapshot [path]       knowledge JSON snapshot (legacy)
+
+Decision Provenance · Cognition inspect · Governance — run contorium without args for full help.
 
 Default workspaceRoot: current directory
 `;
@@ -71,6 +66,16 @@ function workspaceArg() {
                 rest = rest.slice(1);
             }
         }
+    }
+    const pilGroups = ['inspect', 'transfer', 'capture'];
+    if (cmd && pilGroups.includes(cmd)) {
+        rest = rest.slice(1);
+    }
+    if (cmd === 'snapshot' && rest[0] === 'copy') {
+        rest = rest.slice(1);
+    }
+    if (cmd === 'export' && rest[0] === 'intelligence') {
+        rest = rest.slice(1);
     }
     const candidate = rest.find((a) => isPathLike(a));
     return path.resolve(candidate || process.cwd());
@@ -158,6 +163,36 @@ async function cmdSnapshot(root) {
     await ensureUnderstanding(root);
     const md = await readProjectSnapshotMarkdown(root);
     process.stdout.write(md ?? '');
+}
+async function cmdSnapshotCopy(root) {
+    await ensureUnderstanding(root);
+    const input = await loadTransferExportInput(root);
+    const snapshot = await buildTransferContextSnapshot(input);
+    const format = flagValue('--format', 'markdown');
+    const asJson = format === 'json';
+    const raw = asJson ? formatTransferContextJson(snapshot) : formatTransferContextMarkdown(snapshot);
+    const text = finalizeTransferContextText(raw, asJson);
+    if (hasCopyToAiFlag()) {
+        if (copyToClipboard(text)) {
+            console.error('Transfer Context: copied to clipboard');
+            return;
+        }
+        console.error('Transfer Context: clipboard unavailable — writing to stdout');
+    }
+    process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
+}
+async function cmdExportIntelligence(root) {
+    await ensureUnderstanding(root);
+    const input = await loadTransferExportInput(root);
+    const text = await buildFullIntelligenceMarkdown(input);
+    if (hasCopyToAiFlag()) {
+        if (copyToClipboard(text)) {
+            console.error('Transfer Intelligence: copied to clipboard');
+            return;
+        }
+        console.error('Transfer Intelligence: clipboard unavailable — writing to stdout');
+    }
+    process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 async function cmdStatus(root) {
     const status = await readWorkspaceStatus(root);
@@ -529,14 +564,29 @@ async function main() {
         case 'sync':
             await cmdSync(root);
             return;
-        case 'snapshot':
+        case 'snapshot': {
+            const sub = process.argv[3];
+            if (sub === 'copy') {
+                await cmdSnapshotCopy(root);
+                return;
+            }
             await cmdSnapshot(root);
             return;
+        }
         case 'status':
             await cmdStatus(root);
             return;
         case 'state':
             await cmdState(root);
+            return;
+        case 'inspect':
+            await cmdPil(root, 'inspect');
+            return;
+        case 'transfer':
+            await cmdPil(root, 'transfer');
+            return;
+        case 'capture':
+            await cmdPil(root, 'capture');
             return;
         case 'handoff':
             await cmdHandoff(root);
@@ -556,14 +606,30 @@ async function main() {
         case 'graph-snapshot':
             await cmdGraphSnapshot(root);
             return;
-        case 'export':
+        case 'export': {
+            const sub = process.argv[3];
+            if (sub === 'intelligence') {
+                await cmdExportIntelligence(root);
+                return;
+            }
             await cmdExport(root);
             return;
+        }
         case 'attach':
             await cmdAttach(root);
             return;
         case 'governance':
             await cmdGovernance(root);
+            return;
+        case 'decision':
+            await cmdDecision(root);
+            return;
+        case 'cognition':
+            await cmdCognition(root);
+            return;
+        case 'understand':
+            process.argv.splice(2, 1, 'decision', 'understand');
+            await cmdDecision(root);
             return;
         case 'get-governance':
         case 'get_governance':
@@ -577,6 +643,9 @@ async function main() {
         case 'update_project_intent':
             await cmdUpdateProjectIntent(root);
             return;
+        case 'inspect':
+        case 'system-inspection':
+        case 'system_inspection':
         case 'control': {
             const sub = process.argv[3];
             await cmdControl(root, sub);

@@ -66,4 +66,47 @@ export { getGitCommitFileDiff, listGitCommitRelativePaths, mergeReviewArtifacts,
 export { analyzeChange, computeChangeConfidence, type ChangeAnalysis, type ChangeAnalysisInput, type ChangeSeverity, type ChangeType } from './governance/changeAnalyzer.js';
 export { computeGovernanceImpact, computeGovernanceRisk, recommendationFor, type GovernanceImpact, type GovernanceRecommendation, type GovernanceRisk, type RiskEngineInput, type RiskEngineResult, } from './governance/riskEngine.js';
 export { buildGovernanceInjectPreview, compileGovernanceInjectPrompt, getRelevantGovernanceForFile, type GovernanceInjectInput, type GovernanceInjectMode, type RelevantGovernanceForFile, } from './prompt-engine/index.js';
+export type { ProjectIdentity, IntentNodeVNext, IntentGraphVNext, DecisionProvenanceNode, DecisionProvenanceGraph, WhyFeatureEntry, WhyLayerArtifact, CognitionStabilityMeta, CognitionConfidenceMeta, ConfidenceCategory, ConfidenceSignalSources, ConfidenceIndexEntry, ConfidenceIndexArtifact, ProvenanceChainLink, ProvenanceChainEntry, ProvenanceChainArtifact, EvolutionGraphNode, EvolutionGraphChain, EvolutionGraphArtifact, ProjectIntelligenceRepositoryState, ProjectIntelligenceSnapshot, ProjectIntelligenceHealth, ProjectIntelligenceHealthMetrics, ProjectIntelligenceValidation, SchemaValidationIssue, EvolutionEventType, ProjectEvolutionEvent, ProjectEvolutionTimeline, ImpactedNode, ImpactGraphEntry, ImpactGraphArtifact, StabilitySignalSources, StabilityIndexEntry, StabilityIndexArtifact, CognitiveEngineState, CognitiveSnapshot, } from './intelligence/types.js';
+export { PROJECT_INTELLIGENCE_SCHEMA, DECISION_PROVENANCE_SCHEMA, WHY_LAYER_SCHEMA, INTENT_VNEXT_SCHEMA, PROJECT_EVOLUTION_SCHEMA, IMPACT_GRAPH_SCHEMA, CONFIDENCE_INDEX_SCHEMA, STABILITY_INDEX_SCHEMA, PROVENANCE_CHAIN_SCHEMA, EVOLUTION_GRAPH_SCHEMA, PROJECT_INTELLIGENCE_REPOSITORY_SCHEMA, PROJECT_INTELLIGENCE_HEALTH_SCHEMA, PROJECT_INTELLIGENCE_VALIDATION_SCHEMA, COGNITIVE_ENGINE_SCHEMA, } from './intelligence/types.js';
+export { readProjectIdentity, syncProjectIdentity, } from './intelligence/projectIdentity.js';
+export { readDecisionProvenanceGraph, deriveDecisionProvenanceNode, 
+/** @deprecated use deriveDecisionProvenanceNode */
+buildDecisionProvenanceNode, appendDecisionProvenanceNode, } from './intelligence/decisionProvenance.js';
+export { readWhyLayer, syncWhyLayer, } from './intelligence/whyLayer.js';
+export { readIntentGraphVNext, readIntentNodesVNext, deriveIntentGraphVNext, projectIntentGraphVNext, 
+/** @deprecated use deriveIntentGraphVNext */
+mirrorIntentGraphVNext, } from './intelligence/intentVNext.js';
+export { syncIntelligenceLayer } from './intelligence/syncIntelligenceLayer.js';
+export { syncProjectIntelligenceRepository, 
+/** @deprecated */
+runCognitiveEngine, } from './intelligence/projectIntelligenceSync.js';
+export { syncProjectIntelligenceDimensions, 
+/** @deprecated */
+syncCognitiveDimensions, } from './intelligence/dimensions/syncProjectIntelligenceDimensions.js';
+export { readProjectEvolutionTimeline, queryProjectEvolutionTimeline, appendProjectEvolutionEvents, type ProjectTimelineQuery, } from './intelligence/dimensions/projectTimeline.js';
+export { readImpactGraph, queryImpactGraph, deriveImpactPropagation, upsertImpactGraphEntry, } from './intelligence/dimensions/impactGraph.js';
+export { readConfidenceIndex, queryConfidenceIndex, deriveConfidenceFromSignals, writeConfidenceIndex, } from './intelligence/dimensions/confidenceIndex.js';
+export { 
+/** @deprecated use readConfidenceIndex */
+readStabilityIndex, 
+/** @deprecated use queryConfidenceIndex */
+queryStabilityIndex, 
+/** @deprecated use deriveConfidenceFromSignals */
+deriveStabilityFromSignals, 
+/** @deprecated use writeConfidenceIndex */
+writeStabilityIndex, } from './intelligence/dimensions/stabilityIndex.js';
+export { readProvenanceChain, queryProvenanceChain, deriveProvenanceChains, } from './intelligence/systems/provenanceChain.js';
+export { readEvolutionGraph, queryEvolutionGraph, deriveEvolutionGraph, } from './intelligence/systems/evolutionGraph.js';
+export { migrateProjectIntelligenceLayout } from './intelligence/migration/artifactMigration.js';
+export { validateProjectIntelligenceArtifacts } from './intelligence/schema/schemaValidation.js';
+export { deriveProjectIntelligenceHealth, readProjectIntelligenceHealth, } from './intelligence/health/projectIntelligenceHealth.js';
+export { computeHealthScore, classifyHealthScore, HEALTH_SCORE_WEIGHTS, } from './intelligence/metrics/health.js';
+export { deriveKnowledgeCoverage } from './intelligence/metrics/coverage.js';
+export { readDecisionLog, appendDecisionLogEntry, type DecisionLogArtifact, type DecisionLogEntry, } from './intelligence/systems/decisionLog.js';
+export { TRANSFER_CONTEXT_TOKEN_TARGET, FULL_INTELLIGENCE_TOKEN_TARGET, loadTransferExportInput, buildTransferContextSnapshot, formatTransferContextMarkdown, formatTransferContextJson, finalizeTransferContextText, buildFullIntelligenceMarkdown, toTransferContextPayload, transferExportModeLabel, trimStringToTokenBudget, type TransferContextSnapshot, type TransferExportInput, type TransferExportMode, } from './intelligence/export/cognitiveTransfer.js';
+export { captureProjectFocus, captureProjectNote, captureProjectDecision, type CaptureFocusResult, type CaptureNoteResult, type CaptureDecisionInput, type CaptureDecisionResult, } from './pil/capture/index.js';
+export { retrieveProjectState, retrieveIntentGraph, retrieveDecisionBundle, retrieveTimeline, retrieveGraph, retrieveConfidence, retrieveImpact, retrieveWhy, retrieveHealth, retrieveEvolution, retrieveProvenance, retrieveHandoff, } from './pil/retrieve/index.js';
+export { CONTORIUM_VERSION, REPOSITORY_RUNTIME_VERSION, ARTIFACT_SCHEMA_VERSION, 
+/** @deprecated use REPOSITORY_RUNTIME_VERSION */
+REPOSITORY_SCHEMA_VERSION, } from './intelligence/paths.js';
 //# sourceMappingURL=index.d.ts.map

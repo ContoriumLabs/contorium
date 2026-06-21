@@ -1,21 +1,51 @@
-import { truncate } from './uiHelpers.js';
-export function renderKeyHintLines(args) {
-    const c = args.useColor;
-    const dim = (s) => (c ? `\x1b[2m${s}\x1b[0m` : s);
-    const yellow = (s) => (c ? `\x1b[33m${s}\x1b[0m` : s);
-    const w = args.width;
+import { padVisible, truncate } from './uiHelpers.js';
+export const SCROLL_SHORTCUTS_HINT = 'Scroll or resize terminal to view all shortcuts';
+function hintRows(args) {
+    const rows = [
+        { key: '[c]', desc: 'Copy PIL context to clipboard' },
+        { key: '[i]', desc: 'Inject compact handoff to AI chat' },
+        { key: '[q]', desc: 'Quit dashboard' },
+        { key: '[↑↓]', desc: 'Cycle Live / Governance / Debug view' },
+        { key: '[Enter]', desc: 'Apply view mode (A/B; Debug is preview-only)' },
+    ];
     if (args.injectionPending) {
         return [
-            truncate(yellow('[Enter/i] Inject context   [n] Skip'), w),
-            truncate(dim(args.view === 'compact'
-                ? '[space] Expand   [c] Copy   [q] Quit   ↑↓ Mode   Enter Apply'
-                : '[space] Minimize   [c] Copy   [q] Quit   ↑↓ Mode   Enter Apply'), w),
+            { key: '[Enter/i]', desc: 'Confirm pending handoff injection' },
+            { key: '[n]', desc: 'Skip this injection' },
+            ...rows,
         ];
     }
-    const copyLabel = args.hasGovernanceReview ? '[c] Export Governance' : '[c] Copy To AI';
-    const toggle = args.view === 'compact' ? '[space] Expand' : '[space] Minimize';
-    return [
-        truncate(dim(`${copyLabel}   ${toggle}   [q] Quit`), w),
-        truncate(dim('↑↓ Select Mode   Enter Apply'), w),
+    return rows;
+}
+function formatHintRow(row, useColor, width) {
+    const keyW = 10;
+    const keyCol = row.key.padEnd(keyW);
+    const keyStyled = useColor ? `\x1b[1m${keyCol}\x1b[0m` : keyCol;
+    const desc = row.desc;
+    const plain = `${keyCol} ${desc}`;
+    if (plain.length <= width) {
+        return useColor ? `${keyStyled} ${desc}` : plain;
+    }
+    return truncate(`${keyCol} ${desc}`, width);
+}
+/** Plain shortcut lines (no box borders). */
+export function renderKeyHintFooter(args) {
+    const c = args.useColor;
+    const dim = (s) => (c ? `\x1b[2m${s}\x1b[0m` : s);
+    const bold = (s) => (c ? `\x1b[1m${s}\x1b[0m` : s);
+    const w = args.width;
+    const lines = [
+        bold('Shortcuts'),
+        dim('─'.repeat(Math.max(12, Math.min(w, 48)))),
+        ...hintRows(args).map((row) => formatHintRow(row, c, w)),
     ];
+    return lines.map((line) => truncate(line, w));
+}
+export function shortcutScrollHintBoxed(inner, useColor) {
+    const dim = useColor ? `\x1b[2m${SCROLL_SHORTCUTS_HINT}\x1b[0m` : SCROLL_SHORTCUTS_HINT;
+    return `│ ${padVisible(dim, inner)} │`;
+}
+/** @deprecated use renderKeyHintFooter */
+export function renderKeyHintLines(args) {
+    return renderKeyHintFooter(args);
 }

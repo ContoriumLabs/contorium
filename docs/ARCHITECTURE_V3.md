@@ -1,5 +1,7 @@
 # Contorium V3.1 — Project Understanding Layer
 
+> **Note:** Contorium v3.0 unifies public APIs under the **AI Project Intelligence Layer (PIL)** with Inspect / Transfer / Capture across IDE, MCP, and CLI. See [PIL_RUNTIME.md](./PIL_RUNTIME.md) and [PROJECT_INTELLIGENCE_LAYER.md](./PROJECT_INTELLIGENCE_LAYER.md). This document describes the V3.1 understanding pipeline that feeds PIL artifacts.
+
 V3.1 converges V3 into a **3+1 artifact model**, adds a **Project Cognitive Graph** (Knowledge Graph), and makes **handoff.json the sole AI entry point** for execution context.
 
 ## Design goal
@@ -147,33 +149,33 @@ contorium governance export . --copy
 contorium control ready .
 ```
 
-## Governance V4 pipeline
+## Decision Provenance pipeline
 
-Governance runs as a unified decision pipeline across all three adapters:
+Governance runs as a unified decision pipeline across all three adapters. See [Language Spec](./CONTORIUM_LANGUAGE_SPEC.md).
 
 ```text
-ensure_control_ready
+inspect_cognition_ready
         ↓
-get_control_context + resolve_scope_context
+get_decision_context + resolve_scope_context
         ↓
-run_governance_cycle  (or review-only → review.json)
+derive_decision_provenance  (or understand-only → review.json)
         ↓
 decision.json + scope.json + trace.json + cycle.json
         ↓
-generate_inject_payload / export_governance_context
+synthesize_context_payload / export_decision_provenance
         ↓
 IDE Smart Inject · MCP Agent · CLI [c] copy
 ```
 
-| Step | MCP tool | IDE | CLI |
-|------|----------|-----|-----|
-| Bootstrap | `ensure_control_ready` | Startup ensure | `contorium control ready` |
-| Context | `get_control_context` | View Rules | `contorium control governance` |
-| Scope | `resolve_scope_context` | Open files + Git | Built into cycle |
-| Review | — | Review Change | `contorium governance review` |
-| Cycle | `run_governance_cycle` | Review Change (cycle) | `contorium governance cycle` |
-| Inject | `generate_inject_payload` | Smart/Diff Inject | Dashboard Enter |
-| Export | `export_governance_context` | Copy AI context | `[c]` · `governance export` |
+| Step | MCP tool (preferred) | IDE | CLI (preferred) |
+|------|----------------------|-----|-----------------|
+| Inspect ready | `inspect_cognition_ready` | Startup ensure | `contorium cognition inspect ready` |
+| Context | `get_decision_context` | View Rules | `contorium cognition inspect governance` |
+| Scope | `resolve_scope_context` | Open files + Git | Built into derive |
+| Understand | — | Review Change | `contorium understand --target <file>` |
+| Derive | `derive_decision_provenance` | Review Change (cycle) | `contorium decision derive` |
+| Synthesize | `synthesize_context_payload` | Smart Inject | `[c]` / `decision synthesize` |
+| Export | `export_decision_provenance` | Copy AI context | `contorium export` |
 
 Unified export (`buildGovernanceExportAppendixFull` in `@contora/state-core`) appends a `GOVERNANCE:` block with `## DECISION`, `## SCOPE`, and `## TRACE` sections to all export paths when artifacts exist.
 

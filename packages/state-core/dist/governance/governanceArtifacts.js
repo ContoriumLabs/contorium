@@ -54,6 +54,7 @@ exports.buildGovernanceSupplement = buildGovernanceSupplement;
 const fs = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const governanceReview_js_1 = require("./governanceReview.js");
+const decisionProvenance_js_1 = require("../intelligence/decisionProvenance.js");
 exports.GOVERNANCE_SCHEMA = 'governance.v1';
 const GOVERNANCE_SUBDIR = '.contora/governance';
 const LEGACY_CYCLE = '.contora/mcp/governance-cycle.json';
@@ -332,6 +333,12 @@ async function persistGovernanceCycleArtifacts(workspaceRoot, input) {
         writeJsonFile(path.join(dir, 'trace-full.json'), traceFull),
         writeJsonFile(path.join(dir, 'cycle.json'), cycle),
     ]);
+    const provenanceNode = (0, decisionProvenance_js_1.deriveDecisionProvenanceNode)({
+        review,
+        action,
+        linked_intent: review.file.split('/')[0],
+    });
+    await (0, decisionProvenance_js_1.appendDecisionProvenanceNode)(root, provenanceNode).catch(() => undefined);
     return cycle;
 }
 /** @deprecated Use persistGovernanceCycleArtifacts — review-only must not call this. */
@@ -535,6 +542,7 @@ exports.GOVERNANCE_ARTIFACT_FILES = [
     'governance/scope.json',
     'governance/trace.json',
     'governance/trace-full.json',
+    'governance/decision_graph.json',
     'governance/cycle.json',
     'mcp/governance-cycle.json',
 ];

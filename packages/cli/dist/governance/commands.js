@@ -1,4 +1,4 @@
-import { createControlSurface, writeGovernanceReview, buildGovernanceReviewArtifact, } from '@contora/state-core';
+import { createControlSurface, writeGovernanceReview, buildGovernanceReviewArtifact, syncIntelligenceLayer, } from '@contora/state-core';
 import { loadDashboardState } from '../dashboard/artifacts.js';
 import { buildDashboardExportText } from '../dashboard/exportContext.js';
 import { copyToClipboard } from '../handoff/clipboard.js';
@@ -10,11 +10,17 @@ function flagValue(name) {
     }
     return process.argv[i + 1];
 }
-export const GOVERNANCE_USAGE = `Contorium governance — unified artifact + export (state-core)
+export const GOVERNANCE_USAGE = `Contorium — Decision Provenance Layer (legacy path; prefer: contorium decision …)
 
-  contorium governance review [path] --target <file>   Static review → review.json only
-  contorium governance cycle [path] [--target <file>]    Full cycle → governance/*.json
-  contorium governance export [path] [--copy]             Unified export (same as handoff --copy)
+  contorium governance understand [path] --target <file>   Change understanding → review.json
+  contorium governance export [path] [--copy]              Synthesize cognition export
+
+  Preferred:
+  contorium decision derive [path] [--target <file>]
+  contorium decision snapshot [path] [--target <file>]
+  contorium decision synthesize [path] [--copy]
+
+  Legacy aliases: review · cycle · trace · provenance-build · decision-snapshot
 `;
 export async function cmdGovernanceReview(root) {
     const target = flagValue('--target');
@@ -37,12 +43,13 @@ export async function cmdGovernanceReview(root) {
         reviewScope: 'current_file',
     });
     await writeGovernanceReview(root, artifact);
+    await syncIntelligenceLayer(root, 'cli').catch(() => undefined);
     console.log(JSON.stringify({ workspaceRoot: root, review: artifact.file, risk: artifact.risk, wrote: ['review.json'] }, null, 2));
 }
 export async function cmdGovernanceCycle(root) {
     const mod = await importMcpGovernanceV4();
     if (!mod?.runGovernanceCycle) {
-        console.error('contorium governance cycle: MCP dist not found — run npm run build:mcp from repo root');
+        console.error('contorium decision derive: MCP dist not found — run npm run build:mcp from repo root');
         process.exit(1);
     }
     const target = flagValue('--target');
@@ -51,6 +58,7 @@ export async function cmdGovernanceCycle(root) {
         persist: true,
         mode: 'soft',
     });
+    await syncIntelligenceLayer(root, 'cli').catch(() => undefined);
     console.log(JSON.stringify(cycle, null, 2));
 }
 export async function cmdGovernanceExport(root) {
@@ -73,10 +81,23 @@ export async function cmdGovernance(root) {
     const sub = process.argv[3];
     switch (sub) {
         case 'review':
+        case 'understand':
             await cmdGovernanceReview(root);
             return;
         case 'cycle':
+        case 'trace':
+        case 'derive':
+        case 'provenance':
+        case 'provenance-build':
+        case 'provenance_build':
+        case 'decision-derive':
+        case 'decision_derive':
+        case 'decision-snapshot':
+        case 'decision_snapshot':
             await cmdGovernanceCycle(root);
+            return;
+        case 'synthesize':
+            await cmdGovernanceExport(root);
             return;
         case 'export':
             await cmdGovernanceExport(root);

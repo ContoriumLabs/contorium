@@ -69,6 +69,17 @@ for (const rel of [
   });
 }
 
+patchJson('package.json', (d) => {
+  if (d.dependencies) {
+    for (const key of Object.keys(d.dependencies)) {
+      const val = d.dependencies[key];
+      if (typeof val === 'string' && val.includes('.vscode-pack/contora-')) {
+        d.dependencies[key] = val.replace(/-\d+\.\d+\.\d+\.tgz$/, `-${version}.tgz`);
+      }
+    }
+  }
+});
+
 syncLockfile('package-lock.json', ['contorium']);
 syncLockfile('packages/mcp/package-lock.json', ['@contorium/mcp']);
 

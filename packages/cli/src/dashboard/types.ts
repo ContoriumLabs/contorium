@@ -1,9 +1,14 @@
 import type {
   ChangeArtifact,
+  EvolutionGraphArtifact,
   HandoffArtifact,
   HandoffInjectionState,
+  ImpactGraphArtifact,
+  ProjectEvolutionTimeline,
   ProjectGraph,
+  ProjectIntelligenceHealth,
   ProjectTimeline,
+  ProvenanceChainArtifact,
   UnderstandingGraph,
 } from '@contora/state-core';
 import type { KnowledgeSnapshot } from '@contora/state-core';
@@ -48,6 +53,12 @@ export interface DashboardState {
   recentEvents: RuntimeEvent[];
   handoffInjection?: HandoffInjectionState;
   governance?: DashboardGovernanceSnapshot;
+  /** v1.1.3 — Project Intelligence Repository panels */
+  intelligenceHealth?: ProjectIntelligenceHealth;
+  evolutionTimeline?: ProjectEvolutionTimeline;
+  evolutionGraph?: EvolutionGraphArtifact;
+  provenanceChain?: ProvenanceChainArtifact;
+  impactGraph?: ImpactGraphArtifact;
 }
 
 export interface AttachOptions {
@@ -74,8 +85,8 @@ export interface RenderContext {
   tickCount?: number;
   filter?: string;
   fsmState: DashboardFsmState;
-  /** Cognitive overlay A/B — keyboard selection (not yet applied). */
-  cognitiveModeSelection?: 'A' | 'B';
+  /** Cognitive view lens — A=Live B=Governance C=Debug (C is view-only). */
+  cognitiveModeSelection?: 'A' | 'B' | 'C';
   /** Cognitive overlay A/B — saved in .contora/mcp/cognitive.mode.json */
   cognitiveModeActive?: 'A' | 'B';
   /** Mode B insights from .contora/mcp/cognitive-insights.json */

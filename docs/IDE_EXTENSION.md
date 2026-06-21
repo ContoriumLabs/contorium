@@ -1,11 +1,25 @@
 # Contorium IDE Extension (VS Code / Cursor)
 
 Extension ID: `franklee-dev.contorium`  
-Display name: **Contorium**  
-Requires: VS Code / Cursor **1.85+**, **folder workspace** (single-file windows are limited)
+Display name: **Contorium — AI Project Intelligence Layer**  
+Requires: VS Code / Cursor **1.85+**, **folder workspace**
 
-The extension provides: sidebar UI, file/Git scanning, `.contora/state.json`, State Engine artifacts, and **one-click Copy AI-ready context**.  
-Peer adapters: [MCP](./MCP.md), [CLI](./CLI.md). Overview: [INSTALL.md](./INSTALL.md).
+The IDE is a **peer PIL Runtime** with MCP and CLI: sidebar UI, workspace scanning, `.contora/` artifacts, **Capture / Transfer**, governance UI, and runtime dashboard bootstrap.
+
+- [PIL Runtime Guide](./PIL_RUNTIME.md) · [MCP](./MCP.md) · [CLI](./CLI.md) · [Install](./INSTALL.md)
+
+---
+
+## PIL workflow (IDE)
+
+| Group | Sidebar / commands |
+|-------|---------------------|
+| **Capture** | Current focus · Capture note · Capture decision |
+| **Transfer** | **Transfer Context** · **Transfer Intelligence** |
+| **Inspect** | Project state · Intent graph · Knowledge graph · Governance panels |
+| **Governance** | Review Change · View Rules · Edit Direction · Smart/Diff inject |
+
+MCP equivalents: `capture_*` · `transfer_*` · `inspect_*`
 
 ---
 
@@ -14,14 +28,14 @@ Peer adapters: [MCP](./MCP.md), [CLI](./CLI.md). Overview: [INSTALL.md](./INSTAL
 | Phase | Action |
 |-------|--------|
 | **Install (VSIX)** | `npm run vsix` → **Install from VSIX** → **Developer: Reload Window** |
-| **Install (dev)** | `npm install && npm run compile` → **F5** → open project folder in new window |
-| **Verify** | Activity bar **Contorium** → sidebar shows Current focus / Copy button |
-| **Daily use** | **Copy AI-ready context**; auto Passive line + mini-graph; **Space** → Expanded in terminal |
-| **Governance** | Review Change · View Rules · Edit Direction · Smart/Diff Inject |
-| **New AI chat** | Auto inject prompt (notification + status bar `[?]`) — **no command** |
-| **Settings** | `contora.autoAttachDashboard` (default `true`) — auto-start dashboard worker |
-| **Uninstall** | Extensions → Contorium → Uninstall → Reload |
-| **Clear data (optional)** | Project root: `Remove-Item -Recurse -Force .contora` (PowerShell) |
+| **Install (dev)** | `npm install && npm run compile` → **F5** → open project folder |
+| **Verify** | Activity bar **Contorium** → sidebar shows Current focus + Transfer buttons |
+| **Capture** | Set **Current focus** · **Capture note** · **Capture decision** |
+| **Transfer** | **Transfer Context** (default) · **Transfer Intelligence** (full) |
+| **Dashboard** | Auto Cognitive State TUI in terminal after workspace open |
+| **Governance** | Review Change · View Rules · Edit Direction |
+| **New AI chat** | Semi-auto handoff inject prompt (user confirm) |
+| **Settings** | `contora.autoAttachDashboard` (default `true`) |
 
 ---
 
@@ -73,16 +87,15 @@ If the sidebar stays blank, see [Troubleshooting](#troubleshooting).
 
 | Action | Description |
 |--------|-------------|
-| **Current focus** | L0 task anchor → `state.json`; not auto-inferred |
-| **Context notes** | Local notes included in export |
-| **Copy AI-ready context** | V3.1 canonical context to clipboard (legacy full export) |
-| **Runtime dashboard (status bar)** | CHP compact line from `handoff.json` + optional `⤷` mini-graph — click to expand |
-| **AI Cortex** | Collapsible: Knowledge Graph, Hotspots, Function graph, Impact, Reason trace |
+| **Current focus** | PIL **Capture** → `state.json` `currentTask` |
+| **Capture note / decision** | PIL **Capture** → `.contora/` decision / note records |
+| **Transfer Context** | PIL **Transfer** (~300–800 tokens) → clipboard |
+| **Transfer Intelligence** | PIL **Transfer** full export (~8000 tokens) |
+| **Runtime dashboard** | Status bar CHP line + auto Cognitive State TUI |
+| **AI Cortex** (collapsible) | Knowledge graph, hotspots, function graph, impact |
+| **Governance** | Review Change · View Rules · Edit Direction |
 | **Sync state to disk** | Persist `state.json` immediately |
 | **Restore editors** | Reopen editors from saved state |
-| **Project state** | L4 snapshot preview (full body via Copy) |
-| **State conflicts** | Unresolved v2 audit conflicts (display only) |
-| **Intent graph** | L5 weak inference preview — **not** in main copy |
 
 ### Command palette
 
@@ -90,8 +103,9 @@ If the sidebar stays blank, see [Troubleshooting](#troubleshooting).
 
 | Command | Purpose |
 |---------|---------|
-| Copy AI-ready context (clipboard) | One-click export (includes governance appendix when available) |
-| Smart inject (governance → AI) | Pre-review + inject governance context into chat |
+| Transfer Context | PIL transfer — default cognitive snapshot to clipboard |
+| Transfer Intelligence | PIL transfer — full intelligence export |
+| Smart inject (governance → AI) | Pre-review + inject governance context |
 | Diff mode inject (governance → AI) | Diff-scoped governance inject |
 | Review Change | Run governance review on current scope |
 | View Rules | Open governance rules panel |
@@ -135,7 +149,7 @@ The IDE participates in the unified governance pipeline shared with MCP and CLI:
 | Diff-scoped inject | **Diff mode inject** | scoped to git diff |
 | Export with governance | **Copy AI-ready context** | full export + `GOVERNANCE:` appendix |
 
-IDE **Review Change** writes `review.json` only. A full **cycle** (decision / scope / trace / cycle artifacts) is triggered via MCP `run_governance_cycle` or CLI `contorium governance cycle`.
+IDE **Review Change** writes `review.json` only. Full decision provenance (decision / scope / trace / cycle artifacts) is derived via MCP `derive_decision_provenance` or CLI `contorium decision derive`.
 
 See [INSTALL.md](./INSTALL.md#architecture-three-adapters) for the three-adapter governance matrix.
 

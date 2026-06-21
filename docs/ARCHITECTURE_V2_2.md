@@ -1,6 +1,8 @@
 # Contorium v2.2 — Shared Workspace State Layer
 
-Contorium is a **shared workspace state layer** for AI tools. **IDE, MCP, and CLI are peer adapters** reading and writing the same `.contora/` artifacts. `state-core` is the sole state engine; **state-builder / normalization / snapshot live in state-core** so IDE and MCP do not duplicate builder logic.
+> **Current:** Contorium v3.0 **AI Project Intelligence Layer** — see [PIL_RUNTIME.md](./PIL_RUNTIME.md). This document describes the v2.2 dual-mode state layer that underpins `.contora/state.json`.
+
+Contorium is a **shared workspace state layer** for AI tools. **IDE, MCP, and CLI are peer adapters** reading and writing the same `.contora/` artifacts.
 
 ## Principles
 

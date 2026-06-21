@@ -1,8 +1,8 @@
 {
   "name": "contorium",
   "displayName": "Contorium",
-  "description": "Contorium: local workspace memory (task, notes, editors, Git), event JSONL, heuristic intent/ranking, ignore rules, token budget, optional BYOK (OpenAI / Claude / Gemini / DeepSeek) — export AI-ready context to clipboard (markdown, JSON, etc.).",
-  "version": "1.0.1",
+  "description": "Contorium: AI Project Intelligence Layer — capture, structure, preserve, retrieve and transfer project intelligence across IDE, MCP, and CLI.",
+  "version": "1.1.3",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -48,15 +48,19 @@
     "commands": [
       {
         "command": "contora.exportAIContext",
-        "title": "Contorium: Export AI context (inject into chat)"
+        "title": "Contorium: Transfer Context"
+      },
+      {
+        "command": "contora.exportFullIntelligence",
+        "title": "Contorium: Transfer Intelligence"
       },
       {
         "command": "contora.smartGovernanceInject",
-        "title": "Contorium: Smart inject (governance → AI)"
+        "title": "Contorium: Context synthesis (cognition → AI)"
       },
       {
         "command": "contora.diffGovernanceInject",
-        "title": "Contorium: Diff mode inject (governance → AI)"
+        "title": "Contorium: Diff-scoped context synthesis (cognition → AI)"
       },
       {
         "command": "contora.saveStateNow",
@@ -96,27 +100,27 @@
       },
       {
         "command": "contora.controlGovernance",
-        "title": "Contorium: View Rules"
+        "title": "Contorium: Inspect decision provenance"
       },
       {
         "command": "contora.getGovernance",
-        "title": "Contorium: View Rules"
+        "title": "Contorium: Inspect decision provenance"
       },
       {
         "command": "contora.controlCheck",
-        "title": "Contorium: Review Change"
+        "title": "Contorium: Inspect change scope"
       },
       {
         "command": "contora.checkAction",
-        "title": "Contorium: Review Change"
+        "title": "Contorium: Inspect change scope"
       },
       {
         "command": "contora.controlIntent",
-        "title": "Contorium: Edit Direction"
+        "title": "Contorium: Record project direction"
       },
       {
         "command": "contora.updateProjectIntent",
-        "title": "Contorium: Edit Direction"
+        "title": "Contorium: Record project direction"
       }
     ],
     "keybindings": [
@@ -373,8 +377,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.0.1.tgz",
-    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.0.1.tgz",
+    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.1.3.tgz",
+    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.1.3.tgz",
     "simple-git": "^3.22.0"
   }
 }

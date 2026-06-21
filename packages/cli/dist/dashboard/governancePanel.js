@@ -27,7 +27,7 @@ export function renderGovernanceSummaryLines(gov, useColor, width) {
     const c = colors(useColor);
     if (!gov?.review) {
         return [
-            c.dim('No review — IDE/MCP run_governance_cycle'),
+            c.dim('No decision snapshot — run: contorium decision derive'),
             truncate(`Risk Score : —`, width),
             truncate(`Decision   : —`, width),
         ];
@@ -84,7 +84,7 @@ export function renderScopeMapLines(gov, useColor, width) {
 export function renderDecisionTraceLines(gov, useColor, width) {
     const c = colors(useColor);
     if (!gov?.review) {
-        return [c.dim('Run governance cycle to populate trace')];
+        return [c.dim('Run decision derive to populate provenance timeline')];
     }
     const r = gov.review;
     const steps = [
@@ -103,7 +103,7 @@ export function renderDecisionTraceLines(gov, useColor, width) {
 export function renderGovernanceRawLines(gov, useColor, width) {
     const c = colors(useColor);
     if (!gov?.review) {
-        return [c.dim('Governance cycle not run'), c.dim('Use MCP run_governance_cycle')];
+        return [c.dim('Provenance not derived'), c.dim('CLI: contorium decision derive')];
     }
     const r = gov.review;
     const lines = [
@@ -121,4 +121,5 @@ export function renderGovernanceRawLines(gov, useColor, width) {
     }
     return lines;
 }
-export const DASHBOARD_TITLE_V4 = 'CONTORIUM • Governance Decision Cortex';
+/** @deprecated use COGNITIVE_DASHBOARD_TITLE from cognitiveRenderer */
+export const DASHBOARD_TITLE_V4 = 'CONTORIUM • Cognitive State';

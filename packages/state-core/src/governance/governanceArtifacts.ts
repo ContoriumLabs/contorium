@@ -2,6 +2,10 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { GovernanceReviewArtifact } from './governanceReview.js';
 import { readGovernanceReview } from './governanceReview.js';
+import {
+  appendDecisionProvenanceNode,
+  deriveDecisionProvenanceNode,
+} from '../intelligence/decisionProvenance.js';
 
 export const GOVERNANCE_SCHEMA = 'governance.v1' as const;
 
@@ -446,6 +450,13 @@ export async function persistGovernanceCycleArtifacts(
     writeJsonFile(path.join(dir, 'cycle.json'), cycle),
   ]);
 
+  const provenanceNode = deriveDecisionProvenanceNode({
+    review,
+    action,
+    linked_intent: review.file.split('/')[0],
+  });
+  await appendDecisionProvenanceNode(root, provenanceNode).catch(() => undefined);
+
   return cycle;
 }
 
@@ -710,6 +721,7 @@ export const GOVERNANCE_ARTIFACT_FILES = [
   'governance/scope.json',
   'governance/trace.json',
   'governance/trace-full.json',
+  'governance/decision_graph.json',
   'governance/cycle.json',
   'mcp/governance-cycle.json',
 ] as const;

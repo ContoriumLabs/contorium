@@ -1,384 +1,72 @@
-import { buildChpHandoffStateSync, formatChpCompact, formatUnderstandingMiniGraph } from '@contora/state-core';
-import { renderCognitiveModeSelectorLines, } from './cognitiveModePanel.js';
-import { DASHBOARD_TITLE_V4, renderDecisionFeedLines, renderDecisionTraceLines, renderGovernanceRawLines, renderGovernanceSummaryLines, renderScopeMapLines, } from './governancePanel.js';
-import { renderKeyHintLines } from './keyHints.js';
-import { liveSectionTitle, monitoringBadge, statusGlyph } from './statusAnimation.js';
-import { progressBar, projectMetrics, sectionDivider } from './uiHelpers.js';
-function createColors(enabled) {
-    const wrap = (code) => (text) => enabled ? `\x1b[${code}m${text}\x1b[0m` : text;
-    return {
-        green: wrap('32'),
-        blue: wrap('34'),
-        red: wrap('31'),
-        yellow: wrap('33'),
-        cyan: wrap('36'),
-        dim: wrap('2'),
-        bold: wrap('1'),
-    };
-}
-function truncate(text, max) {
-    if (text.length <= max) {
-        return text;
-    }
-    return `${text.slice(0, Math.max(0, max - 1))}…`;
-}
-const EVENT_GLYPH = '>';
-function uiTick(ctx) {
-    return ctx.tickCount ?? 0;
-}
-/** Strip ANSI for terminal column padding. */
-function visibleLength(text) {
-    return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').length;
-}
-function padVisible(text, width) {
-    const pad = Math.max(0, width - visibleLength(text));
-    return `${text}${' '.repeat(pad)}`;
-}
-/** Passive event log line — static text, fixed prefix glyph (no animation). */
-export function renderPassiveEventLine(source, kind, detail, ctx) {
-    const c = createColors(ctx.useColor);
-    const body = detail?.trim() ? `${kind} ${detail.trim()}` : kind;
-    return `${c.dim(EVENT_GLYPH)} ${c.dim(`${source}: ${body}`)}`;
-}
-function basenameOf(rel) {
-    const parts = rel.replace(/\\/g, '/').split('/').filter(Boolean);
-    return parts.length ? parts[parts.length - 1] : rel;
-}
-function matchesFilter(symbol, filter) {
-    if (!filter?.trim()) {
-        return true;
-    }
-    return symbol.toLowerCase().includes(filter.trim().toLowerCase());
-}
-function changePrefix(changeType, c) {
-    switch (changeType) {
-        case 'added':
-            return c.green('+');
-        case 'modified':
-            return c.yellow('~');
-        case 'removed':
-            return c.red('-');
-        default:
-            return c.dim('·');
-    }
-}
-function formatFunctionChange(kc, c) {
-    const prefix = changePrefix(kc.change_type, c);
-    const sym = kc.kind === 'function' ? `${kc.symbol}()` : kc.symbol;
-    return `${prefix} ${sym}`;
-}
-function keyChanges(state, filter) {
-    const raw = state.handoff?.key_changes?.length
-        ? state.handoff.key_changes
-        : state.change?.key_changes ?? [];
-    return raw.filter((k) => matchesFilter(k.symbol, filter));
-}
-function functionUpdateLines(state, c, width, filter) {
-    const changes = keyChanges(state, filter)
-        .filter((k) => k.kind === 'function' || k.kind === 'class')
-        .slice(0, 8);
-    if (changes.length) {
-        return changes.map((kc) => truncate(formatFunctionChange(kc, c), width - 2));
-    }
-    const files = (state.change?.changed_files ?? [])
-        .filter((f) => matchesFilter(f, filter))
-        .slice(0, 6);
-    if (files.length) {
-        return files.map((f) => truncate(`${c.dim('~')} ${f.replace(/\\/g, '/')}`, width - 2));
-    }
-    return [c.dim(filter ? `(no changes matching "${filter}")` : '(no recent function changes)')];
-}
-function impactGraphLines(state, c, width, maxLines = 8) {
-    const ug = state.understandingGraph;
-    if (ug?.call_chain.length) {
-        const lines = [
-            truncate(`${c.dim('Recent change:')} ${ug.recent_change.name}`, width - 2),
-            ...liveCallChainTree(ug.call_chain, c, width, maxLines),
-        ];
-        if (ug.affected.length > ug.call_chain.length) {
-            lines.push(truncate(`${c.dim('Impact:')} ${ug.affected.slice(ug.call_chain.length, ug.call_chain.length + 6).join(', ')}`, width - 2));
-        }
-        lines.push(truncate(`${c.dim('Agent:')} ${ug.agent}`, width - 2));
-        return lines.slice(0, maxLines + 4);
-    }
-    const graph = state.graph;
-    if (!graph?.edges.length || !graph.nodes.length) {
-        const fallback = state.handoff?.impact_summary.affected_functions ?? [];
-        if (fallback.length >= 2) {
-            return [truncate(fallback.slice(0, 6).join(' → '), width - 2)];
-        }
-        return [c.dim('(impact graph pending)')];
-    }
-    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-    const lines = [];
-    for (const edge of graph.edges.filter((e) => e.kind === 'calls').slice(0, 8)) {
-        const from = byId.get(edge.from);
-        const to = byId.get(edge.to);
-        if (!from || !to) {
-            continue;
-        }
-        if (!matchesFilter(from.name, undefined) && !matchesFilter(to.name, undefined)) {
-            // still show graph edges
-        }
-        const chain = `${from.name} → ${to.name}`;
-        const styled = state.handoff?.impact_summary.risk === 'high' ? c.red(chain) : chain;
-        lines.push(truncate(styled, width - 2));
-        if (lines.length >= 5) {
-            break;
-        }
-    }
-    return lines.length ? lines : [c.dim('(no call edges)')];
-}
-/** Unicode tree for live call-chain display in Expanded fullscreen. */
-function liveCallChainTree(chain, c, width, maxLines) {
-    const lines = [];
-    const limit = Math.min(chain.length, maxLines);
-    for (let i = 0; i < limit; i++) {
-        const isLast = i === limit - 1;
-        const branch = isLast ? '└─' : '├─';
-        const indent = i > 0 ? `${'│ '.repeat(i - 1)}${isLast ? '  ' : '│ '}` : '';
-        lines.push(truncate(`${indent}${branch} ${c.cyan(chain[i])}`, width - 2));
-    }
-    if (chain.length > limit) {
-        lines.push(c.dim(`  … +${chain.length - limit} more`));
-    }
-    return lines;
-}
-function agentTimelineLines(state, c, width) {
-    const writer = state.status.lastWriter ?? 'runtime';
-    const lines = [];
-    for (const kc of keyChanges(state).slice(0, 3)) {
-        lines.push(truncate(`${writer}: function_update ${kc.symbol}`, width - 2));
-    }
-    for (const ev of state.recentEvents.slice(0, 4)) {
-        const file = ev.file ? basenameOf(ev.file) : ev.detail ?? '';
-        lines.push(truncate(`${c.dim(writer)}: ${ev.type}${file ? ` ${file}` : ''}`, width - 2));
-    }
-    return lines.length ? lines.slice(0, 6) : [c.dim('(no agent activity)')];
-}
-function structureLines(state, c, width) {
-    const nodes = state.graph?.nodes ?? [];
-    if (!nodes.length) {
-        const top = state.snapshot?.topFunctions ?? [];
-        if (top.length) {
-            return top.slice(0, 5).map((fn) => truncate(`  ${fn}()`, width - 2));
-        }
-        return [c.dim('(structure empty)')];
-    }
-    const byFile = new Map();
-    for (const node of nodes) {
-        const dir = pathDir(node.file);
-        const bucket = byFile.get(dir) ?? [];
-        bucket.push(node);
-        byFile.set(dir, bucket);
-    }
-    const lines = [];
-    for (const dir of [...byFile.keys()].sort().slice(0, 3)) {
-        lines.push(truncate(`${dir}/`, width - 2));
-        for (const n of (byFile.get(dir) ?? [])
-            .filter((n) => n.kind === 'function' || n.kind === 'class')
-            .slice(0, 4)) {
-            lines.push(truncate(`  ├── ${n.name}${n.kind === 'function' ? '()' : ''}`, width - 2));
-        }
-    }
-    return lines;
-}
-function pathDir(file) {
-    const norm = file.replace(/\\/g, '/');
-    const idx = norm.lastIndexOf('/');
-    return idx > 0 ? norm.slice(0, idx) : '.';
-}
-/** Copy To AI — user-facing actions (not internal handoff/export jargon). */
-function copyToAiLines(state, c, width) {
-    const chp = buildChpHandoffStateSync({
-        workspaceRoot: state.workspaceRoot,
-        handoff: state.handoff,
-        change: state.change,
-        currentTask: state.status.currentTask,
-        lastWriter: state.status.lastWriter,
-    });
-    const lines = [
-        c.cyan('Copy To AI — paste in your next chat:'),
-        truncate('  Press c (or: contorium handoff --copy)', width - 2),
-        truncate('  Semi-auto: auto on new chat · Enter/i in terminal · IDE [?] status bar', width - 2),
-    ];
-    if (chp) {
-        lines.push('');
-        lines.push(truncate(`  ${formatChpCompact(chp)}`, width - 2));
-    }
-    else {
-        lines.push('');
-        lines.push(c.dim('  (waiting for code changes — save a file or run sync)'));
-    }
-    lines.push('');
-    lines.push(c.dim("Keys: Space toggle view · c Copy To AI · q quit"));
-    lines.push(c.dim('Legacy: contorium export · IDE Copy AI-ready context'));
-    return lines;
-}
-function statusLines(state, c, width) {
-    const risk = state.handoff?.impact_summary.risk ?? 'low';
-    const fileCount = state.change?.changed_files?.length ?? 0;
-    const velocity = fileCount >= 5 ? 'HIGH' : fileCount >= 2 ? 'MEDIUM' : 'LOW';
-    const health = risk === 'high' ? 'CAUTION' : risk === 'medium' ? 'OK' : 'GOOD';
-    const riskStyled = risk === 'high' ? c.red('HIGH') : risk === 'medium' ? c.yellow('MEDIUM') : c.green('LOW');
-    return [
-        truncate('Monitor: active', width - 2),
-        truncate(`Health: ${health}`, width - 2),
-        truncate(`Change Velocity: ${velocity} (${fileCount} files)`, width - 2),
-        truncate(`Risk: ${riskStyled}`, width - 2),
-        truncate(`Mode: ${state.status.mode} · Events: ${state.status.eventCount}`, width - 2),
-    ];
-}
-function section(title, body, width, opts) {
-    const hr = '─'.repeat(Math.max(16, width - 2));
-    const heading = opts?.animate && opts.c !== undefined && opts.tick !== undefined
-        ? liveSectionTitle(title, opts.tick, opts.c, true)
-        : `[${title}]`;
-    return [heading, hr, ...body, ''];
-}
+import { renderCognitiveMainPanel, renderCognitiveShortcutFooter, } from './cognitiveRenderer.js';
+import { shortcutScrollHintBoxed } from './keyHints.js';
+import { terminalHeight } from './terminalUi.js';
 /** Idle — waiting for IDE session (minimal, single line). */
 export function renderIdleLine(ctx) {
-    const c = createColors(ctx.useColor);
-    return c.dim('[○] Contorium waiting for IDE session…');
+    const dim = ctx.useColor ? '\x1b[2m' : '';
+    const reset = ctx.useColor ? '\x1b[0m' : '';
+    return `${dim}[○] Contorium waiting for IDE session…${reset}`;
 }
-/** Passive — CHP v1 compact status bar. */
-export function renderPassiveLine(state, updateCount, ctx) {
-    const c = createColors(ctx.useColor);
-    const tick = uiTick(ctx);
-    const dot = statusGlyph(tick, c.green, true);
-    const chp = buildChpHandoffStateSync({
-        workspaceRoot: state.workspaceRoot,
-        handoff: state.handoff,
-        change: state.change,
-        currentTask: state.status.currentTask,
-        lastWriter: state.status.lastWriter,
-    });
-    const core = chp
-        ? formatChpCompact(chp, ctx.filter)
-        : `[Contorium] task: (idle) | last: — | agent: ${state.status.lastWriter ?? 'runtime'}`;
-    const injectionPending = state.handoffInjection?.status === 'pending';
-    const miniGraph = formatUnderstandingMiniGraph(state.understandingGraph, Math.max(24, ctx.width - 56));
-    const miniSuffix = miniGraph ? c.dim(` · ${miniGraph}`) : '';
-    const injectHint = injectionPending
-        ? c.yellow(' · [?] Enter/i inject · n skip')
-        : c.dim(' · ↑↓ mode · Enter apply · Space expand · c Copy · q quit');
-    void updateCount;
-    return `[${dot}] ${core}${miniSuffix}${injectHint}`;
-}
-function runtimeFeedLines(state, c, width) {
-    const writer = state.status.lastWriter ?? 'mcp';
-    const lines = [];
-    for (const kc of keyChanges(state).slice(0, 4)) {
-        const file = kc.symbol.replace(/\\/g, '/').split('/').pop() ?? kc.symbol;
-        lines.push(truncate(`${writer}:update ${file}`, width));
+/**
+ * Truncate shortcut footer only — main panel is never clipped.
+ * When truncated, reserves space for a scroll/resize hint before the bottom border.
+ */
+function buildTruncatedShortcutFooter(fullFooter, footerBudget, scrollHintLine) {
+    if (footerBudget <= 0) {
+        return [];
     }
-    for (const ev of state.recentEvents.slice(0, 4)) {
-        const file = ev.file ? basenameOf(ev.file) : ev.detail ?? '';
-        lines.push(truncate(`${writer}:${ev.type}${file ? ` ${file}` : ''}`, width));
+    if (footerBudget >= fullFooter.length) {
+        return fullFooter;
     }
-    return lines.length ? lines.slice(0, 6) : [c.dim('(no runtime feed)')];
-}
-function projectStatusFullLines(state, c, width) {
-    const m = projectMetrics(state);
-    const riskStyled = m.riskLevel === 'high' ? c.red(m.risk) : m.riskLevel === 'medium' ? c.yellow(m.risk) : c.green(m.risk);
-    return [
-        truncate(`Monitor : ACTIVE`, width),
-        truncate(`Health  : ${m.health}`, width),
-        truncate(`Velocity: ${m.velocity} (${m.fileCount} files)`, width),
-        truncate(`Risk    : ${riskStyled}`, width),
-        truncate(`Events  : ${m.eventCount}`, width),
-        '',
-        truncate('Velocity', width),
-        truncate(`${progressBar(m.velocityRatio)} ${m.velocity}`, width),
-    ];
-}
-function exportGovernanceCompactLines(state, c, width) {
-    const hasReview = Boolean(state.governance?.review);
-    const lines = [
-        truncate(hasReview ? 'Press [c] Export Governance Context' : 'Press [c] to copy context', width),
-        truncate(hasReview ? 'Governance YAML + rules for AI chat' : 'Paste into your next AI chat', width),
-    ];
-    if (state.governance?.review) {
-        const r = state.governance.review;
-        lines.push(truncate(`${r.risk.toUpperCase()} · ${state.governance.decision_action}`, width));
-        lines.push(truncate(r.file, width));
+    const sep = fullFooter[0];
+    const bottom = fullFooter[fullFooter.length - 1];
+    const title = fullFooter[1] ?? `│ Shortcuts │`;
+    const keyLines = fullFooter.slice(2, -1);
+    if (footerBudget === 1) {
+        return [scrollHintLine];
     }
-    else {
-        const chp = buildChpHandoffStateSync({
-            workspaceRoot: state.workspaceRoot,
-            handoff: state.handoff,
-            change: state.change,
-            currentTask: state.status.currentTask,
-            lastWriter: state.status.lastWriter,
-        });
-        if (chp) {
-            lines.push(truncate(formatChpCompact(chp), width));
-        }
-        else {
-            lines.push(c.dim('Run governance cycle or save changes…'));
-        }
+    if (footerBudget === 2) {
+        return [sep, scrollHintLine];
     }
-    return lines;
+    if (footerBudget === 3) {
+        return [sep, title, scrollHintLine];
+    }
+    if (footerBudget === 4) {
+        return [sep, title, scrollHintLine, bottom];
+    }
+    const keySlots = footerBudget - 4;
+    return [sep, title, ...keyLines.slice(0, keySlots), scrollHintLine, bottom];
 }
-function panelSection(title, body, c, width, tick) {
-    return [liveSectionTitle(title, tick, c, true), sectionDivider(width), ...body, ''];
+/**
+ * Full-screen dashboard: main content is always complete.
+ * If vertical space is tight, shortcut help is truncated first with a scroll hint.
+ */
+export function assembleDashboardFrame(state, ctx) {
+    const rows = ctx.height ?? terminalHeight();
+    const inner = Math.max(40, ctx.width - 4);
+    const main = renderCognitiveMainPanel(state, ctx);
+    const fullFooter = renderCognitiveShortcutFooter(state, ctx);
+    const scrollHintLine = shortcutScrollHintBoxed(inner, ctx.useColor);
+    const totalIfFull = main.length + fullFooter.length;
+    if (totalIfFull <= rows) {
+        const pad = rows - totalIfFull;
+        return [...main, ...Array(Math.max(0, pad)).fill(''), ...fullFooter].join('\n');
+    }
+    const footerBudget = rows - main.length;
+    if (footerBudget <= 0) {
+        return [...main, ...fullFooter, scrollHintLine].join('\n');
+    }
+    if (footerBudget >= fullFooter.length) {
+        return [...main, ...fullFooter].join('\n');
+    }
+    const truncatedFooter = buildTruncatedShortcutFooter(fullFooter, footerBudget, scrollHintLine);
+    return [...main, ...truncatedFooter].join('\n');
 }
-/** Expanded — full cognitive view (Space toggle from compact). */
+/** Full cognitive state dashboard (single layout; no compact toggle). */
 export function renderExpanded(state, ctx) {
-    const c = createColors(ctx.useColor);
-    const w = ctx.width;
-    const colW = Math.max(28, Math.floor((w - 5) / 2));
-    const tick = uiTick(ctx);
-    const injectionPending = state.handoffInjection?.status === 'pending';
-    const gov = state.governance;
-    const modeActive = ctx.cognitiveModeActive ?? 'A';
-    const left = [
-        ...panelSection('Decision Feed', renderDecisionFeedLines(state, gov, ctx.useColor, colW), c, colW, tick),
-        ...panelSection('Scope Map', renderScopeMapLines(gov, ctx.useColor, colW), c, colW, tick),
-        ...panelSection('Export Context', exportGovernanceCompactLines(state, c, colW), c, colW, tick),
-    ];
-    const right = [
-        ...panelSection('Governance Summary', renderGovernanceSummaryLines(gov, ctx.useColor, colW), c, colW, tick),
-        ...panelSection('View Mode', renderCognitiveModeSelectorLines({
-            selection: ctx.cognitiveModeSelection ?? 'A',
-            active: modeActive,
-            useColor: ctx.useColor,
-            width: colW,
-            tick,
-        }), c, colW, tick),
-        ...panelSection(modeActive === 'B' ? 'Governance View' : 'Decision Trace', modeActive === 'B'
-            ? renderGovernanceRawLines(gov, ctx.useColor, colW)
-            : renderDecisionTraceLines(gov, ctx.useColor, colW), c, colW, tick),
-    ];
-    const inner = Math.max(40, w - 4);
-    const top = `┌${'─'.repeat(inner)}┐`;
-    const titleText = `${c.bold(DASHBOARD_TITLE_V4)}${monitoringBadge(tick, ctx.live === true, c)}`;
-    const title = `│ ${padVisible(titleText, inner)} │`;
-    const colSep = `├${'─'.repeat(colW)}┬${'─'.repeat(Math.max(0, inner - colW - 1))}┤`;
-    const body = mergeColumns(left, right, w).map((line) => `│ ${padVisible(line, inner)} │`);
-    const keyLines = renderKeyHintLines({
-        injectionPending,
-        useColor: ctx.useColor,
-        width: inner,
-        view: 'expanded',
-        hasGovernanceReview: Boolean(gov?.review),
-    });
-    const footRows = keyLines.map((line) => `│ ${padVisible(line, inner)} │`);
-    const bottom = `└${'─'.repeat(inner)}┘`;
-    return [top, title, colSep, ...body, ...footRows, bottom].join('\n');
-}
-function mergeColumns(left, right, totalWidth) {
-    const colW = Math.floor((totalWidth - 3) / 2);
-    const maxRows = Math.max(left.length, right.length);
-    const out = [];
-    for (let i = 0; i < maxRows; i++) {
-        const lPadded = padVisible(left[i] ?? '', colW);
-        const rPadded = padVisible(right[i] ?? '', colW);
-        out.push(`${lPadded} │ ${rPadded}`);
-    }
-    return out;
+    return assembleDashboardFrame(state, ctx);
 }
 /** Legacy one-shot full frame. */
 export function renderDashboardOnce(state, ctx) {
-    return renderExpanded(state, { ...ctx, fsmState: 'expanded' });
+    return renderExpanded(state, ctx);
 }

@@ -1,10 +1,20 @@
 # Contorium MCP Server (`@contorium/mcp`)
 
-stdio MCP server for **Claude Code, Cursor Agent, OpenAI Codex, Gemini CLI**, and other MCP-compatible hosts.
+stdio MCP server — **PIL Runtime** for Claude Code, Cursor Agent, OpenAI Codex, Gemini CLI, and other MCP hosts.
 
-**You do not start MCP manually in normal use.** After one-time configuration, the AI host (Codex, Claude, Cursor, etc.) **spawns** `contorium-mcp` automatically when a session starts.
+- [PIL Runtime Guide](./PIL_RUNTIME.md) · [Package README](../packages/mcp/README.md) · [Dashboard](./DASHBOARD.md) · [CLI](./CLI.md) · [Install](./INSTALL.md)
 
-Overview: [INSTALL.md](./INSTALL.md) · [Dashboard](./DASHBOARD.md) · [CLI](./CLI.md) · [README](../README.md)
+---
+
+## PIL Runtime Contract (v3.0)
+
+| Group | Tools |
+|-------|-------|
+| **Inspect** | `inspect_state`, `inspect_intent`, `inspect_decision`, `inspect_timeline`, `inspect_graph`, `inspect_confidence`, `inspect_impact`, `inspect_evolution`, `inspect_provenance`, `inspect_health`, `inspect_why` |
+| **Transfer** | `transfer_context`, `transfer_intelligence`, `transfer_handoff` |
+| **Capture** | `capture_focus`, `capture_note`, `capture_decision` |
+
+CLI mirror: `contorium inspect …` · `contorium transfer …` · `contorium capture …`
 
 ---
 
@@ -16,10 +26,11 @@ Overview: [INSTALL.md](./INSTALL.md) · [Dashboard](./DASHBOARD.md) · [CLI](./C
 | **Verify (debug only)** | `npx contorium-mcp --workspace /path/to/project` → expect `ready on stdio`, then Ctrl+C |
 | **Published (npm)** | `npm install -g @contorium/mcp` · `contorium-mcp bootstrap --workspace .` |
 | **Daily use** | Open Codex / Claude / Cursor — host starts MCP automatically |
-| **Primary AI tool** | `get_project_handoff` (CHP v1) |
-| **Governance cycle** | `run_governance_cycle` |
-| **Governance export** | `export_governance_context` |
+| **Primary transfer** | `transfer_context` · `transfer_intelligence` · `transfer_handoff` |
+| **Primary inspect** | `inspect_state` · `inspect_health` · `inspect_intent` |
+| **Capture** | `capture_focus` · `capture_note` · `capture_decision` |
 | **New chat** | `get_handoff_injection_status` → `confirm_handoff_injection` |
+| **Governance** | `run_governance_cycle` · `ensure_control_ready` |
 | **Remove** | Host-specific: see [Uninstall](#uninstall--disable) |
 
 ---
@@ -292,7 +303,12 @@ Invoke tools in the browser; set `CONTORIUM_WORKSPACE` in the Inspector environm
 
 ---
 
-## Standard MCP v1 tools (recommended)
+## Extended tool reference (legacy + V3.1)
+
+> **Prefer PIL v3.0 tools** in the [PIL Runtime Contract](#pil-runtime-contract-v30) section above: `inspect_*`, `transfer_*`, `capture_*`.  
+> The tables below document **legacy and extended tools** still available for backward compatibility.
+
+## Standard MCP v1 tools (legacy names)
 
 | Tool | Purpose | Output |
 |------|---------|--------|
@@ -312,35 +328,63 @@ Invoke tools in the browser; set `CONTORIUM_WORKSPACE` in the Inspector environm
 | `filter` | symbol substring | none |
 | `workspaceRoot` | override path | auto-detect |
 
-### Legacy tools (still supported)
+### Project Intelligence (read-only vNext)
+
+| Tool | Purpose |
+|------|---------|
+| `get_project_identity` | Cross-tool cognitive identity |
+| `get_project_intent_graph` | vNext intent graph |
+| `get_project_decision` | Decision provenance |
+| `get_project_why` | Why layer |
+| `get_project_evolution_timeline` | **TIMELINE** — structured evolution map |
+| `get_impact_graph` | **IMPACT** — propagation + blast radius |
+| `get_confidence_index` | **CONFIDENCE** — trustworthiness of records |
+| `get_provenance_chain` | **PROVENANCE** — WHY → DECISION → INTENT → TIMELINE |
+| `get_evolution_graph` | **EVOLUTION** — structured transformation chains |
+| `get_project_intelligence_health` | **HEALTH** — weighted `health_score`, `knowledge_coverage` |
+| `get_decision_log` | **DECISION log** — append-only decision records |
+| `get_stability_index` | [Legacy] same as `get_confidence_index` |
+
+See [PROJECT_INTELLIGENCE_LAYER.md](./PROJECT_INTELLIGENCE_LAYER.md).
 
 `get_project_change`, `get_project_graph`, `get_project_knowledge_graph`, `get_project_graph_snapshot`, `get_workspace_context`, `get_project_snapshot`, `get_project_state`, `get_project_intelligence`, `get_intent_graph`, `get_active_intents`, `get_state_conflicts`, `store_memory`, `search_memory`, `get_memory`, and others remain available for backward compatibility.
 
 ---
 
-## Governance V4 tools
+## Decision Provenance tools (preferred)
 
-Single decision pipeline shared with IDE and CLI. Artifacts persist under `.contora/governance/`.
+Single decision pipeline shared with IDE and CLI. Artifacts persist under `.contora/governance/`.  
+See [Language Spec](./CONTORIUM_LANGUAGE_SPEC.md).
 
 | Tool | Purpose | IDE equivalent | CLI equivalent |
 |------|---------|----------------|----------------|
-| **`ensure_control_ready`** | Bootstrap governance + sync | Startup ensure | `contorium control ready` |
-| **`get_control_context`** | Read governance rules and context | View Rules | `contorium control governance` |
-| **`resolve_scope_context`** | Resolve scope from open files + git | Review scope selector | Built into cycle |
-| **`run_governance_cycle`** | Full decision cycle | Review Change (cycle path) | `contorium governance cycle` |
-| **`generate_inject_payload`** | Build inject text for AI chat | Smart/Diff Inject | Dashboard Enter |
-| **`export_governance_context`** | Export governance appendix | Copy AI context appendix | `[c]` · `governance export` |
+| **`inspect_cognition_ready`** | Verify Decision Provenance layer initialized | Startup ensure | `contorium cognition inspect ready` |
+| **`get_decision_context`** | Read decision provenance rules and context | View Rules | `contorium cognition inspect governance` |
+| **`resolve_scope_context`** | Resolve scope from open files + git | Review scope selector | Built into derive |
+| **`derive_decision_provenance`** | Derive decision provenance chain | Review Change (cycle path) | `contorium decision derive` |
+| **`synthesize_context_payload`** | Synthesize inject text for AI chat | Smart/Diff Inject | Dashboard Enter |
+| **`export_decision_provenance`** | Export decision provenance appendix | Copy AI context appendix | `[c]` · `decision synthesize` |
 
 **Semantic separation:**
 
 - Review-only flows write **`review.json`**
-- `run_governance_cycle` writes **decision / scope / trace / cycle** (and optional trace-full)
+- `derive_decision_provenance` writes **decision / scope / trace / cycle** (and optional trace-full)
+
+### Legacy governance tool aliases
+
+| Legacy | Preferred |
+|--------|-----------|
+| `ensure_control_ready` | `inspect_cognition_ready` |
+| `get_control_context` | `get_decision_context` |
+| `run_governance_cycle` · `build_decision_provenance` | `derive_decision_provenance` |
+| `generate_inject_payload` | `synthesize_context_payload` |
+| `export_governance_context` | `export_decision_provenance` |
 
 ### Governance auxiliary tools
 
 | Tool | Purpose |
 |------|---------|
-| **`update_project_intent`** | Update project direction text |
+| **`record_project_intent`** | Record project direction text |
 | **`analyze_project`** | Analyze project structure and intent |
 | **`get_cognitive_state`** | Read cognitive projection state |
 | **`get_change_log`** | Read structured change log |
@@ -394,9 +438,11 @@ Mode B overlay suggests skills from open sources (GitHub, npm, local registry). 
 | `search_memory` | Search memory by keyword |
 | `get_memory` | Get memory entry by exact key |
 
-### Governance V4
+### Decision Provenance (preferred + legacy aliases)
 
-`ensure_control_ready` · `get_control_context` · `resolve_scope_context` · `run_governance_cycle` · `generate_inject_payload` · `export_governance_context` · `update_project_intent` · `analyze_project` · `get_cognitive_state` · `get_change_log`
+`inspect_cognition_ready` · `get_decision_context` · `resolve_scope_context` · `derive_decision_provenance` · `synthesize_context_payload` · `export_decision_provenance` · `record_project_intent` · `analyze_project` · `get_cognitive_state` · `get_change_log`
+
+Legacy: `ensure_control_ready` · `get_control_context` · `run_governance_cycle` · `generate_inject_payload` · `export_governance_context` · `update_project_intent`
 
 ### Cognitive mode
 

@@ -9,6 +9,7 @@ import { bumpWorkspaceActivity } from './dashboardActivity.js';
 import { scanWorkspace } from './scanner/workspaceScanner.js';
 import { ensureGovernanceLayer } from './governance/init.js';
 import { syncCognitiveLayer } from './governance/cognitiveProjection.js';
+import { syncIntelligenceLayer } from './intelligence/syncIntelligenceLayer.js';
 
 async function countEventLines(workspaceRoot: string): Promise<number> {
   const { readdir, readFile } = await import('node:fs/promises');
@@ -88,6 +89,7 @@ export async function syncWorkspaceState(
     });
     const written = await readStateJson(resolved);
     await syncCognitiveLayer(resolved, written).catch(() => undefined);
+    await syncIntelligenceLayer(resolved, writer, 'scan-driven').catch(() => undefined);
     return {
       mode: 'scan-driven',
       created: true,
@@ -132,6 +134,7 @@ export async function syncWorkspaceState(
 
   // V3.2 — always refresh cognitive projection after sync (closed loop).
   await syncCognitiveLayer(resolved, written).catch(() => undefined);
+  await syncIntelligenceLayer(resolved, writer, dual.mode).catch(() => undefined);
 
   if (updated || gitChanged || recentChanged) {
     await bumpWorkspaceActivity(resolved, {

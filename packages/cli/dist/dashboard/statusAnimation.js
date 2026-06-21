@@ -1,11 +1,33 @@
-/** ASCII-safe pulse — CMD/PowerShell often render ◉/◎ identically to ● (looks static). */
-export const STATUS_FRAMES = ['+', 'x', '*', 'x'];
+import { padVisible, truncate } from './uiHelpers.js';
+/** Single-char frames — ASCII-safe, fixed visible width inside `[X]`. */
+export const STATUS_FRAMES = ['+', 'x', '*', '.'];
+/** Visible width of `[X]` module marker (brackets + one glyph). */
+export const MODULE_MARKER_WIDTH = 3;
 /** One fixed-width status glyph (animated); text beside it stays static. */
 export function statusGlyph(tick, green, animate = true) {
     if (!animate) {
         return green(STATUS_FRAMES[0]);
     }
     return green(STATUS_FRAMES[tick % STATUS_FRAMES.length]);
+}
+/**
+ * Fixed-width live marker for dynamic dashboard modules — `[+]`, `[x]`, …
+ * Placeholder is always MODULE_MARKER_WIDTH columns so layout never shifts.
+ */
+export function liveModuleMarker(tick, active, c, animate = true) {
+    const ch = active && animate
+        ? STATUS_FRAMES[tick % STATUS_FRAMES.length]
+        : active
+            ? STATUS_FRAMES[0]
+            : '·';
+    const glyph = active ? (c.green ?? ((t) => t))(ch) : (c.dim ?? ((t) => t))('·');
+    return padVisible(`[${glyph}]`, MODULE_MARKER_WIDTH);
+}
+/** Section title with fixed-width animated marker prefix. */
+export function liveModuleTitle(title, tick, active, c, width, animate = true) {
+    const marker = liveModuleMarker(tick, active, c, animate);
+    const bold = c.bold ?? ((t) => t);
+    return truncate(`${marker} ${bold(title)}`, width);
 }
 /** Section title with animated bracket glyph — original dashboard style. */
 export function liveSectionTitle(title, tick, c, animate = true) {

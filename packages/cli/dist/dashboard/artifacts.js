@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { readChangeArtifact, readHandoffArtifact, readHandoffInjectionState, readKnowledgeSnapshot, readProjectGraph, readProjectTimeline, readUnderstandingGraph, readWorkspaceStatus, } from '@contora/state-core';
+import { readChangeArtifact, readHandoffArtifact, readHandoffInjectionState, readKnowledgeSnapshot, readProjectGraph, readProjectTimeline, readUnderstandingGraph, readWorkspaceStatus, readProjectEvolutionTimeline, readEvolutionGraph, readProvenanceChain, readImpactGraph, readProjectIntelligenceHealth, } from '@contora/state-core';
 import { GOVERNANCE_ARTIFACT_FILES } from '@contora/state-core';
 import { loadGovernanceSnapshot } from './governanceDashboard.js';
 const ARTIFACT_FILES = [
@@ -9,6 +9,7 @@ const ARTIFACT_FILES = [
     'handoff.json',
     'graph.json',
     'graph/knowledge.json',
+    'graph/knowledge_graph.json',
     'graph/snapshot.json',
     'understanding_graph.json',
     'timeline.json',
@@ -18,6 +19,14 @@ const ARTIFACT_FILES = [
     'mcp/cognitive.mode.json',
     'mcp/cognitive-insights.json',
     ...GOVERNANCE_ARTIFACT_FILES,
+    'timeline/project_timeline.json',
+    'graph/impact_graph.json',
+    'confidence/confidence_index.json',
+    'provenance/provenance_chain.json',
+    'evolution/evolution_graph.json',
+    'decision/decision_log.json',
+    'intelligence/health.json',
+    'intelligence/repository_state.json',
 ];
 export async function artifactSignature(workspaceRoot) {
     const contora = path.join(workspaceRoot, '.contora');
@@ -85,7 +94,7 @@ async function readRecentEvents(workspaceRoot, limit = 8) {
         .slice(0, limit);
 }
 export async function loadDashboardState(workspaceRoot) {
-    const [status, change, handoff, understandingGraph, graph, snapshot, timeline, recentEvents, handoffInjection, governance] = await Promise.all([
+    const [status, change, handoff, understandingGraph, graph, snapshot, timeline, recentEvents, handoffInjection, governance, intelligenceHealth, evolutionTimeline, evolutionGraph, provenanceChain, impactGraph,] = await Promise.all([
         readWorkspaceStatus(workspaceRoot),
         readChangeArtifact(workspaceRoot),
         readHandoffArtifact(workspaceRoot),
@@ -96,6 +105,11 @@ export async function loadDashboardState(workspaceRoot) {
         readRecentEvents(workspaceRoot),
         readHandoffInjectionState(workspaceRoot),
         loadGovernanceSnapshot(workspaceRoot),
+        readProjectIntelligenceHealth(workspaceRoot),
+        readProjectEvolutionTimeline(workspaceRoot),
+        readEvolutionGraph(workspaceRoot),
+        readProvenanceChain(workspaceRoot),
+        readImpactGraph(workspaceRoot),
     ]);
     return {
         workspaceRoot,
@@ -118,5 +132,10 @@ export async function loadDashboardState(workspaceRoot) {
         recentEvents,
         handoffInjection,
         governance,
+        intelligenceHealth: intelligenceHealth ?? undefined,
+        evolutionTimeline: evolutionTimeline ?? undefined,
+        evolutionGraph: evolutionGraph ?? undefined,
+        provenanceChain: provenanceChain ?? undefined,
+        impactGraph: impactGraph ?? undefined,
     };
 }

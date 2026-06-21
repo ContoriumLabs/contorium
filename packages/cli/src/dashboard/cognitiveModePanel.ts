@@ -1,4 +1,5 @@
 import type { ContoriumMcpMode } from './cognitiveModeBridge.js';
+import type { CognitiveViewSelection } from './cognitiveRenderer.js';
 import type { DashboardCognitiveInsights } from './cognitiveInsights.js';
 import { STATUS_FRAMES, statusGlyph } from './statusAnimation.js';
 import { progressBar, truncate, type ColorFn } from './uiHelpers.js';
@@ -17,14 +18,14 @@ export function modeStatusLamp(
   tick = 0,
 ): string {
   if (active === 'B') {
-    return `${statusGlyph(tick, c.green, true)} Governance Active`;
+    return `${statusGlyph(tick, c.green, true)} Governance Overlay`;
   }
   const pulse = STATUS_FRAMES[tick % STATUS_FRAMES.length]!;
-  return `${c.dim(pulse)} Observation`;
+  return `${c.dim(pulse)} Live Cognition`;
 }
 
 export function renderCognitiveModeSelectorLines(args: {
-  selection: ContoriumMcpMode;
+  selection: CognitiveViewSelection;
   active: ContoriumMcpMode;
   useColor: boolean;
   width: number;
@@ -33,7 +34,7 @@ export function renderCognitiveModeSelectorLines(args: {
 }): string[] {
   const c = colors(args.useColor);
   const tick = args.tick ?? 0;
-  const mark = (mode: ContoriumMcpMode) => (args.selection === mode ? c.bold('❯') : ' ');
+  const mark = (mode: CognitiveViewSelection) => (args.selection === mode ? c.bold('❯') : ' ');
 
   if (args.compact) {
     const lamp = modeStatusLamp(args.active, c, tick);
@@ -41,20 +42,22 @@ export function renderCognitiveModeSelectorLines(args: {
     const b = args.selection === 'B' ? c.bold('B') : c.dim('B');
     return [
       lamp,
-      truncate(`${mark('A')}${a} Runtime   ${mark('B')}${b} Governance`, args.width),
+      truncate(`${mark('A')}${a} Observation   ${mark('B')}${b} Cognition`, args.width),
     ];
   }
 
   const lines: string[] = [modeStatusLamp(args.active, c, tick), ''];
-  const row = (mode: ContoriumMcpMode, title: string, subtitle: string) => {
+  const row = (mode: CognitiveViewSelection, title: string, subtitle: string) => {
     const titleStyled = args.selection === mode ? c.bold(title) : c.dim(title);
     lines.push(truncate(`${mark(mode)} ${mode}  ${titleStyled}`, args.width));
     lines.push(truncate(`   ${c.dim(subtitle)}`, args.width));
   };
 
-  row('A', 'Runtime View', 'Project · Task · Decision feed');
+  row('A', 'Live Cognition', 'STATE · INTENT · DECISION · WHY · Streams');
   lines.push('');
-  row('B', 'Governance View', 'Cycle · Violations · Inject');
+  row('B', 'Governance Overlay', 'Policy · Violations · Scope');
+  lines.push('');
+  row('C', 'Debug Trace', 'Provenance · Raw review (view-only)');
   return lines;
 }
 

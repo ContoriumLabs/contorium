@@ -8,10 +8,21 @@ function textResult(data) {
 const workspaceRootSchema = z.object({
     workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
 });
-/** Auxiliary control tools — not part of V4 governance cycle (see governanceV4.ts). */
+/** Auxiliary inspection tools — Decision Provenance Layer (not execution). */
 export function registerGovernanceAuxTools(server, resolveRoot) {
     server.registerTool('update_project_intent', {
-        description: '[Control Surface] Record user request overlay → rebuild derived cognitive projection.',
+        description: '[Inspect · record] Record user direction overlay for cognition projection (alias: record_project_intent).',
+        inputSchema: z.object({
+            workspaceRoot: z.string().optional(),
+            user_input: z.string().min(1),
+        }),
+    }, async ({ workspaceRoot: override, user_input }) => {
+        const root = override ? override : await resolveRoot();
+        const control = createControlSurface(root, 'mcp');
+        return textResult(await control.updateIntent(user_input));
+    });
+    server.registerTool('record_project_intent', {
+        description: '[Project Intelligence · record] Record project direction for intent/why layers — human → system, not agent execution.',
         inputSchema: z.object({
             workspaceRoot: z.string().optional(),
             user_input: z.string().min(1),
@@ -22,7 +33,7 @@ export function registerGovernanceAuxTools(server, resolveRoot) {
         return textResult(await control.updateIntent(user_input));
     });
     server.registerTool('analyze_project', {
-        description: '[Control Surface] Governance + cognitive + handoff snapshot.',
+        description: '[Inspect] Project cognition snapshot — governance + handoff + state (read-only analysis).',
         inputSchema: workspaceRootSchema,
     }, async ({ workspaceRoot: override }) => {
         const root = override ? override : await resolveRoot();

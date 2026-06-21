@@ -132,10 +132,10 @@ export function formatExportDeliveryMessage(
 ): string {
   const base = `~${tok} tokens, ${fmtLabel}${budgetNote}`;
   if (result.injected && result.copied) {
-    return `Injected into AI chat and copied (${base})`;
+    return `Transferred to AI chat and copied (${base})`;
   }
   if (result.injected) {
-    return `Injected into AI chat (${base}) — press Enter to send`;
+    return `Transferred to AI chat (${base}) — press Enter to send`;
   }
   return `Copied to clipboard (${base}) — paste into chat (Ctrl+V)`;
 }

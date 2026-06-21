@@ -1,0 +1,1 @@
+{"version":3,"file":"coverage.d.ts","sourceRoot":"","sources":["../../../src/intelligence/metrics/coverage.ts"],"names":[],"mappings":"AAaA;;;GAGG;AACH,wBAAsB,uBAAuB,CAAC,aAAa,EAAE,MAAM,GAAG,OAAO,CAAC;IAC5E,kBAAkB,EAAE,MAAM,CAAC;IAC3B,eAAe,EAAE,MAAM,EAAE,CAAC;IAC1B,aAAa,EAAE,MAAM,EAAE,CAAC;CACzB,CAAC,CA0DD"}

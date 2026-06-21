@@ -1,6 +1,8 @@
 # `@contora/runtime` (packages/runtime)
 
-End-user install: [IDE_EXTENSION.md](./IDE_EXTENSION.md) · [MCP.md](./MCP.md)
+End-user install: [IDE_EXTENSION.md](./IDE_EXTENSION.md) · [MCP.md](./MCP.md) · [PIL Runtime Guide](./PIL_RUNTIME.md)
+
+This package provides IDE-embedded runtime helpers (BYOK prompts, ranking hooks). PIL Core logic lives in **`@contora/state-core`** — see [PIL_RUNTIME.md](./PIL_RUNTIME.md).
 
 
 

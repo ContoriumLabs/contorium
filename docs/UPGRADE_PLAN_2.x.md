@@ -1,8 +1,8 @@
 # Contorium — Integrated upgrade plan (2.0 → 2.1 spec)
 
-This document merges the **four-layer architecture** from the v2.0 architecture notes with the **engineering specification** from the v2.1 notes (both are Markdown files at the repository root; filenames may use non-ASCII characters in older copies).  
-Relationship: **2.0** defines the conceptual modules and data flow; **2.1** refines types (immutable events, `EventStore.getLast`, `WorkspaceMemory.gitState` with staged vs working), **Context Builder** sections (`# TASK`, `# MODE`, …), and the **monorepo** packaging story.  
-**This repository** implements the **same logical layers inside a single VS Code extension package** (`src/core/`) instead of a full pnpm monorepo, to ship faster without losing architecture boundaries.
+> **Historical document.** Current architecture: [PIL_RUNTIME.md](./PIL_RUNTIME.md) · [PROJECT_INTELLIGENCE_LAYER.md](./PROJECT_INTELLIGENCE_LAYER.md).
+
+This document merges the **four-layer architecture** from the v2.0 architecture notes with the **engineering specification** from the v2.1 notes.
 
 ---
 
