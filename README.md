@@ -1,165 +1,137 @@
 # Contorium
 
-## Shared Project Intelligence for AI Coding Tools
+**Project Intelligence Runtime for AI Coding Tools**
 
-Contorium preserves project understanding across Cursor, Claude Code, Codex, Gemini CLI, VS Code, and other MCP-compatible tools.
+Contorium is a local-first system that preserves and reconstructs software project intelligence across AI coding environments.
 
-Instead of re-explaining architecture, intent, decisions, and project state in every new AI session, Contorium stores them in a shared local intelligence layer that any supported runtime can retrieve.
+It works with:
+
+- Cursor
+- Claude Code
+- Codex
+- Gemini CLI
+- VS Code
+- Any MCP-compatible runtime
+
+Instead of repeatedly re-explaining architecture, decisions, and project state in every session, Contorium maintains a shared **Project Intelligence Layer** that all tools can access.
+
+---
+
+## Core Idea
+
+> Git stores code history  
+> Contorium stores project intelligence history
+
+It captures not just *what changed*, but:
+
+- Why it changed
+- What decisions were made
+- What the project is trying to become
+- How it evolved over time
+
+---
+
+## CIL — Cognitive Interaction Layer (v3)
+
+CIL is the **user-facing intelligence system**.
+
+It does not execute tasks.
+
+It answers questions.
 
 ```text
-Capture → Structure → Preserve → Retrieve → Transfer
+User Query
+   ↓
+Query Router
+   ↓
+Cognitive Kernel
+   ↓
+Engines (Event · Decision · State · Graph)
+   ↓
+Formatter
+   ↓
+Response
 ```
 
-> Like Git for project intelligence.
+### What CIL Can Answer
 
-Contorium is not an autonomous coding agent.
+| Question | System |
+| --- | --- |
+| What happened? | History Engine |
+| Why was this done? | Decision Center |
+| What should I do next? | Action Engine (suggestions only) |
+| What is this project? | Story / Essence |
+| What was state at a time? | Time Travel (Snapshot) |
+| What is MCP? | Knowledge Graph |
+| Is the project healthy? | Cognitive Health |
 
-It records, structures, preserves, and transfers project intelligence so developers and AI tools can maintain continuity across sessions.
+### Example Commands
 
----
-
-## Why Contorium
-
-AI coding tools are powerful, but stateless.
-
-Every new session starts with:
-
-* Lost project context
-* Lost architectural reasoning
-* Lost implementation decisions
-* Lost project intent
-* Repeated explanations
-
-Switching between:
-
-* Cursor
-* Claude Code
-* Codex
-* Gemini CLI
-* VS Code
-
-often means rebuilding understanding from scratch.
-
-Contorium preserves project intelligence in a shared local repository so any runtime can continue from where the previous one stopped.
-
----
-
-## What Contorium Stores
-
-Contorium does **not** store chat history.
-
-It stores project intelligence:
-
-* Current project state
-* Project goals and intent
-* Architectural decisions
-* Decision rationale
-* Timeline and evolution history
-* Impact relationships
-* Provenance records
-* Confidence metadata
-
-All intelligence is stored locally inside:
-
-```text
-.contora/
+```bash
+contorium ask "Why was MCP added?"
+contorium ask "What happened this week?"
+contorium ask "What was the state on 2024-06-18?"
 ```
 
-and can be retrieved by any supported runtime.
+Other tools:
 
----
-
-## AI Project Intelligence Layer (PIL)
-
-Contorium is built around a shared intelligence model.
-
-### Core Objects
-
-| Object   | Question                    |
-| -------- | --------------------------- |
-| STATE    | What exists now?            |
-| INTENT   | What is the goal?           |
-| DECISION | What decision was made?     |
-| WHY      | What reasoning supports it? |
-
-### Intelligence Dimensions
-
-| Dimension  | Question                |
-| ---------- | ----------------------- |
-| TIMELINE   | When did it change?     |
-| IMPACT     | What does it affect?    |
-| CONFIDENCE | How reliable is it?     |
-| EVOLUTION  | How has it evolved?     |
-| PROVENANCE | Where did it come from? |
-
----
-
-## Architecture
-
-```text
-                    PIL Core
-
-        Capture · Structure · Preserve
-              Retrieve · Transfer
-
-                         │
-
-                 @contora/state-core
-
-                         │
-
-        ┌────────┬────────┬────────┐
-        │        │        │
-       IDE      MCP      CLI
-        │        │        │
-        └────────┴────────┘
-
-                  .contora/
+```bash
+contorium health
+contorium entity mcp
+contorium dna --copy
+contorium questions
 ```
 
-All runtimes operate on the same intelligence repository.
-
 ---
 
-## Three Peer Runtimes
+## PIL — Project Intelligence Layer
 
-| Runtime     | Purpose                     | Loop                         |
-| ----------- | --------------------------- | ---------------------------- |
-| IDE Runtime | Workspace intelligence      | Capture → Inspect → Transfer |
-| MCP Runtime | AI intelligence interface   | Capture → Inspect → Transfer |
-| CLI Runtime | Terminal intelligence tools | Capture → Inspect → Transfer |
+PIL is the **storage layer (source of truth)**.
 
-All three runtimes share:
+It is deterministic and fully local.
 
-```text
-@contora/state-core
-```
+It stores:
 
-and one local intelligence repository:
+- STATE (current project state)
+- INTENT (project goals)
+- DECISION (architectural decisions)
+- WHY (decision rationale)
+- TIMELINE (evolution history)
+- IMPACT (dependency relationships)
+- PROVENANCE (origin tracking)
+- CONFIDENCE (reliability signals)
+
+All data is stored under:
 
 ```text
 .contora/
 ```
 
+### PIL is NOT interactive
+
+It does not answer questions.
+
+It only stores structured intelligence.
+
 ---
 
-## Runtime Contract (v3.0)
+## Core Design Principle
 
-Every runtime implements the same capability groups.
+### Separation of Responsibilities
 
-### Capture
+- PIL → facts (deterministic)
+- CIL → cognition (interpretation)
+- LLM → optional explanation layer
+
+---
+
+## Three Core Actions
+
+Contorium is built around three unified operations:
+
+### 1. Capture
 
 Record project intelligence.
-
-Examples:
-
-```text
-capture_focus
-capture_note
-capture_decision
-```
-
-Examples:
 
 ```bash
 contorium capture focus
@@ -167,53 +139,21 @@ contorium capture note
 contorium capture decision
 ```
 
----
-
-### Inspect
+### 2. Inspect
 
 Read project intelligence.
 
-Examples:
-
-```text
-inspect_state
-inspect_intent
-inspect_decision
-inspect_why
-
-inspect_timeline
-inspect_impact
-inspect_confidence
-
-inspect_evolution
-inspect_provenance
-inspect_health
-inspect_graph
-```
-
-Examples:
-
 ```bash
 contorium inspect state
-contorium inspect evolution
+contorium inspect decision
+contorium inspect timeline
 contorium inspect graph
+contorium inspect health
 ```
 
----
-
-### Transfer
+### 3. Transfer
 
 Export intelligence for AI continuity.
-
-Examples:
-
-```text
-transfer_context
-transfer_intelligence
-transfer_handoff
-```
-
-Examples:
 
 ```bash
 contorium transfer context
@@ -221,64 +161,155 @@ contorium transfer intelligence
 contorium transfer handoff
 ```
 
----
+### Transfer Modes
 
-## Transfer Modes
-
-### Transfer Context
-
-Default AI continuity export.
-
-Purpose:
-
-```text
-Resume work in a new AI chat
-```
-
-Size:
-
-```text
-~300–800 tokens
-```
+| Mode | Purpose | Size |
+| --- | --- | --- |
+| Context | Resume in new AI chat | small |
+| Handoff | Continue active session | compact |
+| Intelligence | Full project export | deep analysis |
 
 ---
 
-### Transfer Intelligence
-
-Complete project intelligence export.
-
-Purpose:
+## Architecture
 
 ```text
-Audit
-Research
-Deep analysis
-Long-term archival
-```
-
-Size:
-
-```text
-~8000 tokens
+                Query Layer (Ask)
+                        │
+                 Query Router
+                        │
+              Cognitive Kernel (CIL)
+                        │
+     ┌──────────────┬──────────────┬──────────────┐
+     ▼              ▼              ▼
+ Event Engine   Decision Engine   State Engine
+     │              │              │
+     └───────┬──────┴──────┬──────┘
+             ▼             ▼
+        Action Engine   Knowledge Graph
+             │
+             ▼
+        IDE · MCP · CLI · Dashboard
+             │
+             ▼
+         PIL (.contora/)
 ```
 
 ---
 
-### Transfer Handoff
+## Three Runtimes
 
-Compact runtime handoff.
+Contorium runs across three equal environments:
 
-Purpose:
+| Runtime | Role |
+| --- | --- |
+| IDE | Workspace intelligence |
+| MCP | AI agent interface |
+| CLI | Terminal operations |
+
+All share:
+
+- `@contora/state-core`
+- `.contora/` local intelligence repository
+
+---
+
+## Cognitive Dimensions
+
+Contorium structures project intelligence across dimensions:
+
+- STATE → what exists now
+- INTENT → what is the goal
+- DECISION → what was chosen
+- WHY → reasoning behind decisions
+- TIMELINE → when things changed
+- IMPACT → what is affected
+- PROVENANCE → where data came from
+- CONFIDENCE → reliability level
+
+---
+
+## Cognitive Features (CIL)
+
+- Project History Exploration
+- Decision Center (ADR + conflicts)
+- Time Travel (snapshot replay)
+- Entity Knowledge Graph
+- Cognitive Health Analysis
+- Project Story / Essence
+- Project DNA
+- Suggested Questions
+
+---
+
+## Local-First Design
+
+All intelligence is stored locally:
 
 ```text
-Resume active development sessions
+.contora/
 ```
 
-Size:
+Example structure:
 
 ```text
-~100–300 tokens
+.contora/
+├── state.json
+├── intent/
+├── timeline/
+├── graph/
+├── events/
+├── decisions/
+├── health.json
+├── config/
+│   └── llm.json
 ```
+
+No cloud dependency. No vendor lock-in.
+
+---
+
+## LLM Layer (Optional)
+
+Contorium does NOT require LLMs.
+
+But supports optional enhancement for:
+
+- Why explanation
+- Story generation
+- Essence compression
+- DNA summarization
+- Suggested questions
+
+### Configuration
+
+```json
+{
+  "provider": "openai",
+  "model": "gpt-5",
+  "enabled_modules": [
+    "why",
+    "story",
+    "essence",
+    "dna"
+  ]
+}
+```
+
+---
+
+## What Contorium Is NOT
+
+Contorium is not:
+
+- an autonomous coding agent
+- a task execution system
+- a project manager
+- a recommendation engine
+
+It does not execute actions.
+
+It preserves and explains project intelligence.
 
 ---
 
@@ -286,265 +317,64 @@ Size:
 
 ### MCP
 
-Install:
-
 ```bash
 npm install -g @contorium/mcp
-```
-
-Claude Code:
-
-```bash
 claude mcp add --scope project contorium -- npx @contorium/mcp
 ```
-
-Codex:
-
-```bash
-codex mcp add contorium -- npx @contorium/mcp
-```
-
-Once connected:
-
-```text
-inspect_state
-transfer_context
-transfer_intelligence
-```
-
-are immediately available.
-
----
 
 ### CLI
 
 ```bash
 git clone https://github.com/ContoriumLabs/contorium.git
-
 cd contorium
-
 npm install
-
 npm run compile
 
 npx contorium init .
-
-npx contorium inspect health .
-
-npx contorium transfer context --copy
+npx contorium ask "What is this project?"
 ```
-
----
 
 ### IDE
 
-Supported:
-
-* VS Code
-* Cursor
-
-Steps:
-
-1. Install Contorium
-2. Open a folder workspace
-3. Open the Contorium sidebar
-4. Set Current Focus
-5. Click Transfer Context
-
-<p align="center">
-  <img src="./media/ide.gif" width="640" alt="Contorium IDE extension demo" />
-</p>
+1. Install extension
+2. Open workspace
+3. Set Focus
+4. Use **Ask Contorium**
+5. Transfer Context when switching AI sessions
 
 ---
 
-## Cognitive State Dashboard
+## Dashboard
 
-Contorium includes a terminal intelligence dashboard.
+Cognitive runtime dashboard includes:
 
-Displays:
-
-### Cognitive Core
-
-```text
-Project
-Focus
-Stage
-Confidence
-```
-
-### Intelligence Grid
-
-```text
-STATE
-INTENT
-DECISION
-WHY
-```
-
-### Intelligence Streams
-
-```text
-Change Stream
-Health Stream
-Evolution Stream
-```
-
-### Views
-
-```text
-Live Cognition
-Governance Overlay
-Debug Trace
-```
-
-<table align="center">
-  <tr>
-    <td align="center"><img src="./media/livecognition.png" width="260" alt="Live Cognition view" /></td>
-    <td align="center"><img src="./media/governanceoverlay.png" width="260" alt="Governance Overlay view" /></td>
-    <td align="center"><img src="./media/debugtrace.png" width="260" alt="Debug Trace view" /></td>
-  </tr>
-</table>
+- Live cognition view
+- Decision governance
+- Debug trace
+- Project history
+- Health stream
 
 ---
 
-## AI Handoff
+## Supported Platforms
 
-When a runtime detects active project intelligence:
-
-```text
-Runtime active. Inject current project state? (Y/n)
-```
-
-Injection is always user-controlled.
-
-No hidden automatic prompts.
-
----
-
-## Local-First Design
-
-```text
-.contora/
-
-├── state.json
-├── handoff.json
-├── intent/
-├── timeline/
-├── graph/
-├── intelligence/
-├── governance/
-└── events/
-```
-
-No cloud dependency.
-
-No vendor lock-in.
-
-All project intelligence remains local.
-
----
-
-## Supported Hosts
-
-| Host                 | Support |
-| -------------------- | ------- |
-| Claude Code          | Yes     |
-| OpenAI Codex         | Yes     |
-| Cursor               | Yes     |
-| Gemini CLI           | Yes     |
-| VS Code              | Yes     |
-| MCP-compatible tools | Yes     |
-
----
-
-## Repository Layout
-
-```text
-contorium/
-
-├── src/
-│   └── IDE Extension
-
-├── packages/
-
-│   ├── state-core/
-│   │   └── src/pil/
-│   │       ├── capture/
-│   │       ├── structure/
-│   │       ├── preserve/
-│   │       ├── retrieve/
-│   │       └── transfer/
-
-│   ├── cli/
-│   ├── mcp/
-│   └── runtime/
-
-└── docs/
-```
-
----
-
-## What Contorium Is Not
-
-Contorium is not:
-
-* An autonomous coding agent
-* A task execution engine
-* A recommendation system
-* A project manager
-* A decision-making system
-
-Contorium preserves project intelligence.
-
-Developers and AI tools decide what to do with it.
-
----
-
-## Documentation
-
-### Start Here
-
-* PIL Runtime Guide
-* Installation Guide
-* IDE Extension Guide
-* MCP Reference
-* CLI Reference
-
-### Architecture
-
-* Project Intelligence Layer
-* Cognitive Dimensions
-* Architecture V3
-* Architecture Core
-
-### Operations
-
-* Dashboard Guide
-* Engineering Closure Rules
-* Language Specification
-
-See:
-
-```text
-docs/README.md
-```
-
-for the full documentation index.
+- Cursor
+- Claude Code
+- Codex
+- Gemini CLI
+- VS Code
+- MCP-compatible tools
 
 ---
 
 ## Links
 
-Website:
+Website: [https://www.contorium.dev](https://www.contorium.dev)
 
-https://www.contorium.dev
-
-GitHub:
-
-https://github.com/ContoriumLabs/contorium
+GitHub: [https://github.com/ContoriumLabs/contorium](https://github.com/ContoriumLabs/contorium)
 
 ---
 
 ## License
 
-See LICENSE.
+MIT / See LICENSE

@@ -2,7 +2,7 @@ import type { EventStore } from '../core/engine/eventStore';
 import type { WorkspaceEvent } from '../core/models/events';
 import type { ProjectState } from '../types/state';
 import { buildHeuristicOperationalIntentLines } from './heuristicOperationalIntent';
-import { filterEngineeringPaths } from './sidebarPathFilter';
+import { filterEngineeringPaths, relativePathIsSidebarNoise } from './sidebarPathFilter';
 
 export interface SidebarSummary {
   activeFilesLine: string;
@@ -24,6 +24,18 @@ export interface SidebarByokPanelState {
   defaultAIMode: string;
   /** True when a provider is selected but its SecretStorage key is missing. */
   needsActiveProviderKey: boolean;
+}
+
+/** CIL explanation-layer LLM — IDE bridge to .contora/config/llm.json */
+export interface SidebarCilAiPanelState {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  intentRouter: string;
+  keyReady: boolean;
+  modulesOn: string[];
+  configPath: string;
+  needsKey: boolean;
 }
 
 /** Last workspace intent (AI); merged into webview state in `ContoraSidebarProvider`. */
@@ -54,6 +66,8 @@ export interface SidebarWebviewState {
   activityObservedGoals: string[];
   /** Newest-first human lines from the event store (Recent activity / event stream in product doc). */
   activityStreamItems: string[];
+  /** Home feed — file events only (no git/task/note noise). */
+  projectFileActivityItems: string[];
   /** Optional; populated by sidebar host when loading `.contora/last-intent.json`. */
   aiIntent?: SidebarAiIntentPanel;
   /** v0.7 intent graph + project understanding summary. */
@@ -183,6 +197,61 @@ export function formatActivityStreamLine(ev: WorkspaceEvent): string | null {
     default:
       return null;
   }
+}
+
+const PROJECT_FILE_EVENT_TYPES = new Set([
+  'file_save',
+  'file_focus',
+  'file_create',
+  'file_delete',
+  'file_rename',
+]);
+
+function eventHasEngineeringFile(ev: WorkspaceEvent): boolean {
+  switch (ev.type) {
+    case 'file_save':
+    case 'file_focus':
+    case 'file_create':
+    case 'file_delete':
+      return typeof ev.file === 'string' && !relativePathIsSidebarNoise(ev.file);
+    case 'file_rename':
+      return (
+        typeof ev.newFile === 'string' &&
+        !relativePathIsSidebarNoise(ev.newFile) &&
+        typeof ev.oldFile === 'string' &&
+        !relativePathIsSidebarNoise(ev.oldFile)
+      );
+    default:
+      return false;
+  }
+}
+
+/** Home “What happened recently” — engineering file events only. */
+export function buildProjectFileActivityItems(
+  events: EventStore | undefined,
+  maxItems: number,
+): string[] {
+  const cap = Math.max(1, Math.min(12, maxItems));
+  if (!events) {
+    return [];
+  }
+  const all = events.getAll();
+  const out: string[] = [];
+  for (let i = all.length - 1; i >= 0 && out.length < cap; i--) {
+    const ev = all[i]!;
+    if (!PROJECT_FILE_EVENT_TYPES.has(ev.type) || !eventHasEngineeringFile(ev)) {
+      continue;
+    }
+    const line = formatActivityStreamLine(ev);
+    if (!line) {
+      continue;
+    }
+    if (out.length > 0 && out[out.length - 1] === line) {
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
 }
 
 /**
@@ -352,6 +421,7 @@ export function buildSidebarWebviewState(
   const gitWorking = dedupeConsecutiveStrings(filterEngineeringPaths(state.gitWorking ?? []));
   const activityObservedGoals = dedupeConsecutiveStrings(buildHeuristicOperationalIntentLines(state, events, 20));
   const activityStreamItems = buildActivityStreamItems(events, 8);
+  const projectFileActivityItems = buildProjectFileActivityItems(events, 8);
   const activityStreamShown = activityStreamItems.length > 0;
   return {
     currentTask: state.currentTask ?? '',
@@ -364,5 +434,6 @@ export function buildSidebarWebviewState(
     extensionVersion,
     activityObservedGoals,
     activityStreamItems,
+    projectFileActivityItems,
   };
 }

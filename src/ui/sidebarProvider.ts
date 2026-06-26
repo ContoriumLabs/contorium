@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ContoraKeyManager } from '../ai/auth/keyManager';
+import { loadIdeCilAiPanelState, syncCilLlmConfigFromIde, testIdeCilAiConnection } from '../ai/cilLlmBridge';
 import { readAiRuntimeSettings } from '../ai/auth/providerConfig';
 import { CONTORA_CONFIG_SECTION, PRODUCT_DISPLAY_NAME } from '../constants';
 import { readResolvedExportTokenBudget } from '../ai/exportBudget';
@@ -23,6 +24,10 @@ import {
   type ChangeReviewOverlay,
   type GovernanceOverviewOverlay,
 } from './sidebarGovernancePanel';
+import type { SidebarOverlay } from './sidebarCilPanel';
+import { runCilDecisionsPanel, runCilHistoryPanel, runCilHealthPanel, runCilDnaPanel, runCilReplayPanel, runCilImpactPanel } from '../cil/ideCilPanel';
+import { runIdeTransfer } from '../cil/ideTransfer';
+import { runAskContoriumWithQuery } from '../cil/askContorium';
 import {
   ideControlGovernance,
   ideControlUpdateIntent,
@@ -31,6 +36,7 @@ import {
   buildSidebarWebviewState,
   type SidebarAiIntentPanel,
   type SidebarByokPanelState,
+  type SidebarCilAiPanelState,
 } from './sidebarViewModel';
 import type { SidebarV22View } from './sidebarV22Panels';
 import type { ExportMode, ExportProgressReporter, RunExportAIContextResult } from '../ai/runExportAIContext';
@@ -39,10 +45,14 @@ import { ideCaptureFocus, ideCaptureNote, ideCaptureDecision } from '../pil/ideC
 type WebviewToExt =
   | { type: 'ready' }
   | { type: 'exportAIContext'; mode?: 'cognitive-snapshot' | 'full-intelligence' }
+  | { type: 'transferProject'; mode: 'context' | 'intelligence' | 'story' | 'essence' | 'handoff' }
+  | { type: 'askHome'; query?: string }
   | { type: 'saveStateNow' }
   | { type: 'restoreSession' }
   | { type: 'configureApiKey' }
   | { type: 'openContoraSettings' }
+  | { type: 'cilAiTest' }
+  | { type: 'cilAiSync' }
   | { type: 'generateSemanticSummary' }
   | { type: 'analyzeWorkspaceIntent' }
   | { type: 'compressContextPreview' }
@@ -58,7 +68,14 @@ type WebviewToExt =
   | { type: 'captureNote'; value: string }
   | { type: 'captureDecision'; selected: string; reason?: string }
   | { type: 'openFile'; relativePath: string }
-  | { type: 'startFreshAiSession' };
+  | { type: 'startFreshAiSession' }
+  | { type: 'cilHistory' }
+  | { type: 'cilDecisions' }
+  | { type: 'cilHealth' }
+  | { type: 'cilDna' }
+  | { type: 'cilReplay' }
+  | { type: 'cilImpact' }
+  | { type: 'cilAsk' };
 
 const TASK_MAX = 500;
 
@@ -177,7 +194,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'contora.sidebar';
   /** Bust on layout changes so Reload Window picks up sidebar HTML. */
   private static htmlTemplateCache: string | undefined;
-  private static htmlTemplateVersion = 5;
+  private static htmlTemplateCachedVersion = 0;
+  private static htmlTemplateVersion = 12;
 
   private view?: vscode.WebviewView;
   private folder: vscode.WorkspaceFolder | undefined;
@@ -291,6 +309,33 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('workbench.action.openSettings', CONTORA_CONFIG_SECTION);
         return;
       }
+      if (msg.type === 'cilAiTest') {
+        const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+        if (!folder) {
+          void vscode.window.showWarningMessage('Open a folder workspace to test CIL AI.');
+          return;
+        }
+        const result = await testIdeCilAiConnection(folder.uri.fsPath);
+        if (result.ok) {
+          void vscode.window.showInformationMessage(
+            `CIL AI OK — ${result.provider ?? 'provider'} / ${result.model ?? 'model'} (${result.latency_ms}ms)`,
+          );
+        } else {
+          void vscode.window.showErrorMessage(`CIL AI test failed: ${result.message}`);
+        }
+        void this.pushStateToWebview();
+        return;
+      }
+      if (msg.type === 'cilAiSync') {
+        const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+        if (!folder) {
+          return;
+        }
+        await syncCilLlmConfigFromIde(folder.uri.fsPath);
+        void vscode.window.showInformationMessage('CIL AI config synced to .contora/config/llm.json');
+        void this.pushStateToWebview();
+        return;
+      }
       if (msg.type === 'generateSemanticSummary') {
         await vscode.commands.executeCommand('contora.generateSemanticSummary');
         return;
@@ -326,6 +371,59 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
       if (msg.type === 'startFreshAiSession') {
         await vscode.commands.executeCommand('contora.startFreshAiSession');
+        return;
+      }
+      if (msg.type === 'cilHistory') {
+        await this.showCilHistory();
+        return;
+      }
+      if (msg.type === 'cilDecisions') {
+        await this.showCilDecisions();
+        return;
+      }
+      if (msg.type === 'cilAsk') {
+        await vscode.commands.executeCommand('contora.askContorium');
+        return;
+      }
+      if (msg.type === 'askHome') {
+        const q = msg.query?.trim();
+        if (q) {
+          await this.runHomeAsk(q);
+        } else {
+          await vscode.commands.executeCommand('contora.askContorium');
+        }
+        return;
+      }
+      if (msg.type === 'transferProject') {
+        await runIdeTransfer(msg.mode, (mode) => this.runExportForSidebar(mode));
+        return;
+      }
+      if (msg.type === 'cilHealth') {
+        const overlay = await runCilHealthPanel();
+        if (overlay) {
+          this.postOverlay(overlay);
+        }
+        return;
+      }
+      if (msg.type === 'cilDna') {
+        const overlay = await runCilDnaPanel();
+        if (overlay) {
+          this.postOverlay(overlay);
+        }
+        return;
+      }
+      if (msg.type === 'cilReplay') {
+        const overlay = await runCilReplayPanel();
+        if (overlay) {
+          this.postOverlay(overlay);
+        }
+        return;
+      }
+      if (msg.type === 'cilImpact') {
+        const overlay = await runCilImpactPanel();
+        if (overlay) {
+          this.postOverlay(overlay);
+        }
         return;
       }
       const folder = this.folder ?? this.stateManager.getPrimaryFolder();
@@ -425,8 +523,53 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     await this.pushStateToWebview();
   }
 
-  private postOverlay(overlay: GovernanceOverviewOverlay | ChangeReviewOverlay): void {
+  private postOverlay(overlay: SidebarOverlay): void {
     this.view?.webview.postMessage({ type: 'overlay', overlay });
+  }
+
+  async showCilHistory(): Promise<void> {
+    const overlay = await runCilHistoryPanel();
+    if (overlay) {
+      this.postOverlay(overlay);
+    }
+  }
+
+  async showCilDecisions(): Promise<void> {
+    const overlay = await runCilDecisionsPanel();
+    if (overlay) {
+      this.postOverlay(overlay);
+    }
+  }
+
+  private async runHomeAsk(query: string): Promise<void> {
+    await runAskContoriumWithQuery(query);
+  }
+
+  private async runExportForSidebar(mode: ExportMode): Promise<void> {
+    if (this.exportInFlight) {
+      return;
+    }
+    this.exportInFlight = true;
+    const report: ExportProgressReporter = (update) => this.postExportProgress(update);
+    try {
+      if (this.exportRunner) {
+        await this.exportRunner(report, mode);
+      } else {
+        report({ phase: 'sync', label: 'Starting export…', percent: 2 });
+        await vscode.commands.executeCommand(
+          mode === 'full-intelligence' ? 'contora.exportFullIntelligence' : 'contora.exportAIContext',
+        );
+        report({ phase: 'done', label: 'Export complete', percent: 100 });
+      }
+    } catch (err) {
+      report({
+        phase: 'error',
+        label: err instanceof Error ? err.message : 'Export failed',
+        percent: 0,
+      });
+    } finally {
+      this.exportInFlight = false;
+    }
   }
 
   async showGovernanceOverview(): Promise<void> {
@@ -505,6 +648,32 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private defaultCilAiPanelState(): SidebarCilAiPanelState {
+    return {
+      enabled: false,
+      provider: '—',
+      model: '—',
+      intentRouter: 'hybrid',
+      keyReady: false,
+      modulesOn: [],
+      configPath: '.contora/config/llm.json',
+      needsKey: false,
+    };
+  }
+
+  private async loadCilAiPanelState(): Promise<SidebarCilAiPanelState> {
+    const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+    const root = folder?.uri.fsPath;
+    if (root) {
+      try {
+        await syncCilLlmConfigFromIde(root);
+      } catch {
+        /* best-effort sync */
+      }
+    }
+    return loadIdeCilAiPanelState(root);
+  }
+
   private defaultByokPanelState(): SidebarByokPanelState {
     const cfg = vscode.workspace.getConfiguration(CONTORA_CONFIG_SECTION);
     const ai = readAiRuntimeSettings();
@@ -551,12 +720,13 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     seq: number,
     state: Record<string, unknown> | null,
     byok: SidebarByokPanelState | null,
+    cilAi: SidebarCilAiPanelState | null,
     instant = false,
   ): boolean {
     if (seq !== this.pushStateSeq || !this.view) {
       return false;
     }
-    this.view.webview.postMessage({ type: 'state', state, byok, instant: instant || undefined });
+    this.view.webview.postMessage({ type: 'state', state, byok, cilAi, instant: instant || undefined });
     return true;
   }
 
@@ -665,23 +835,25 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       const folder = this.folder ?? this.stateManager.getPrimaryFolder();
       const ver = String((this.ctx.extension.packageJSON as { version?: string }).version ?? '');
       const byokDefault = this.defaultByokPanelState();
+      const cilAiDefault = this.defaultCilAiPanelState();
 
       if (!folder) {
-        this.postWebviewState(seq, null, byokDefault, !this.webviewBaseHydrated);
+        this.postWebviewState(seq, null, byokDefault, cilAiDefault, !this.webviewBaseHydrated);
         this.webviewBaseHydrated = true;
         return;
       }
 
       const needsFastShell = !this.webviewBaseHydrated;
       if (needsFastShell) {
-        const cached = this.stateManager.getCached(folder) ?? defaultProjectState();
-        const baseInstant = buildSidebarWebviewState(cached, this.events, ver);
-        this.postWebviewState(
-          seq,
-          { ...baseInstant, ...emptyCog },
-          byokDefault,
-          true,
-        );
+      const cached = this.stateManager.getCached(folder) ?? defaultProjectState();
+      const baseInstant = buildSidebarWebviewState(cached, this.events, ver);
+      this.postWebviewState(
+        seq,
+        { ...baseInstant, ...emptyCog },
+        byokDefault,
+        cilAiDefault,
+        true,
+      );
         this.webviewBaseHydrated = true;
       }
 
@@ -692,6 +864,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
       const settledCore = await Promise.allSettled([
         this.loadByokPanelState(),
+        this.loadCilAiPanelState(),
         buildSidebarProjectStatePanel(folder),
         buildSidebarGraphPanel(folder),
         buildSidebarConflictsPanel(folder),
@@ -712,11 +885,12 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           : fallback;
 
       const byok = pick(0, byokDefault);
-      const projectState = pick(1, { ...EMPTY_PROJECT_STATE });
-      const intentGraph = pick(2, { ...EMPTY_INTENT_GRAPH });
-      const stateConflicts = pick(3, { ...EMPTY_CONFLICTS });
-      const aiIntent = pick(4, { goals: [] } as SidebarAiIntentPanel);
-      const governanceStatus = pick(5, {
+      const cilAi = pick(1, cilAiDefault);
+      const projectState = pick(2, { ...EMPTY_PROJECT_STATE });
+      const intentGraph = pick(3, { ...EMPTY_INTENT_GRAPH });
+      const stateConflicts = pick(4, { ...EMPTY_CONFLICTS });
+      const aiIntent = pick(5, { goals: [] } as SidebarAiIntentPanel);
+      const governanceStatus = pick(6, {
         active: false,
         constitutionLoaded: false,
         truthLoaded: false,
@@ -764,7 +938,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         governanceStatus,
         v22View: { ...EMPTY_V22_PLACEHOLDER },
       };
-      this.postWebviewState(seq, mergedCore, byok, false);
+      this.postWebviewState(seq, mergedCore, byok, cilAi, false);
 
       // Phase 2 — heavy PIL readers; yield so core UI paints first.
       await new Promise((r) => setTimeout(r, 16));
@@ -780,9 +954,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         const understandingPanel = await buildSidebarUnderstandingPanel(folder).catch(
           () => ({ ...EMPTY_UNDERSTANDING }),
         );
-        if (seq !== this.pushStateSeq || !this.view) {
-          return;
-        }
+      if (seq !== this.pushStateSeq || !this.view) {
+        return;
+      }
 
         const v22View = await v22Mod
           .buildSidebarV22View(
@@ -804,6 +978,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           seq,
           { ...mergedCore, understandingPanel, v22View },
           byok,
+          cilAi,
           false,
         );
       } catch (err) {
@@ -816,6 +991,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           type: 'state',
           state: null,
           byok: null,
+          cilAi: null,
           error: err instanceof Error ? err.message : String(err),
         });
       } catch {
@@ -845,7 +1021,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   private getHtml(webview: vscode.Webview): string {
     const nonce = String(Math.random()).slice(2);
     const cspAttr = this.buildCspAttr(webview, nonce);
-    if (ContoraSidebarProvider.htmlTemplateCache && ContoraSidebarProvider.htmlTemplateVersion === 5) {
+    if (
+      ContoraSidebarProvider.htmlTemplateCache &&
+      ContoraSidebarProvider.htmlTemplateCachedVersion === ContoraSidebarProvider.htmlTemplateVersion
+    ) {
       return ContoraSidebarProvider.htmlTemplateCache
         .replace(/__NONCE__/g, nonce)
         .replace(/__CSP_ATTR__/g, cspAttr);
@@ -2129,6 +2308,43 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
     details.cr-cortex[open] > summary.cr-cortex-summary::before { content: '▾ '; }
     .cr-cortex-body { padding: 4px 6px 8px; }
+    .cr-cortex-menu {
+      display: flex;
+      gap: 6px;
+      padding: 6px 6px 4px;
+      flex-wrap: wrap;
+    }
+    button.cr-cortex-btn {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 5px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 4px;
+      background: var(--vscode-button-secondaryBackground);
+      color: var(--vscode-button-secondaryForeground);
+      cursor: pointer;
+    }
+    button.cr-cortex-btn:hover {
+      background: var(--vscode-button-secondaryHoverBackground);
+    }
+    button.cr-cortex-btn:active {
+      opacity: 0.85;
+    }
+    .cr-overlay-pre {
+      margin: 0;
+      padding: 8px 0 0;
+      font-family: var(--vscode-editor-font-family);
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--vscode-foreground);
+      max-height: min(420px, 55vh);
+      overflow-y: auto;
+    }
     .cr-cortex-body .cr-section { margin-top: 8px; }
     .cr-cortex-body .cr-section:first-child { margin-top: 4px; }
     .cr-cortex-body .cr-git { margin-top: 8px; }
@@ -2590,6 +2806,255 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       opacity: 0;
       pointer-events: none;
     }
+    .cr-home { margin-top: 10px; }
+    .cr-content-zone {
+      margin: 12px 8px 14px;
+      padding: 10px;
+      border-radius: 12px;
+      background: var(--vscode-input-background, rgba(255, 255, 255, 0.04));
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.28));
+    }
+    .cr-surface-stack { margin-top: 0; }
+    .cr-surface-stack + .cr-surface-stack { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.18)); }
+    .cr-stack-label .cr-live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: auto;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--vscode-testing-iconPassed, #3fb950);
+    }
+    .cr-stack-label { justify-content: space-between; width: 100%; }
+    .cr-surface-stack .cr-section { margin-top: 6px; }
+    .cr-surface-stack .cr-module-card {
+      background: var(--vscode-editor-background, rgba(0, 0, 0, 0.2));
+      border-color: var(--vscode-widget-border, rgba(127, 127, 127, 0.32));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .cr-surface-stack .cr-module-card--activity {
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      padding: 0;
+      border-left: none;
+    }
+    .cr-home-list { list-style: none; margin: 0; padding: 0; }
+    .cr-home-list li {
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.12));
+      color: var(--vscode-foreground);
+    }
+    .cr-home-list li:last-child { border-bottom: none; }
+    .cr-home-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .cr-home-feed-block {
+      padding: 10px 11px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.22));
+    }
+    .cr-home-feed-block--recent {
+      background: linear-gradient(
+        165deg,
+        rgba(209, 134, 22, 0.12) 0%,
+        var(--vscode-editor-background, rgba(0, 0, 0, 0.12)) 55%
+      );
+      border-left: 3px solid var(--vscode-charts-orange, #d18616);
+    }
+    .cr-home-feed-block--next {
+      background: linear-gradient(
+        165deg,
+        rgba(115, 201, 145, 0.11) 0%,
+        var(--vscode-editor-background, rgba(0, 0, 0, 0.12)) 55%
+      );
+      border-left: 3px solid var(--vscode-gitDecoration-addedResourceForeground, #73c991);
+    }
+    .cr-home-feed-title {
+      margin: 0 0 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.18));
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
+      opacity: 0.95;
+    }
+    .cr-home-feed-block .cr-home-list { margin-top: 2px; }
+    .cr-home-feed-block .cr-graph-muted {
+      margin: 4px 0 0;
+      font-size: 11px;
+    }
+    .cr-action-bar {
+      margin-top: 4px;
+      padding: 0 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .cr-action-bar .cr-primary {
+      width: 100%;
+      box-sizing: border-box;
+      justify-content: center;
+    }
+    .cr-action-bar--ask {
+      margin-top: 12px;
+      margin-bottom: 6px;
+    }
+    .cr-action-bar--ask .cr-stack-label {
+      margin-bottom: 6px;
+      justify-content: flex-start;
+    }
+    .cr-transfer-group {
+      display: flex;
+      flex-direction: column;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--vscode-button-border, transparent);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
+    }
+    .cr-transfer-group > .cr-primary {
+      border-radius: 0;
+      border: none;
+      box-shadow: none;
+    }
+    .cr-fold-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 0 8px 10px;
+    }
+    .cr-fold-btn {
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.35));
+      border-radius: 8px;
+      background: var(--vscode-button-secondaryBackground, rgba(127, 127, 127, 0.12));
+      overflow: hidden;
+    }
+    .cr-fold-btn--attached {
+      border-radius: 0 0 8px 8px;
+      border-top: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.22));
+      background: var(--vscode-input-background, rgba(0, 0, 0, 0.12));
+    }
+    .cr-fold-btn > summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      list-style: none;
+      user-select: none;
+      color: var(--vscode-foreground);
+      font-family: var(--vscode-font-family);
+    }
+    .cr-fold-btn > summary::-webkit-details-marker { display: none; }
+    .cr-fold-btn > summary::before {
+      content: '▸';
+      font-size: 11px;
+      opacity: 0.75;
+      transition: transform 0.15s ease;
+      flex-shrink: 0;
+    }
+    .cr-fold-btn[open] > summary::before { transform: rotate(90deg); }
+    .cr-fold-btn > summary:hover {
+      background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.14));
+    }
+    .cr-fold-panel {
+      padding: 10px 12px 12px;
+      background: var(--vscode-editor-background, rgba(0, 0, 0, 0.15));
+      border-top: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.2));
+    }
+    .cr-fold-panel .cr-more-menu {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .cr-fold-panel .cr-more-menu li {
+      margin: 0;
+      padding: 0;
+    }
+    .cr-fold-panel .cr-more-item {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      text-align: left;
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.32));
+      border-radius: 6px;
+      background: var(--vscode-button-secondaryBackground, rgba(127, 127, 127, 0.12));
+      color: var(--vscode-foreground);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 9px 12px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .cr-fold-panel .cr-more-item:hover {
+      background: var(--vscode-button-secondaryHoverBackground, rgba(127, 127, 127, 0.2));
+      border-color: var(--vscode-focusBorder, rgba(127, 127, 127, 0.5));
+    }
+    .cr-fold-panel .cr-more-item:disabled { opacity: 0.45; cursor: default; }
+    .cr-module-card--ask {
+      border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 10px;
+      background: var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, 0.1));
+      border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.28));
+      border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
+    }
+    .cr-ask-input {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 12px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--vscode-input-border, rgba(127, 127, 127, 0.35));
+      background: var(--vscode-input-background, var(--cr-input-bg, #141414));
+      color: inherit;
+      font-family: inherit;
+    }
+    .cr-ask-input:focus {
+      outline: 1px solid var(--vscode-focusBorder);
+      outline-offset: 0;
+    }
+    .cr-module-card--ask .cr-primary { margin-top: 0; }
+    .cr-more-section { margin-bottom: 14px; }
+    .cr-more-section:last-child { margin-bottom: 0; }
+    .cr-more-section-k {
+      display: block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.85;
+      margin: 0 0 8px 2px;
+    }
+    .cr-more-workspace {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 0 2px 4px;
+    }
+    .cr-more-workspace .cr-action-workspace { flex: 1; min-width: 0; font-size: 11px; }
+    #crDeveloperDetails .cr-stack { margin-top: 8px; }
+    #crDeveloperDetails .cr-stack:first-child { margin-top: 0; }
+    #crDeveloperDetails .cr-fold-panel { max-height: 60vh; overflow-y: auto; }
   </style>
 </head>
 <body>
@@ -2602,68 +3067,147 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     </div>
   </header>
 
+  <div class="cr-content-zone" aria-label="Project summary">
+  <div class="cr-stack cr-surface-stack" aria-label="Focus">
+    <div class="cr-stack-label">
+      <span>Current focus</span>
+      <span class="cr-live-indicator" title="Updates in real time"><span class="cr-live-badge" aria-hidden="true"></span><span>Live</span></span>
+    </div>
+    <section class="cr-section">
+      <div class="cr-module-card cr-module-card--cognition">
+        <div class="cr-module-card-body">
+          <textarea id="v22FocusInput" class="cr-v22-focus" rows="1" maxlength="${TASK_MAX}" placeholder="Declare project focus"></textarea>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="cr-stack cr-surface-stack" aria-label="Activity summary">
+    <div class="cr-stack-label">
+      <span>Recent · Next</span>
+      <span class="cr-live-indicator" title="Updates in real time"><span class="cr-live-badge" aria-hidden="true"></span><span>Live</span></span>
+    </div>
+    <section class="cr-section">
+      <div class="cr-module-card cr-module-card--activity">
+        <div class="cr-module-card-body cr-home-feed">
+          <div class="cr-home-feed-block cr-home-feed-block--recent">
+            <h4 class="cr-home-feed-title">What happened recently</h4>
+            <ul id="homeRecentList" class="cr-home-list" aria-label="Recent activity"></ul>
+            <p id="homeRecentEmpty" class="cr-graph-muted">No recent activity</p>
+          </div>
+          <div class="cr-home-feed-block cr-home-feed-block--next">
+            <h4 class="cr-home-feed-title">What should I do next</h4>
+            <ul id="homeNextList" class="cr-home-list" aria-label="Next actions"></ul>
+            <p id="homeNextEmpty" class="cr-graph-muted">—</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+  </div>
+
+  <div class="cr-action-bar" aria-label="Transfer">
+    <div class="cr-transfer-group">
+      <button type="button" class="cr-primary" id="btnTransferContext" title="Transfer context snapshot into chat (~300–800 tokens)">
+        <span class="cr-export-spin" aria-hidden="true">${ico.refresh}</span>
+        ${ico.copy}<span id="btnTransferContextLabel">Context</span>
+      </button>
+      <details class="cr-fold-btn cr-fold-btn--attached" id="crTransferMore">
+        <summary>More transfer modes</summary>
+        <div class="cr-fold-panel">
+          <ul class="cr-more-menu">
+            <li><button type="button" class="cr-more-item" data-transfer="intelligence">Intelligence</button></li>
+            <li><button type="button" class="cr-more-item" data-transfer="story">Story</button></li>
+            <li><button type="button" class="cr-more-item" data-transfer="essence">Essence</button></li>
+            <li><button type="button" class="cr-more-item" data-transfer="handoff">Handoff</button></li>
+          </ul>
+        </div>
+      </details>
+    </div>
+    <div id="crExportProgress" class="cr-export-progress" hidden>
+      <div class="cr-export-progress-track" aria-hidden="true">
+        <div id="crExportProgressBar" class="cr-export-progress-bar"></div>
+      </div>
+      <p id="crExportProgressLabel" class="cr-export-progress-label" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <div class="cr-action-bar cr-action-bar--ask" aria-label="Ask">
+    <div class="cr-stack-label"><span>Ask Contorium</span></div>
+    <div class="cr-module-card cr-module-card--ask">
+      <input type="text" id="homeAskInput" class="cr-ask-input" maxlength="240" placeholder="Why was MCP added?" aria-label="Question for Contorium" />
+      <button type="button" class="cr-primary" id="btnHomeAsk" title="Ask about project history, decisions, or next steps">Ask</button>
+    </div>
+  </div>
+
+  <div class="cr-fold-group" aria-label="Advanced">
+    <details class="cr-fold-btn" id="crMoreDetails">
+      <summary>Explore · Capture · Workspace</summary>
+      <div class="cr-fold-panel">
+        <div class="cr-more-section">
+          <span class="cr-more-section-k">Explore</span>
+          <ul class="cr-more-menu">
+            <li><button type="button" class="cr-more-item" data-action="cilHistory">History</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilDecisions">Decisions</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilImpact">Impact</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilDna">DNA</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilReplay">Replay</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilHealth">Health</button></li>
+          </ul>
+        </div>
+        <div class="cr-more-section">
+          <span class="cr-more-section-k">Capture</span>
+          <div class="cr-v22-row cr-capture-row">
+            <input type="text" id="v22CaptureNote" class="cr-v22-capture-input" maxlength="240" placeholder="Project note" aria-label="Project note" />
+            <button type="button" class="cr-action-workspace" id="btnCaptureNote">Note</button>
+          </div>
+          <div class="cr-v22-row cr-capture-row">
+            <input type="text" id="v22CaptureDecision" class="cr-v22-capture-input" maxlength="240" placeholder="Decision" aria-label="Decision" />
+            <button type="button" class="cr-action-workspace" id="btnCaptureDecision">Decision</button>
+          </div>
+        </div>
+        <div class="cr-more-section">
+          <span class="cr-more-section-k">Workspace</span>
+          <div class="cr-more-workspace">
+            <button type="button" class="cr-action-workspace" id="btnSave">${ico.save}<span>Sync</span></button>
+            <button type="button" class="cr-action-workspace" id="btnRestore">${ico.history}<span>Restore</span></button>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="cr-fold-btn" id="crDeveloperDetails" aria-label="Developer">
+      <summary>Developer</summary>
+      <div class="cr-fold-panel">
+  <div class="cr-stack" aria-label="CIL AI Layer">
+    <div class="cr-stack-label"><span>CIL AI Layer</span></div>
+    <section class="cr-section" id="crSecCilAi">
+      <div class="cr-module-card cr-module-card--intelligence">
+        <div class="cr-module-card-body cr-v22-fields">
+          <div class="cr-v22-row"><span class="cr-psb-k">Status</span><p id="v22CilAiStatus" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Provider / model</span><p id="v22CilAiProvider" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Modules</span><p id="v22CilAiModules" class="cr-graph-muted">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Intent router</span><p id="v22CilAiRouter" class="cr-graph-muted">—</p></div>
+          <p id="v22CilAiWarn" class="cr-byok-warn" hidden></p>
+          <div class="cr-more-workspace" style="margin-top:8px">
+            <button type="button" class="cr-action-workspace" id="btnCilAiKey">API Key</button>
+            <button type="button" class="cr-action-workspace" id="btnCilAiSettings">Settings</button>
+            <button type="button" class="cr-action-workspace" id="btnCilAiTest">Test</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <div class="cr-stack" aria-label="Cognition field">
     <div class="cr-stack-label"><span>Cognition field</span><span class="cr-live-badge" title="Live updates" aria-label="Live"></span></div>
     <section class="cr-section" id="crSecCognitionField" aria-label="Derived cognition">
       <div class="cr-module-card cr-module-card--cognition">
         <div class="cr-module-card-body cr-v22-fields">
-          <div class="cr-v22-row">
-            <span class="cr-psb-k">Current focus</span>
-            <textarea id="v22FocusInput" class="cr-v22-focus" rows="1" maxlength="${TASK_MAX}" placeholder="Declare project focus"></textarea>
-          </div>
           <div class="cr-v22-row"><span class="cr-psb-k">Intent</span><p id="v22Intent" class="cr-graph-line">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">State</span><p id="v22State" class="cr-graph-line">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Understanding</span><p id="v22Understanding" class="cr-graph-muted">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Confidence</span><p id="v22Confidence" class="cr-graph-meta">—</p></div>
-        </div>
-      </div>
-      <div class="cr-actions">
-        <button type="button" class="cr-primary" id="btnExport" title="Transfer context snapshot into current chat (~300–800 tokens)">
-          <span class="cr-export-spin" aria-hidden="true">${ico.refresh}</span>
-          ${ico.copy}<span id="btnExportLabel">Transfer Context</span>${ico.spark}
-        </button>
-        <details class="cr-actions-advanced">
-          <summary>
-            <span class="cr-actions-advanced-summary-left">
-              <span class="cr-actions-advanced-chevron" aria-hidden="true">▸</span>
-              <span class="cr-actions-advanced-title">More actions</span>
-            </span>
-            <span class="cr-actions-advanced-hint">Intelligence · workspace</span>
-          </summary>
-          <div class="cr-actions-advanced-panel">
-            <div class="cr-actions-group">
-              <span class="cr-actions-group-label">Capture</span>
-              <p class="cr-actions-group-desc">Current focus uses PIL capture on edit. Add notes and decisions below.</p>
-              <div class="cr-v22-row cr-capture-row">
-                <input type="text" id="v22CaptureNote" class="cr-v22-capture-input" maxlength="240" placeholder="Project note" aria-label="Project note" />
-                <button type="button" class="cr-action-workspace" id="btnCaptureNote" title="Append timestamped note to state">Note</button>
-              </div>
-              <div class="cr-v22-row cr-capture-row">
-                <input type="text" id="v22CaptureDecision" class="cr-v22-capture-input" maxlength="240" placeholder="Decision record" aria-label="Decision" />
-                <button type="button" class="cr-action-workspace" id="btnCaptureDecision" title="Append decision to log">Decision</button>
-              </div>
-            </div>
-            <div class="cr-actions-group">
-              <span class="cr-actions-group-label">Context transfer</span>
-              <button type="button" class="cr-action-transfer" id="btnExportFull" title="Transfer full intelligence into current chat (~3k–10k tokens)">
-                ${ico.copy}<span id="btnExportFullLabel">Transfer Intelligence</span>
-              </button>
-            </div>
-            <div class="cr-actions-group">
-              <span class="cr-actions-group-label">Workspace</span>
-              <p class="cr-actions-group-desc">Sync writes open files, git, and focus to <code>.contora/state.json</code>. Restore reopens saved editors.</p>
-              <div class="cr-actions-workspace">
-                <button type="button" class="cr-action-workspace" id="btnSave" title="Flush workspace tracking and persist to disk">${ico.save}<span>Sync state</span></button>
-                <button type="button" class="cr-action-workspace" id="btnRestore" title="Reopen editors from saved recent/open file list">${ico.history}<span>Restore</span></button>
-              </div>
-            </div>
-          </div>
-        </details>
-        <div id="crExportProgress" class="cr-export-progress" hidden>
-          <div class="cr-export-progress-track" aria-hidden="true">
-            <div id="crExportProgressBar" class="cr-export-progress-bar"></div>
-          </div>
-          <p id="crExportProgressLabel" class="cr-export-progress-label" aria-live="polite"></p>
         </div>
       </div>
     </section>
@@ -2673,19 +3217,19 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     <div class="cr-stack-label"><span>Intelligence core</span><span class="cr-live-badge" title="Live updates" aria-label="Live"></span></div>
     <section class="cr-section" id="crSecIntelligenceCore">
       <div class="cr-module-card cr-module-card--intelligence">
-        <div class="cr-module-card-head">
+      <div class="cr-module-card-head">
           <span class="cr-sec-left"><span class="cr-sec-ico">${ico.spark}</span><span>PIL metrics</span></span>
           <span class="cr-graph-meta" id="v22HealthMeta">—</span>
-        </div>
+      </div>
         <div class="cr-module-card-body cr-v22-fields">
           <div class="cr-v22-row"><span class="cr-psb-k">Health score</span><p id="v22HealthScore" class="cr-graph-line">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Knowledge coverage</span><p id="v22Coverage" class="cr-graph-line">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Confidence index</span><p id="v22ConfIndex" class="cr-graph-line">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Timeline summary</span><p id="v22Timeline" class="cr-graph-muted">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Impact radius</span><p id="v22ImpactRadius" class="cr-graph-muted">—</p></div>
-        </div>
-      </div>
-    </section>
+    </div>
+    </div>
+  </section>
   </div>
 
   <div class="cr-stack" aria-label="Decision intelligence">
@@ -2697,20 +3241,20 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           <div class="cr-v22-row"><span class="cr-psb-k">Decision graph</span><p id="v22DecGraph" class="cr-graph-muted">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Decision links</span><ul id="v22DecLinks" class="cr-psb-list"></ul></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Decision history</span><ul id="v22DecHistory" class="cr-psb-list"></ul></div>
-        </div>
       </div>
-    </section>
-  </div>
+    </div>
+  </section>
+      </div>
 
-  <details class="cr-stack cr-stack-fold cr-cortex" id="crCortexDetails" open aria-label="Cognitive graph system">
-    <summary class="cr-cortex-summary">Cognitive graph system</summary>
+  <details class="cr-stack cr-stack-fold cr-cortex" id="crCortexDetails" aria-label="Cortex graphs">
+    <summary class="cr-cortex-summary">Cortex graphs</summary>
     <div class="cr-cortex-body cr-module-card cr-module-card--graph cr-v22-fields">
       <div class="cr-v22-row"><span class="cr-psb-k">Intent graph</span><p id="v22GIntent" class="cr-graph-line">—</p></div>
       <div class="cr-v22-row"><span class="cr-psb-k">Structure graph</span><p id="v22GStructure" class="cr-graph-line">—</p></div>
       <div class="cr-v22-row"><span class="cr-psb-k">Impact overlay</span><p id="v22GImpact" class="cr-graph-line">—</p></div>
       <div class="cr-v22-row"><span class="cr-psb-k">Evolution timeline</span><p id="v22GEvolution" class="cr-graph-muted">—</p></div>
       <div class="cr-v22-row"><span class="cr-psb-k">Hotspots</span><div id="v22GHotspots" class="cr-graph-domains"></div></div>
-    </div>
+      </div>
   </details>
 
   <div class="cr-stack" aria-label="Activity trace">
@@ -2719,9 +3263,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       <div class="cr-module-card cr-module-card--activity">
         <ul id="v22ActivityList" class="cr-activity-feed" aria-label="Raw workspace events"></ul>
         <p id="v22ActivityEmpty" class="cr-graph-muted">No recent events</p>
+    </div>
+  </section>
       </div>
-    </section>
-  </div>
 
   <details class="cr-stack cr-stack-fold cr-stack-fold--structure" id="crSecStructureField" aria-label="Structure field">
     <summary class="cr-stack-label" style="cursor:pointer;border-bottom:none;margin-bottom:0;padding-bottom:0"><span>Structure field</span></summary>
@@ -2731,7 +3275,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       <div class="cr-v22-row"><span class="cr-psb-k">Open problems</span><ul id="v22StructProblems" class="cr-psb-list cr-psb-list--warn"></ul></div>
       <div class="cr-v22-row"><span class="cr-psb-k">Linked decisions</span><ul id="v22StructDecisions" class="cr-psb-list"></ul></div>
       <div class="cr-v22-row"><span class="cr-psb-k">Next cognition</span><p id="v22StructNext" class="cr-graph-line">—</p></div>
-    </div>
+      </div>
   </details>
 
   <div class="cr-stack" aria-label="Context export">
@@ -2742,10 +3286,13 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           <div class="cr-v22-row"><span class="cr-psb-k">MCP snapshot</span><p id="v22McpHint" class="cr-graph-muted">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Token estimate</span><p id="v22TokenEst" class="cr-graph-meta">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Payload preview</span><p id="v22InjectPreview" class="cr-gov-inject-preview">—</p></div>
-        </div>
+      </div>
       </div>
       <p class="cr-graph-muted" style="margin-top:6px;font-size:11px" id="aiStatUpdated">—</p>
-    </section>
+  </section>
+  </div>
+      </div>
+    </details>
   </div>
 
   <textarea id="task" hidden aria-hidden="true"></textarea>
@@ -2757,13 +3304,13 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       <div class="cr-overlay-head">
         <h2 id="crOverlayTitle">—</h2>
         <button type="button" class="cr-overlay-close" id="crOverlayClose" aria-label="Close">×</button>
-      </div>
+    </div>
       <div id="crOverlayBody"></div>
       <div class="cr-overlay-foot">
         <button type="button" class="cr-primary" id="crOverlayContinue">Continue</button>
       </div>
+      </div>
     </div>
-  </div>
 
   <div id="sumActivity" hidden aria-hidden="true"></div>
   <span id="aiStatModel" hidden aria-hidden="true"></span>
@@ -2790,7 +3337,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     <button type="button" id="btnAiSemantic" hidden></button>
     <button type="button" id="btnAiIntent" hidden></button>
     <button type="button" id="btnAiCompress" hidden></button>
-  </div>
+    </div>
   <p id="handoffIntent" hidden aria-hidden="true"></p>
 
   <label class="cr-notes-label" for="notes"><span class="cr-sec-ico">${ico.note}</span> Context notes</label>
@@ -2966,11 +3513,11 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       el.addEventListener('focus', syncFocusRows);
       el.addEventListener('blur', syncFocusRows);
       el.addEventListener('input', () => {
-        paintTaskMeta();
+      paintTaskMeta();
         debouncePost('updateTask', el.value);
         if (taskEl && taskEl !== el) taskEl.value = el.value;
         if (document.activeElement !== el) syncFocusRows();
-      });
+    });
       syncFocusRows();
     }
     bindFocusInput(v22FocusEl);
@@ -2979,22 +3526,23 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
     let exportBusy = false;
     let exportResetTimer = null;
-    const btnExport = document.getElementById('btnExport');
-    const btnExportLabel = document.getElementById('btnExportLabel');
-    const btnExportFull = document.getElementById('btnExportFull');
+    const btnTransferContext = document.getElementById('btnTransferContext');
+    const btnTransferContextLabel = document.getElementById('btnTransferContextLabel');
     const btnSave = document.getElementById('btnSave');
     const btnRestore = document.getElementById('btnRestore');
     const crExportProgress = document.getElementById('crExportProgress');
     const crExportProgressBar = document.getElementById('crExportProgressBar');
     const crExportProgressLabel = document.getElementById('crExportProgressLabel');
-    const exportLabelSnapshot = 'Transfer Context';
+    const exportLabelSnapshot = 'Context';
 
     function setExportBusy(busy) {
       exportBusy = busy;
-      if (btnExport) btnExport.classList.toggle('cr-primary--busy', busy);
-      if (btnExportFull) btnExportFull.disabled = busy;
+      if (btnTransferContext) btnTransferContext.classList.toggle('cr-primary--busy', busy);
       if (btnSave) btnSave.disabled = busy;
       if (btnRestore) btnRestore.disabled = busy;
+      document.querySelectorAll('[data-transfer]').forEach(function (el) {
+        el.disabled = busy;
+      });
     }
 
     function startExport(mode) {
@@ -3021,7 +3569,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
             'cr-export-progress-label' +
             (phase === 'done' ? ' cr-export-progress-label--done' : ' cr-export-progress-label--error');
         }
-        if (btnExportLabel) btnExportLabel.textContent = exportLabelSnapshot;
+        if (btnTransferContextLabel) btnTransferContextLabel.textContent = exportLabelSnapshot;
         if (exportResetTimer) clearTimeout(exportResetTimer);
         exportResetTimer = setTimeout(function () {
           if (crExportProgress) crExportProgress.hidden = true;
@@ -3039,15 +3587,12 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         crExportProgressLabel.textContent = label;
         crExportProgressLabel.className = 'cr-export-progress-label';
       }
-      if (btnExportLabel) btnExportLabel.textContent = label;
+      if (btnTransferContextLabel) btnTransferContextLabel.textContent = label;
       setExportBusy(true);
     }
 
-    if (btnExport) {
-      btnExport.addEventListener('click', () => startExport('cognitive-snapshot'));
-    }
-    if (btnExportFull) {
-      btnExportFull.addEventListener('click', () => startExport('full-intelligence'));
+    if (btnTransferContext) {
+      btnTransferContext.addEventListener('click', () => startExport('cognitive-snapshot'));
     }
     if (btnSave) {
       btnSave.addEventListener('click', () => vscode.postMessage({ type: 'saveStateNow' }));
@@ -3075,6 +3620,45 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         v22CaptureDecision.value = '';
       });
     }
+    const btnHomeAsk = document.getElementById('btnHomeAsk');
+    const homeAskInput = document.getElementById('homeAskInput');
+    function submitHomeAsk() {
+      const q = homeAskInput && homeAskInput.value ? homeAskInput.value.trim() : '';
+      if (q) {
+        vscode.postMessage({ type: 'askHome', query: q });
+      } else {
+        vscode.postMessage({ type: 'askHome' });
+      }
+    }
+    if (btnHomeAsk) {
+      btnHomeAsk.addEventListener('click', submitHomeAsk);
+    }
+    if (homeAskInput) {
+      homeAskInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitHomeAsk();
+        }
+      });
+    }
+    document.querySelectorAll('[data-transfer]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const mode = btn.getAttribute('data-transfer');
+        if (!mode || exportBusy) return;
+        if (mode === 'intelligence') {
+          updateExportProgress({ phase: 'sync', label: 'Starting export…', percent: 2 });
+          vscode.postMessage({ type: 'exportAIContext', mode: 'full-intelligence' });
+          return;
+        }
+        vscode.postMessage({ type: 'transferProject', mode: mode });
+      });
+    });
+    document.querySelectorAll('[data-action]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const action = btn.getAttribute('data-action');
+        if (action) vscode.postMessage({ type: action });
+      });
+    });
     if (govReviewScope) {
       govReviewScope.addEventListener('change', () => {
         vscode.postMessage({ type: 'setReviewScope', value: govReviewScope.value || 'auto' });
@@ -3293,6 +3877,48 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    function paintHomeLayer(s, v22View) {
+      const recentList = document.getElementById('homeRecentList');
+      const recentEmpty = document.getElementById('homeRecentEmpty');
+      const nextList = document.getElementById('homeNextList');
+      const nextEmpty = document.getElementById('homeNextEmpty');
+      const view = v22View || null;
+      const fileStream = (s && s.projectFileActivityItems) || [];
+      const recentItems = fileStream.slice(0, 5);
+      if (recentList) {
+        recentList.hidden = recentItems.length === 0;
+        recentList.innerHTML = recentItems
+          .map(function (line) {
+            return '<li>' + escapeHtml(formatDisplayText(line, { ellipsize: true, maxLen: 72 })) + '</li>';
+          })
+          .join('');
+      }
+      if (recentEmpty) recentEmpty.hidden = recentItems.length > 0;
+      const projectNext = (s && s.projectState && s.projectState.nextActions) || [];
+      const handoffNext =
+        (s && s.understandingPanel && s.understandingPanel.handoff && s.understandingPanel.handoff.nextActions) || [];
+      const structNext =
+        view && view.structure && view.structure.nextCognition && view.structure.nextCognition !== '—'
+          ? view.structure.nextCognition
+          : '';
+      const nextItems = projectNext.length
+        ? projectNext.slice(0, 4)
+        : handoffNext.length
+          ? handoffNext.slice(0, 4)
+          : structNext
+            ? [structNext]
+            : [];
+      if (nextList) {
+        nextList.hidden = nextItems.length === 0;
+        nextList.innerHTML = nextItems
+          .map(function (line) {
+            return '<li>' + escapeHtml(formatDisplayText(line, { ellipsize: true, maxLen: 72 })) + '</li>';
+          })
+          .join('');
+      }
+      if (nextEmpty) nextEmpty.hidden = nextItems.length > 0;
+    }
+
     function paintV22Delta(prev, next) {
       const view = next || null;
       if (!view) return;
@@ -3373,6 +3999,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       syncTaskNotesFromState(s);
       if (
         !jsonEq(prev.summary, s.summary) ||
+        !jsonEq(prev.projectFileActivityItems, s.projectFileActivityItems) ||
         !jsonEq(prev.activityStreamItems, s.activityStreamItems)
       ) {
         paintSummary(s);
@@ -3390,6 +4017,15 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         !jsonEq(prev.activityObservedGoals, s.activityObservedGoals)
       ) {
         paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
+      }
+      if (
+        !jsonEq(prev.v22View, s.v22View) ||
+        !jsonEq(prev.projectState, s.projectState) ||
+        !jsonEq(prev.understandingPanel, s.understandingPanel) ||
+        !jsonEq(prev.projectFileActivityItems, s.projectFileActivityItems) ||
+        !jsonEq(prev.activityStreamItems, s.activityStreamItems)
+      ) {
+        paintHomeLayer(s, s.v22View || null);
       }
       if (!jsonEq(prev.v22View, s.v22View)) {
         paintV22Delta(prev.v22View || null, s.v22View || null);
@@ -3419,6 +4055,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintSummary(s);
       paintAiRibbon(byokPayload, aiIntent, s.activityObservedGoals || []);
       paintV22View(s.v22View || null);
+      paintHomeLayer(s, s.v22View || null);
       paintGraphPanel(s.intentGraph || null);
       paintProjectStatePanel(s.projectState || null);
       paintGovernancePanel(s.governanceStatus || null);
@@ -3562,6 +4199,34 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         ' · default mode: ' +
         (b.defaultAIMode || 'feature');
       byokWarn.hidden = !b.needsActiveProviderKey;
+    }
+
+    function paintCilAi(c) {
+      const statusEl = document.getElementById('v22CilAiStatus');
+      const providerEl = document.getElementById('v22CilAiProvider');
+      const modulesEl = document.getElementById('v22CilAiModules');
+      const routerEl = document.getElementById('v22CilAiRouter');
+      const warnEl = document.getElementById('v22CilAiWarn');
+      if (!statusEl || !providerEl || !modulesEl || !routerEl || !warnEl) return;
+      if (!c) {
+        statusEl.textContent = '—';
+        providerEl.textContent = '—';
+        modulesEl.textContent = '—';
+        routerEl.textContent = '—';
+        warnEl.hidden = true;
+        return;
+      }
+      statusEl.textContent = c.enabled ? 'Enabled (explanation layer)' : 'Disabled (rule-only)';
+      providerEl.textContent = (c.provider || '—') + ' · ' + (c.model || '—');
+      modulesEl.textContent =
+        c.modulesOn && c.modulesOn.length ? c.modulesOn.join(', ') : '(none — enable contora.cilAiEnabled)';
+      routerEl.textContent = c.intentRouter || 'hybrid';
+      if (c.needsKey) {
+        warnEl.textContent = 'API key missing — configure via API Key or Settings (contora.cilAiEnabled + contora.aiProvider).';
+        warnEl.hidden = false;
+      } else {
+        warnEl.hidden = true;
+      }
     }
 
     function formatIntentUpdated(ts) {
@@ -4049,6 +4714,15 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         if (overlay.reasonChain && overlay.reasonChain.length) {
           appendOverlayList(crOverlayBody, 'Why?', overlay.reasonChain);
         }
+      } else if (overlay.kind === 'cil') {
+        crOverlayTitle.textContent = overlay.title || 'CIL';
+        if (overlay.subtitle) {
+          appendOverlayRow(crOverlayBody, 'Range', overlay.subtitle);
+        }
+        const pre = document.createElement('pre');
+        pre.className = 'cr-overlay-pre';
+        pre.textContent = (overlay.lines || []).join('\\n');
+        crOverlayBody.appendChild(pre);
       }
       crOverlay.hidden = false;
     }
@@ -4686,6 +5360,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
     wireClick(document.getElementById('btnByokKey'), 'configureApiKey');
     wireClick(document.getElementById('btnByokSettings'), 'openContoraSettings');
+    wireClick(document.getElementById('btnCilAiKey'), 'configureApiKey');
+    wireClick(document.getElementById('btnCilAiSettings'), 'openContoraSettings');
+    wireClick(document.getElementById('btnCilAiTest'), 'cilAiTest');
     wireClick(document.getElementById('btnFooterSettings'), 'openContoraSettings');
     wireClick(document.getElementById('btnAiSemantic'), 'generateSemanticSummary');
     wireClick(document.getElementById('btnAiIntent'), 'analyzeWorkspaceIntent');
@@ -4825,7 +5502,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       if (msg.type !== 'state') return;
       const s = msg.state;
       const byokPayload = msg.byok || null;
+      const cilAiPayload = msg.cilAi || null;
       paintByok(byokPayload);
+      paintCilAi(cilAiPayload);
       if (!s) {
         clearPhasedRestoreFull();
         lastState = null;
@@ -4860,16 +5539,16 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       const prevState = lastState;
 
       try {
-        lastState = s;
+      lastState = s;
         if (crVersion) {
-          crVersion.textContent = '${PRODUCT_DISPLAY_NAME} v' + (s.extensionVersion || '?');
+      crVersion.textContent = '${PRODUCT_DISPLAY_NAME} v' + (s.extensionVersion || '?');
         }
 
         if (prevState === null) {
-          clearPhasedRestoreFull();
+        clearPhasedRestoreFull();
           paintFullState(s, byokPayload);
-          return;
-        }
+        return;
+      }
 
         paintStateDelta(prevState, s, byokPayload);
       } catch (err) {
@@ -4895,6 +5574,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 </body>
 </html>`;
     ContoraSidebarProvider.htmlTemplateCache = html;
+    ContoraSidebarProvider.htmlTemplateCachedVersion = ContoraSidebarProvider.htmlTemplateVersion;
     return html.replace(/__NONCE__/g, nonce).replace(/__CSP_ATTR__/g, cspAttr);
   }
 }

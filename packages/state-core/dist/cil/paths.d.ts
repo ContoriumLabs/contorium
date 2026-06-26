@@ -1,0 +1,23 @@
+export declare const COGNITIVE_EVENTS_DIR = "cognitive-events";
+export declare const ADR_DIR = "decisions";
+export declare const SNAPSHOTS_DIR = "snapshots";
+export declare const MODULE_HISTORY_DIR = "module-history";
+export declare const KNOWLEDGE_DIR = "knowledge";
+export declare const CIL_INDEX_FILE = "cil_index.json";
+export declare const COGNITIVE_HEALTH_FILE = "cognitive-health.json";
+export declare function cilRoot(workspaceRoot: string): string;
+export declare function cognitiveEventsDir(workspaceRoot: string): string;
+export declare function cognitiveEventPath(workspaceRoot: string, eventId: string): string;
+export declare function adrDir(workspaceRoot: string): string;
+export declare function adrPath(workspaceRoot: string, adrId: string): string;
+export declare function snapshotsDir(workspaceRoot: string): string;
+export declare function snapshotPath(workspaceRoot: string, snapshotId: string): string;
+export declare function moduleHistoryDir(workspaceRoot: string): string;
+export declare function moduleHistoryPath(workspaceRoot: string, moduleSlug: string): string;
+export declare function cilIndexPath(workspaceRoot: string): string;
+export declare function decisionGraphPath(workspaceRoot: string): string;
+export declare function knowledgeDir(workspaceRoot: string): string;
+export declare function knowledgeEntityPath(workspaceRoot: string, entitySlug: string): string;
+export declare function knowledgeIndexPath(workspaceRoot: string): string;
+export declare function cognitiveHealthPath(workspaceRoot: string): string;
+//# sourceMappingURL=paths.d.ts.map

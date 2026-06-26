@@ -2,7 +2,7 @@
   "name": "contorium",
   "displayName": "Contorium",
   "description": "Contorium: AI Project Intelligence Layer — capture, structure, preserve, retrieve and transfer project intelligence across IDE, MCP, and CLI.",
-  "version": "1.1.3",
+  "version": "1.2.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -93,6 +93,22 @@
       {
         "command": "contora.showDashboard",
         "title": "Contorium: Show Runtime Dashboard"
+      },
+      {
+        "command": "contora.askContorium",
+        "title": "Contorium: Ask Contorium…"
+      },
+      {
+        "command": "contora.cilAiTest",
+        "title": "Contorium: Test CIL AI connection"
+      },
+      {
+        "command": "contora.cilHistory",
+        "title": "Contorium: Project History…"
+      },
+      {
+        "command": "contora.cilDecisions",
+        "title": "Contorium: Decision Center…"
       },
       {
         "command": "contora.hideDashboard",
@@ -330,6 +346,21 @@
           "maximum": 4096,
           "description": "Max completion tokens for BYOK AI calls (semantic / intent / compression)."
         },
+        "contora.cilAiEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable CIL explanation-layer LLM (Why / Story / Essence / DNA / Ask polish). Uses contora.aiProvider + SecretStorage key; syncs to .contora/config/llm.json without storing secrets."
+        },
+        "contora.cilIntentRouter": {
+          "type": "string",
+          "enum": [
+            "rule",
+            "hybrid",
+            "llm"
+          ],
+          "default": "hybrid",
+          "description": "CIL intent router mode when cilAiEnabled: rule-only, hybrid (LLM fallback), or llm-first."
+        },
         "contora.appendAiSummaryOnExport": {
           "type": "boolean",
           "default": false,
@@ -357,12 +388,13 @@
     "vsix": "node scripts/package-vsix.cjs",
     "validate:plugin": "node scripts/validate-plugin.mjs",
     "version:sync": "node scripts/sync-version.mjs",
-    "build:runtime": "node scripts/run-tsc.mjs packages/runtime",
-    "build:state-core": "node scripts/run-tsc.mjs packages/state-core",
-    "install:cli": "npm install --prefix packages/cli --no-fund --no-audit",
-    "build:cli": "npm run install:cli && node scripts/run-tsc.mjs packages/cli",
-    "install:mcp": "npm install --prefix packages/mcp --no-fund --no-audit",
+    "build:runtime": "node scripts/clean-dist.mjs packages/runtime && node scripts/run-tsc.mjs packages/runtime",
+    "build:state-core": "node scripts/clean-dist.mjs packages/state-core && node scripts/run-tsc.mjs packages/state-core",
+    "install:cli": "node scripts/npm-install-prefix.mjs packages/cli --no-fund --no-audit",
+    "build:cli": "npm run install:cli && node scripts/clean-dist.mjs packages/cli && node scripts/run-tsc.mjs packages/cli",
+    "install:mcp": "node scripts/npm-install-prefix.mjs packages/mcp --no-fund --no-audit",
     "build:mcp": "npm run install:mcp && node scripts/clean-dist.mjs packages/mcp && node scripts/run-tsc.mjs packages/mcp",
+    "build:packages": "node scripts/clean-dist.mjs packages/state-core && node scripts/run-tsc.mjs packages/state-core && node scripts/clean-dist.mjs packages/mcp && node scripts/run-tsc.mjs packages/mcp && node scripts/clean-dist.mjs packages/cli && node scripts/run-tsc.mjs packages/cli",
     "compile": "node scripts/ensure-dev-deps.mjs && npm run version:sync && npm run build:runtime && npm run build:state-core && node scripts/materialize-deps-for-vsix.mjs && node scripts/ensure-dev-deps.mjs && npm run build:cli && npm run build:mcp && node scripts/run-tsc.mjs .",
     "test": "npm run build:state-core && npm run test:v3-core --prefix packages/state-core",
     "test:v3-core": "npm run test:v3-core --prefix packages/state-core",
@@ -377,8 +409,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.1.3.tgz",
-    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.1.3.tgz",
+    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.2.1.tgz",
+    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.2.1.tgz",
     "simple-git": "^3.22.0"
   }
 }

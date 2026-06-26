@@ -2,6 +2,8 @@ import { renderDecisionTraceLines, renderGovernanceRawLines, } from './governanc
 import { renderEvolutionVizLines, renderProvenanceExplorerLines, } from './intelligencePanel.js';
 import { liveModuleMarker, liveModuleTitle, monitoringBadge } from './statusAnimation.js';
 import { renderKeyHintFooter } from './keyHints.js';
+import { renderHistoryStreams } from './historyPanel.js';
+import { renderLlmConfigStreams } from './aiConfigPanel.js';
 import { padVisible, projectLabel, projectMetrics, truncate, } from './uiHelpers.js';
 export const COGNITIVE_DASHBOARD_TITLE = 'CONTORIUM • Cognitive State';
 function colors(useColor) {
@@ -21,6 +23,12 @@ export function viewLensFromSelection(sel) {
     }
     if (sel === 'C') {
         return 'debug';
+    }
+    if (sel === 'D') {
+        return 'history';
+    }
+    if (sel === 'E') {
+        return 'llm';
     }
     return 'live';
 }
@@ -256,7 +264,7 @@ export function renderCognitiveViewMode(ctx) {
     const active = ctx.cognitiveModeActive ?? 'A';
     const dot = (id, label) => {
         const on = sel === id;
-        const applied = id !== 'C' && active === id;
+        const applied = id !== 'C' && id !== 'D' && id !== 'E' && active === id;
         const marker = on ? c.bold('●') : c.dim('○');
         const text = on ? c.bold(label) : c.dim(label);
         const suffix = applied ? c.green(' ✓') : '';
@@ -267,7 +275,9 @@ export function renderCognitiveViewMode(ctx) {
         dot('A', 'Live Cognition'),
         dot('B', 'Governance Overlay'),
         dot('C', 'Debug Trace'),
-        c.dim('↑↓ select · Enter apply (A/B) · [·]=static [+]=live'),
+        dot('D', 'Project History'),
+        dot('E', 'LLM Config'),
+        c.dim('↑↓ view · Enter apply (A/B) · C/D/E preview · E: ←→ provider'),
     ];
 }
 /** Full dashboard — main panel (header → view mode), excludes shortcut footer. */
@@ -285,6 +295,22 @@ export function renderCognitiveMainPanel(state, ctx) {
     }
     else if (lens === 'debug') {
         streamLines = renderDebugTraceStreams(gov, streamCtx);
+    }
+    else if (lens === 'history') {
+        streamLines = renderHistoryStreams(ctx.cilHistoryLines, streamCtx);
+    }
+    else if (lens === 'llm') {
+        streamLines = renderLlmConfigStreams({
+            snapshot: ctx.llmSnapshot,
+            step: ctx.llmStep ?? 'provider',
+            providerSelection: ctx.llmProviderSelection ?? 'openai',
+            keyInputBuffer: ctx.llmKeyInputBuffer ?? '',
+            lastTest: ctx.llmLastTest,
+            useColor: ctx.useColor,
+            width: inner,
+            tickCount: ctx.tickCount,
+            live: ctx.live,
+        });
     }
     else {
         streamLines = renderCognitiveStreams(state, gov, streamCtx);

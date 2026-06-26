@@ -142,6 +142,10 @@ Artifact layout:
 ├── mcp.handoff-injection.json # injection state per runtime_id
 ├── state-builder/           # L4 snapshot (scan or IDE cognition pipeline)
 ├── graph/                   # V3.1 cognitive graph (knowledge.json, snapshot.json, …)
+├── config/                  # LLM settings (no secrets in llm.json)
+│   ├── llm.json             # provider, model, modules, intent_router
+│   └── .llm-keys.json       # per-provider API keys (gitignored)
+├── cache/llm/               # optional LLM response cache
 ├── events/                  # IDE events (CLI/MCP read; IDE writes)
 ├── dashboard.*.json         # dashboard view/signals (not business state source)
 └── mcp/                     # MCP store_memory (optional)
@@ -312,7 +316,9 @@ No IDE or MCP; suitable for CI and scripts.
 | **Decision derive** | Review Change (cycle path) | `derive_decision_provenance` | `contorium decision derive` |
 | **Context synthesize** | Export appendix in copy | `synthesize_context_payload` | `[c]` · `contorium decision synthesize` |
 | **Project intent / rules** | Edit Direction · View Rules | `record_project_intent` · `get_decision_context` | `contorium cognition inspect intent` · `cognition inspect governance` |
-| **Cognitive view mode** | — | — | Dashboard **↑↓** — Live · Governance · Debug |
+| **Cognitive view mode** | — | — | Dashboard **↑↓** — Live · Governance · Debug · History · **LLM Config** |
+| **AI Layer status / test** | Developer → CIL AI Layer | `get_ai_status` · `test_ai_connection` | `contorium ai status` · `contorium ai test` |
+| **LLM interactive setup** | — | — | Dashboard view **E** (provider → key → auto test) |
 
 **Backward compatible:** extension command IDs, existing MCP tool names, `state.json` fields.
 
@@ -423,6 +429,7 @@ After changing CLI or dashboard code: run `npm run build:cli` and **restart the 
 ## Related docs
 
 - [README](../README.md)
+- [Project Overview](./OVERVIEW.md)
 - [IDE Extension](./IDE_EXTENSION.md)
 - [MCP Server](./MCP.md)
 - [CLI](./CLI.md)

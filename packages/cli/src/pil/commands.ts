@@ -51,9 +51,8 @@ Three capability groups (mirrors IDE / MCP):
     contorium inspect handoff [path]
 
   Transfer — export compressed intelligence
-    contorium transfer context [path] [--format json|markdown] [--copy]
-    contorium transfer intelligence [path] [--copy]
-    contorium transfer handoff [path] [--copy]     compact handoff (~100–300 tokens)
+    contorium transfer [--mode context|intelligence|story|essence|handoff] [path] [--copy]
+    contorium transfer context|intelligence|handoff [path]   (legacy positional)
 
   Capture — write intelligence records
     contorium capture focus [path] --text "<focus>"
@@ -193,6 +192,29 @@ async function cmdInspectTarget(root: string, target: string): Promise<void> {
 
 async function cmdTransferMode(root: string, mode: string): Promise<void> {
   const copy = hasFlag('--copy') || hasFlag('--copy-to-ai');
+  const flagMode = flagValue('--mode', '');
+  if (flagMode) {
+    mode = flagMode;
+  }
+
+  if (mode === 'story' || mode === 'essence') {
+    const { syncCognitiveInteractionLayer, runCognitiveKernel, setGitSubprocessAllowed, syncWorkspaceState } =
+      await import('@contora/state-core');
+    setGitSubprocessAllowed(true);
+    await syncWorkspaceState(root, 'cli', { refreshGit: true }).catch(() => undefined);
+    await syncCognitiveInteractionLayer(root, 'cli');
+    const out = await runCognitiveKernel(root, { mode: mode === 'story' ? 'story' : 'essence' });
+    const payload = out.result as { formatted_markdown?: string };
+    const text = payload.formatted_markdown ?? JSON.stringify(out.result, null, 2);
+    if (copy) {
+      if (copyToClipboard(text)) {
+        console.error(`Transfer ${mode}: copied to clipboard`);
+        return;
+      }
+    }
+    process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
+    return;
+  }
 
   if (mode === 'context') {
     await ensureUnderstanding(root);
@@ -294,7 +316,13 @@ async function cmdCaptureKind(root: string, kind: string): Promise<void> {
 }
 
 export async function cmdPil(root: string, group: 'inspect' | 'transfer' | 'capture'): Promise<void> {
-  const target = process.argv[3];
+  let target = process.argv[3];
+  if (group === 'transfer' && hasFlag('--mode')) {
+    target = flagValue('--mode', 'context');
+  }
+  if (!target && group === 'transfer') {
+    target = 'context';
+  }
   if (!target) {
     process.stderr.write(PIL_USAGE);
     process.exit(group ? 1 : 0);

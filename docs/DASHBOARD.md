@@ -52,7 +52,7 @@ There is **no compact/expand toggle**. When runtime is active, the full cognitiv
 │ [+] Cognitive Streams                                      │
 │ ▶ Change Stream / Cognitive Health / Evolution               │
 ├──────────────────────────────────────────────────────────────┤
-│ View Mode: ● Live  ○ Governance  ○ Debug                   │
+│ View Mode: ● Live  ○ Gov  ○ Debug  ○ History  ○ LLM Config      │
 ├──────────────────────────────────────────────────────────────┤
 │ Shortcuts                                                  │
 │ [c]       Copy PIL context to clipboard                    │
@@ -66,7 +66,7 @@ There is **no compact/expand toggle**. When runtime is active, the full cognitiv
 | **Level 1 — Cognitive Core** | Project, agent, stage, focus, confidence |
 | **Level 2 — Dimensions** | STATE · INTENT · DECISION · WHY (2×2 grid) |
 | **Level 3 — Streams** | Change · Health · Evolution (content varies by view mode) |
-| **View Mode** | Live Cognition · Governance Overlay · Debug Trace |
+| **View Mode** | Live · Governance · Debug · **Project History** · **LLM Config** |
 | **Shortcuts** | Key bindings with descriptions (English) |
 
 `[+]` / `[·]` markers indicate live vs static modules (fixed-width animation).
@@ -75,18 +75,59 @@ There is **no compact/expand toggle**. When runtime is active, the full cognitiv
 
 ## View modes
 
-| Mode | Key cycle | Content |
-|------|-----------|---------|
-| **Live Cognition** (default) | `A` | Change · Health · Evolution streams |
-| **Governance Overlay** | `B` | Policy snapshot · violations · decision |
-| **Debug Trace** | `C` | Decision provenance · raw review (preview-only) |
+| Mode | Selection | Content | Apply on Enter |
+|------|-----------|---------|----------------|
+| **A — Live Cognition** (default) | `↑↓` | Change · Health · Evolution streams | Yes — persisted to MCP |
+| **B — Governance Overlay** | | Policy snapshot · violations · decision | Yes — persisted to MCP |
+| **C — Debug Trace** | | Decision provenance · raw review | Preview only |
+| **D — Project History** | | CIL cognitive event feed · last 7 days | Preview only |
+| **E — LLM Config** | | Provider setup · API key · auto test | See [View E — LLM Config](#view-e--llm-config) |
 
-- **`↑` / `↓`** — select view mode  
-- **`Enter`** — apply Live or Governance to MCP runtime (Debug is view-only)  
+- **`↑` / `↓`** — cycle view modes (A–E)  
+- **`Enter`** — apply **A** or **B** to MCP runtime; **C** / **D** show preview flash only  
 
 ---
 
-## Keyboard shortcuts
+## View E — LLM Config
+
+LLM configuration is **View Mode E** — the main streams region switches to the setup UI when E is selected (not a separate panel below View Mode).
+
+**Sequential flow:**
+
+```text
+Step 1: Select provider (←→ cycle · Enter confirm)
+   ↓
+Step 2: Enter API key (type or Ctrl+V · Enter save & auto-test · Esc back)
+   ↓
+Auto connection test result shown in streams
+```
+
+| Provider | Key required |
+|----------|--------------|
+| OpenAI · Anthropic · OpenRouter · Gemini · DeepSeek | Yes — per-provider key in `.contora/config/.llm-keys.json` |
+| Ollama (local) | No — tests after provider confirm |
+
+**UI hints (English):**
+
+- Configured providers show **`· configured`** in the provider list
+- Unconfigured selection shows **`· key required`**
+- Switching provider never reuses another provider's API key
+
+**Keys in view E:**
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Cycle view modes |
+| `←` / `→` or `h` | Cycle provider (step 1) |
+| `Enter` | Confirm provider · save key and test (step 2) |
+| `Ctrl+V` | Paste API key from clipboard (step 2) |
+| `Esc` | Back to provider list (step 2) |
+
+See [AI_LAYER.md](./AI_LAYER.md) for `llm.json`, CLI `contorium ai`, and IDE/MCP integration.
+
+---
+
+## Keyboard shortcuts (global)
 
 | Key | Action |
 |-----|--------|
@@ -94,8 +135,9 @@ There is **no compact/expand toggle**. When runtime is active, the full cognitiv
 | **`i`** | Inject compact handoff (when injection pending) |
 | **`n`** | Skip injection (when pending) |
 | **`q`** | Quit dashboard worker |
-| **`↑` / `↓`** | Cycle view mode |
-| **`Enter`** | Apply selected view mode |
+| **`↑` / `↓`** | Cycle view mode (A–E) |
+| **`←` / `→`** | Cycle LLM provider (view E, step 1 only) |
+| **`Enter`** | Apply view A/B · confirm provider or save key (view E) |
 
 When the terminal is too short, the **Shortcuts** section truncates first and shows:
 

@@ -6,6 +6,8 @@
 
 Contorium at V3.1 is a **Project Cognitive Operating System**: workspace events compile into canonical state; the knowledge graph is the single structural truth; everything else is projection.
 
+**CIL v3 (user layer):** [CIL_FREEZE.md](./CIL_FREEZE.md) — Cognitive Events are the CIL fact source; Snapshot, Knowledge Graph, Health are CIL projections rebuilt on sync.
+
 ---
 
 ## 1. System boundaries (data layers)

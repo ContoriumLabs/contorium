@@ -85,10 +85,18 @@ export interface RenderContext {
   tickCount?: number;
   filter?: string;
   fsmState: DashboardFsmState;
-  /** Cognitive view lens — A=Live B=Governance C=Debug (C is view-only). */
-  cognitiveModeSelection?: 'A' | 'B' | 'C';
+  /** Cognitive view lens — A=Live B=Governance C=Debug D=History E=LLM (C/D/E view-only). */
+  cognitiveModeSelection?: 'A' | 'B' | 'C' | 'D' | 'E';
   /** Cognitive overlay A/B — saved in .contora/mcp/cognitive.mode.json */
   cognitiveModeActive?: 'A' | 'B';
   /** Mode B insights from .contora/mcp/cognitive-insights.json */
   cognitiveInsights?: DashboardCognitiveInsights;
+  /** CIL history feed lines for view D. */
+  cilHistoryLines?: string[];
+  /** LLM config (view E). */
+  llmSnapshot?: import('./aiConfigBridge.js').DashboardLlmSnapshot;
+  llmStep?: import('./aiConfigBridge.js').LlmConfigStep;
+  llmProviderSelection?: import('@contora/state-core').AiProviderId;
+  llmKeyInputBuffer?: string;
+  llmLastTest?: import('./aiConfigBridge.js').DashboardLlmTestResult;
 }

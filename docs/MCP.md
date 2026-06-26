@@ -2,7 +2,7 @@
 
 stdio MCP server — **PIL Runtime** for Claude Code, Cursor Agent, OpenAI Codex, Gemini CLI, and other MCP hosts.
 
-- [PIL Runtime Guide](./PIL_RUNTIME.md) · [Package README](../packages/mcp/README.md) · [Dashboard](./DASHBOARD.md) · [CLI](./CLI.md) · [Install](./INSTALL.md)
+- [Project Overview](./OVERVIEW.md) · [PIL Runtime Guide](./PIL_RUNTIME.md) · [Package README](../packages/mcp/README.md) · [Dashboard](./DASHBOARD.md) · [AI Layer](./AI_LAYER.md) · [CLI](./CLI.md) · [Install](./INSTALL.md)
 
 ---
 
@@ -18,6 +18,37 @@ CLI mirror: `contorium inspect …` · `contorium transfer …` · `contorium ca
 
 ---
 
+## CIL tools (questions and narratives)
+
+Natural-language and narrative queries route through **Cognitive Kernel**:
+
+```text
+ask_project · get_next_actions · get_cognitive_health · get_entity_knowledge
+get_project_essence · get_handoff_replay · get_snapshot · get_decision_graph
+get_project_history · transfer_story · transfer_project · get_suggested_questions
+```
+
+CLI mirror: `contorium ask` · `contorium health` · `contorium transfer --mode=…`
+
+See [CIL_V3.md](./CIL_V3.md) · [SURFACES.md](./SURFACES.md).
+
+---
+
+## AI Layer tools (optional — default off)
+
+Explanation-layer LLM status and connectivity. Fact/PIL tools do not require LLM.
+
+| Tool | Purpose |
+|------|---------|
+| `get_ai_status` | Enabled modules, provider, router mode (no secrets) |
+| `test_ai_connection` | Test using `.contora/config/llm.json` + per-provider keys or env |
+
+Configure via `contorium ai setup`, CLI dashboard **View E (LLM Config)**, or IDE `contora.cilAiEnabled`. Keys: `.contora/config/.llm-keys.json` (per provider).
+
+See [AI_LAYER.md](./AI_LAYER.md).
+
+---
+
 ## Quick reference
 
 | Phase | Action |
@@ -29,6 +60,8 @@ CLI mirror: `contorium inspect …` · `contorium transfer …` · `contorium ca
 | **Primary transfer** | `transfer_context` · `transfer_intelligence` · `transfer_handoff` |
 | **Primary inspect** | `inspect_state` · `inspect_health` · `inspect_intent` |
 | **Capture** | `capture_focus` · `capture_note` · `capture_decision` |
+| **CIL Ask** | `ask_project` · `get_suggested_questions` |
+| **AI Layer** | `get_ai_status` · `test_ai_connection` |
 | **New chat** | `get_handoff_injection_status` → `confirm_handoff_injection` |
 | **Governance** | `run_governance_cycle` · `ensure_control_ready` |
 | **Remove** | Host-specific: see [Uninstall](#uninstall--disable) |

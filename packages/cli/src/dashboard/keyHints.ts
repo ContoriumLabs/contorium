@@ -18,8 +18,9 @@ function hintRows(args: KeyHintFooterArgs): HintRow[] {
     { key: '[c]', desc: 'Copy PIL context to clipboard' },
     { key: '[i]', desc: 'Inject compact handoff to AI chat' },
     { key: '[q]', desc: 'Quit dashboard' },
-    { key: '[↑↓]', desc: 'Cycle Live / Governance / Debug view' },
-    { key: '[Enter]', desc: 'Apply view mode (A/B; Debug is preview-only)' },
+    { key: '[↑↓]', desc: 'Cycle view mode (A–E)' },
+    { key: '[←→]', desc: 'Cycle LLM provider (view E, step 1)' },
+    { key: '[Enter]', desc: 'Apply view / confirm provider / save API key' },
   ];
 
   if (args.injectionPending) {

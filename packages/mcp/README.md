@@ -1,86 +1,241 @@
 # @contorium/mcp
 
-**Contorium — AI Project Intelligence Layer (MCP Runtime Adapter)**
+## MCP Runtime Adapter for Contorium Project Intelligence
 
-A **runtime adapter** that exposes Contorium PIL (Project Intelligence Layer) to MCP-compatible AI tools.
+A Model Context Protocol (MCP) runtime that connects AI coding agents to Contorium’s **Project Intelligence Layer (PIL)**.
 
-It enables AI agents (Claude Code, Codex, Cursor, Gemini CLI, VS Code MCP, etc.) to:
+It enables AI tools like:
 
-- Inspect project intelligence
-- Capture structured project memory
-- Transfer context across sessions
+- Claude Code
+- OpenAI Codex
+- Cursor
+- Gemini CLI
+- VS Code MCP
+- Any MCP-compatible runtime
 
-> Contorium does not execute tasks or make decisions.  
-> It preserves and transfers project intelligence.
+to access structured project intelligence.
 
 ---
 
-## What this package is
+## Core Purpose
 
-`@contorium/mcp` is the **MCP runtime bridge** between AI agents and the Contorium PIL engine.
+Contorium MCP is not an agent.
+
+It is a **bridge between AI tools and project intelligence**.
+
+It provides:
+
+- Inspect → read project intelligence
+- Capture → write structured memory
+- Transfer → move intelligence across sessions
+
+---
+
+## Architecture Overview
 
 ```text
 AI Host (Claude / Codex / Cursor)
         ↓
    MCP Runtime (@contorium/mcp)
         ↓
-   @contora/state-core (PIL Engine)
+   @contora/state-core (CIL + PIL Engine)
         ↓
-   .contora/ (Local Intelligence Store)
-```
-
-It provides **read / capture / transfer access** to project intelligence.
-
----
-
-## PIL Architecture (v3.0)
-
-All Contorium runtimes share one intelligence model:
-
-```text
-Capture → Structure → Preserve → Retrieve → Transfer
-```
-
-### Core Intelligence Model
-
-- STATE — what exists now
-- INTENT — what the project is trying to achieve
-- DECISION — what choices were made
-- WHY — reasoning behind decisions
-
-### Extended Dimensions
-
-- TIMELINE — evolution over time
-- IMPACT — affected scope
-- CONFIDENCE — reliability score
-- EVOLUTION — structural changes
-- PROVENANCE — origin of intelligence
-
----
-
-## Three Peer Runtimes
-
-| Runtime | Responsibility |
-|--------|----------------|
-| IDE | Capture + Visualization |
-| MCP (this package) | Inspect + Transfer |
-| CLI | Inspect + Audit |
-
-All runtimes share:
-
-```text
-@contora/state-core
-```
-
-and operate on:
-
-```text
-.contora/
+   .contora/ (Local Project Intelligence Store)
 ```
 
 ---
 
-## Install
+## Design Principle
+
+> MCP does NOT execute tasks  
+> MCP does NOT make decisions
+
+It only:
+
+- exposes project intelligence
+- synchronizes state
+- enables continuity
+
+---
+
+## Project Intelligence Model (PIL v3)
+
+Contorium MCP operates on a structured intelligence model:
+
+### Core Layer
+
+- STATE → current project state
+- INTENT → project goals
+- DECISION → architecture decisions
+- WHY → reasoning behind decisions
+
+### Extended Layer
+
+- TIMELINE → evolution over time
+- IMPACT → dependency relationships
+- CONFIDENCE → reliability scoring
+- PROVENANCE → origin tracking
+- EVOLUTION → structural changes
+
+---
+
+## Core Capabilities
+
+### 1. Inspect (Read-only Intelligence)
+
+Used by AI agents to understand project context.
+
+```text
+inspect_state
+inspect_intent
+inspect_decision
+inspect_why
+inspect_timeline
+inspect_impact
+inspect_health
+inspect_graph
+inspect_provenance
+```
+
+### 2. Capture (Write Intelligence)
+
+Used to persist structured project memory.
+
+```text
+capture_focus
+capture_note
+capture_decision
+```
+
+### 3. Transfer (AI Continuity Export)
+
+Used to move project intelligence across sessions.
+
+| Tool | Purpose | Size |
+| --- | --- | --- |
+| transfer_context | lightweight continuation | ~300–800 tokens |
+| transfer_handoff | runtime continuation | ~100–300 tokens |
+| transfer_intelligence | full project export | ~8000 tokens |
+
+---
+
+## Typical AI Agent Flow
+
+```text
+1. inspect_state
+2. inspect_intent
+3. inspect_decision
+4. perform work (external AI tool)
+5. capture_note / capture_decision
+6. transfer_context (session handoff)
+```
+
+---
+
+## MCP Runtime Contract
+
+### Read Layer
+
+```text
+inspect_*
+```
+
+Provides deterministic access to:
+
+- state
+- intent
+- decisions
+- timeline
+- graph
+- health
+
+### Write Layer
+
+```text
+capture_*
+```
+
+Persists:
+
+- focus updates
+- notes
+- decision logs
+
+### Transfer Layer
+
+```text
+transfer_*
+```
+
+Exports structured intelligence for AI continuity.
+
+---
+
+## CIL Integration (Recommended)
+
+MCP does NOT handle natural language directly.
+
+All reasoning flows through CIL:
+
+```text
+ask_project
+get_next_actions
+get_project_history
+get_decision_graph
+get_cognitive_health
+get_project_essence
+get_snapshot
+get_entity_knowledge
+```
+
+> MCP = access layer  
+> CIL = cognition layer
+
+---
+
+## AI Layer (Optional)
+
+Contorium supports optional LLM enhancement for:
+
+- Why explanation
+- Story generation
+- Essence compression
+- Project DNA summarization
+
+### Important
+
+- LLM is NOT required
+- All core intelligence remains deterministic
+- LLM is only for interpretation
+
+---
+
+## Configuration
+
+### Workspace
+
+```text
+CONTORIUM_WORKSPACE=/your/project/root
+```
+
+### LLM Config (Optional)
+
+Stored in:
+
+```text
+.contora/config/llm.json
+```
+
+Used for:
+
+- explanation generation
+- narrative synthesis
+
+No secrets stored in repo (API keys are gitignored).
+
+---
+
+## Installation
 
 ### npm (recommended)
 
@@ -88,7 +243,7 @@ and operate on:
 npm install -g @contorium/mcp
 ```
 
-### from source
+### From source
 
 ```bash
 git clone https://github.com/ContoriumLabs/contorium.git
@@ -101,92 +256,38 @@ npm run compile
 
 ## MCP Host Setup
 
-### Codex
-
-```bash
-codex mcp add contorium -- npx @contorium/mcp
-```
-
 ### Claude Code
 
 ```bash
 claude mcp add --scope project contorium -- npx @contorium/mcp
 ```
 
-### Environment
-
-Optional:
+### OpenAI Codex
 
 ```bash
-CONTORIUM_WORKSPACE=/your/project/root
+codex mcp add contorium -- npx @contorium/mcp
+```
+
+### Cursor / VS Code / Gemini CLI
+
+Supports standard MCP registration:
+
+```json
+{
+  "mcpServers": {
+    "contorium": {
+      "command": "npx",
+      "args": ["@contorium/mcp"]
+    }
+  }
+}
 ```
 
 ---
 
-## MCP Runtime Contract
+## Local-First Design
 
-### Inspect (read-only intelligence)
-
-```text
-inspect_state
-inspect_intent
-inspect_decision
-inspect_why
-
-inspect_timeline
-inspect_impact
-inspect_confidence
-
-inspect_evolution
-inspect_provenance
-inspect_health
-inspect_graph
-```
-
----
-
-### Transfer (AI continuity export)
-
-| Tool | Mode | Size |
-|------|------|------|
-| transfer_context | Default AI continuation | ~300–800 tokens |
-| transfer_intelligence | Full intelligence export | ~8000 tokens |
-| transfer_handoff | Runtime handoff (compact) | ~100–300 tokens |
-
----
-
-### Capture (write intelligence)
-
-```text
-capture_focus     → set current task
-capture_note      → append timestamped memory
-capture_decision  → persist decision log
-```
-
----
-
-## Typical AI Agent Flow
-
-```text
-1. MCP bootstraps workspace
-2. inspect_state → understand project
-3. inspect_intent → understand goal
-4. agent performs work
-5. capture_note / capture_decision
-6. transfer_context → move to next chat
-```
-
-Optional:
-
-```text
-transfer_handoff → fast runtime continuation
-```
-
----
-
-## Local-first storage
-
-All intelligence is stored locally:
+All intelligence stays local:
 
 ```text
 .contora/
@@ -195,39 +296,39 @@ All intelligence is stored locally:
 ├── intent/
 ├── timeline/
 ├── graph/
+├── events/
 ├── intelligence/
 ├── governance/
-└── events/
+├── config/
+│   ├── llm.json
+│   └── .llm-keys.json (gitignored)
+├── cache/llm/
 ```
 
-No cloud.
-No external API dependency.
+No cloud dependency.
+
 No vendor lock-in.
 
 ---
 
-## CLI equivalents
+## CLI Equivalents
 
 | MCP Tool | CLI Command |
-|----------|------------|
-| inspect_* | contorium inspect <target> |
-| capture_* | contorium capture focus\|note\|decision |
-| transfer_context | contorium transfer context |
-| transfer_intelligence | contorium transfer intelligence |
-| transfer_handoff | contorium transfer handoff |
+| --- | --- |
+| inspect_* | contorium inspect |
+| capture_* | contorium capture |
+| transfer_* | contorium transfer |
 
 ---
 
 ## Legacy Compatibility
 
-For backward compatibility:
+Deprecated but supported:
 
-- `get_project_*`
-- `get_cognitive_snapshot`
-- `get_full_intelligence`
-- `transfer_runtime`
-
-All deprecated but supported.
+- get_project_*
+- get_cognitive_snapshot
+- transfer_runtime
+- get_full_intelligence
 
 ---
 
@@ -242,15 +343,24 @@ All deprecated but supported.
 
 ---
 
+## Key Insight
+
+> MCP is not intelligence.  
+> It is the transport layer of intelligence.
+
+---
+
 ## Links
 
-- PIL Runtime Guide: https://github.com/ContoriumLabs/contorium/blob/main/docs/PIL_RUNTIME.md
-- MCP Docs: https://github.com/ContoriumLabs/contorium/blob/main/docs/MCP.md
-- Install Guide: https://github.com/ContoriumLabs/contorium/blob/main/docs/INSTALL.md
-- GitHub: https://github.com/ContoriumLabs/contorium
+- Project: [https://github.com/ContoriumLabs/contorium](https://github.com/ContoriumLabs/contorium)
+- Overview: [https://github.com/ContoriumLabs/contorium/blob/main/docs/OVERVIEW.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/OVERVIEW.md)
+- PIL Guide: [https://github.com/ContoriumLabs/contorium/blob/main/docs/PIL_RUNTIME.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/PIL_RUNTIME.md)
+- AI Layer: [https://github.com/ContoriumLabs/contorium/blob/main/docs/AI_LAYER.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/AI_LAYER.md)
+- MCP Docs: [https://github.com/ContoriumLabs/contorium/blob/main/docs/MCP.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/MCP.md)
+- Install Guide: [https://github.com/ContoriumLabs/contorium/blob/main/docs/INSTALL.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/INSTALL.md)
 
 ---
 
 ## License
 
-See LICENSE
+MIT

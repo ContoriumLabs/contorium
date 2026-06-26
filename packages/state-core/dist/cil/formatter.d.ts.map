@@ -1,0 +1,1 @@
+{"version":3,"file":"formatter.d.ts","sourceRoot":"","sources":["../../src/cil/formatter.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EACV,gBAAgB,EAChB,qBAAqB,EACrB,YAAY,EAEb,MAAM,YAAY,CAAC;AAEpB,wBAAgB,uBAAuB,CAAC,MAAM,EAAE,YAAY,GAAG,qBAAqB,CA2BnF;AAED,wBAAgB,uBAAuB,CAAC,KAAK,EAAE,MAAM,EAAE,MAAM,EAAE,YAAY,GAAG,gBAAgB,CAe7F"}

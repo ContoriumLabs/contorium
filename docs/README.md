@@ -1,6 +1,6 @@
 # Contorium Documentation
 
-**Contorium** is an **AI Project Intelligence Layer (PIL)**. It captures, structures, preserves, retrieves, and transfers project intelligence across IDEs, MCP agents, CLI tools, and AI sessions.
+**Contorium** is an **AI Project Intelligence Layer (PIL)** with a **Cognitive Interaction Layer (CIL v3)** on top. CIL answers project questions; PIL stores the intelligence underneath.
 
 > **Contorium records and preserves project intelligence. It does not decide for the project.**
 
@@ -10,7 +10,13 @@
 
 | Document | Audience | Content |
 |----------|----------|---------|
-| [PIL_RUNTIME.md](./PIL_RUNTIME.md) | Everyone | **Primary operations guide** — workflows, capability matrix, three runtimes |
+| [OVERVIEW.md](./OVERVIEW.md) | Everyone | **Project overview** — features, architecture, three runtimes, install/use/uninstall matrix |
+| [SURFACES.md](./SURFACES.md) | Everyone | Three-surface information architecture — IDE / CLI / MCP roles and Transfer boundaries |
+| [CIL_FREEZE.md](./CIL_FREEZE.md) | Everyone | **Architecture freeze** — projection rule, final stack, boundaries |
+| [AI_LAYER.md](./AI_LAYER.md) | Everyone | **LLM explanation layer** — Provider Layer, per-provider keys, dashboard View E (default off) |
+| [CIL_V3.md](./CIL_V3.md) | Everyone | CIL v3 engineering spec (frozen) |
+| [CIL.md](./CIL.md) | Everyone | CIL quick reference — CLI, MCP, artifacts |
+| [PIL_RUNTIME.md](./PIL_RUNTIME.md) | Everyone | **PIL operations guide** — workflows, capability matrix, three runtimes |
 | [INSTALL.md](./INSTALL.md) | New users | Install IDE, MCP, and CLI; usage scenarios |
 | [PROJECT_INTELLIGENCE_LAYER.md](./PROJECT_INTELLIGENCE_LAYER.md) | Architects | PIL architecture specification (v1.1.3) |
 
@@ -20,6 +26,7 @@
 
 | Document | Runtime | Primary loop |
 |----------|---------|--------------|
+| [OVERVIEW.md](./OVERVIEW.md) | All three | Features, architecture, install matrix |
 | [IDE_EXTENSION.md](./IDE_EXTENSION.md) | VS Code / Cursor extension | Capture → Visualize → Transfer |
 | [MCP.md](./MCP.md) | `@contorium/mcp` stdio server | Retrieve → Inspect → Transfer |
 | [CLI.md](./CLI.md) | `contorium` terminal CLI | Inspect → Audit → Transfer |

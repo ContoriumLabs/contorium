@@ -1,0 +1,142 @@
+export type {
+  ActionConstraints,
+  AdrRecord,
+  AdrStatus,
+  AskProjectResult,
+  BlastRadiusResult,
+  CilIntent,
+  CilStructuredResponse,
+  CognitiveEvent,
+  CognitiveEventIndex,
+  CognitiveEventSource,
+  DecisionGraphArtifact,
+  DecisionGraphNode,
+  FreshnessLabel,
+  HistoryExplorerResult,
+  HistoryRange,
+  KernelInput,
+  KernelMode,
+  KernelOutput,
+  KernelTraceStep,
+  ModuleHistoryRecord,
+  NextActionItem,
+  ProjectEssence,
+  ProjectJourneyStage,
+  ProjectSnapshotRecord,
+  TransferStoryPayload,
+  KnowledgeEntityRecord,
+  CognitiveHealthReport,
+  TimeTravelResult,
+  DecisionContradiction,
+  HandoffReplayResult,
+  ProjectDna,
+  SuggestedQuestionsResult,
+  TimeTravelPerspective,
+  CilTruthSource,
+} from './types.js';
+
+export {
+  COGNITIVE_EVENT_SCHEMA,
+  ADR_RECORD_SCHEMA,
+  CIL_INDEX_SCHEMA,
+  DECISION_GRAPH_SCHEMA,
+  PROJECT_SNAPSHOT_SCHEMA,
+  KNOWLEDGE_ENTITY_SCHEMA,
+  COGNITIVE_HEALTH_SCHEMA,
+} from './types.js';
+
+export {
+  cognitiveEventsDir,
+  adrDir,
+  snapshotsDir,
+  moduleHistoryDir,
+  knowledgeDir,
+  decisionGraphPath,
+  cilIndexPath,
+  cognitiveHealthPath,
+} from './paths.js';
+
+export { freshnessFromAge, freshnessLabelText } from './confidenceLabels.js';
+
+export {
+  readAllAdrRecords,
+  readAllCognitiveEvents,
+  readCognitiveEvent,
+  readAdrRecord,
+} from './eventStore.js';
+
+export { syncCognitiveEvents, syncDecisionCenter } from './eventEngine.js';
+
+export {
+  runCognitiveKernel,
+  syncCognitiveInteractionLayer,
+  readProjectSnapshot,
+} from './kernel.js';
+
+export { routeQuery } from './queryRouter.js';
+export { buildStructuredResponse, kernelOutputToAskResult } from './formatter.js';
+
+export {
+  exploreHistory,
+  getRecentEvents,
+  getModuleHistory,
+  exploreModuleHistoryFeed,
+} from './historyExplorer.js';
+
+export { getDecisionCenter } from './decisionCenter.js';
+
+export { deriveNextActions, getNextActions } from './actionEngine.js';
+
+export { getBlastRadius, exploreImpact } from './impactExplorer.js';
+
+export { buildProjectJourney } from './journeyBuilder.js';
+
+export {
+  linkEventVersions,
+  writeProjectSnapshot,
+  findSnapshotByDate,
+  listProjectSnapshots,
+} from './snapshotEngine.js';
+
+export {
+  syncModuleHistory,
+  exploreModuleHistory,
+  readModuleHistoryRecord,
+} from './moduleHistory.js';
+
+export {
+  buildDecisionGraphFromAdrs,
+  persistDecisionGraph,
+  readDecisionGraph,
+} from './decisionGraph.js';
+
+export { askProject, getProjectStory } from './queryEngine.js';
+
+export { buildTransferStory } from './transferStory.js';
+
+export {
+  syncKnowledgeGraph,
+  exploreEntityKnowledge,
+  readKnowledgeEntity,
+  readKnowledgeEntityIndex,
+} from './knowledgeGraph.js';
+
+export { queryTimeTravel } from './timeTravel.js';
+
+export { detectDecisionContradictions } from './decisionConsistency.js';
+
+export {
+  computeCognitiveHealth,
+  persistCognitiveHealth,
+  readCognitiveHealthReport,
+} from './cognitiveHealth.js';
+
+export { buildProjectEssence } from './memoryCompression.js';
+
+export { buildHandoffReplay } from './handoffReplay.js';
+
+export { buildProjectDna } from './projectDna.js';
+
+export { buildSuggestedQuestions } from './suggestedQuestions.js';
+
+export { resolveDecisionByTopic, applyImplementedStatus } from './decisionLifecycle.js';

@@ -178,12 +178,12 @@ When IDE or MCP bootstraps a workspace, a dashboard worker renders a **Cognitive
 | **Cognitive Core** | Project, agent, stage, focus, confidence |
 | **Dimensions** | STATE · INTENT · DECISION · WHY (2×2 grid) |
 | **Streams** | Change · Health · Evolution (or Governance/Debug lens) |
-| **View Mode** | Live Cognition · Governance Overlay · Debug Trace |
+| **View Mode** | Live · Governance · Debug · **Project History** · **LLM Config** |
 | **Shortcuts** | Fixed footer with key bindings |
 
-Keys: **`c`** copy context · **`i`** inject handoff · **`q`** quit · **`↑↓`** view mode · **`Enter`** apply mode.
+Keys: **`c`** copy context · **`i`** inject handoff · **`q`** quit · **`↑↓`** view mode · **`←→`** LLM provider (view E) · **`Enter`** apply mode / confirm provider / save key.
 
-See [DASHBOARD.md](./DASHBOARD.md).
+See [DASHBOARD.md](./DASHBOARD.md) · [AI_LAYER.md](./AI_LAYER.md).
 
 ---
 

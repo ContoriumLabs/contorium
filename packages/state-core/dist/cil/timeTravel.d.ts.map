@@ -1,0 +1,1 @@
+{"version":3,"file":"timeTravel.d.ts","sourceRoot":"","sources":["../../src/cil/timeTravel.ts"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAa,qBAAqB,EAAE,gBAAgB,EAAE,MAAM,YAAY,CAAC;AAMrF,MAAM,WAAW,iBAAiB;IAChC,WAAW,CAAC,EAAE,qBAAqB,CAAC;CACrC;AAED;;;;GAIG;AACH,wBAAsB,eAAe,CACnC,aAAa,EAAE,MAAM,EACrB,OAAO,EAAE,MAAM,EACf,OAAO,GAAE,iBAAsB,GAC9B,OAAO,CAAC,gBAAgB,CAAC,CA4F3B"}

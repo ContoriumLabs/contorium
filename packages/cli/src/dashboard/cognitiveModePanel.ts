@@ -58,6 +58,8 @@ export function renderCognitiveModeSelectorLines(args: {
   row('B', 'Governance Overlay', 'Policy · Violations · Scope');
   lines.push('');
   row('C', 'Debug Trace', 'Provenance · Raw review (view-only)');
+  lines.push('');
+  row('D', 'Project History', 'CIL event feed · last 7 days (view-only)');
   return lines;
 }
 

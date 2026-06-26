@@ -13,6 +13,8 @@ import {
 } from './intelligencePanel.js';
 import { liveModuleMarker, liveModuleTitle, monitoringBadge } from './statusAnimation.js';
 import { renderKeyHintFooter } from './keyHints.js';
+import { renderHistoryStreams } from './historyPanel.js';
+import { renderLlmConfigStreams } from './aiConfigPanel.js';
 import type { DashboardState, RenderContext } from './types.js';
 import {
   padVisible,
@@ -24,9 +26,9 @@ import {
 
 export const COGNITIVE_DASHBOARD_TITLE = 'CONTORIUM • Cognitive State';
 
-export type CognitiveViewLens = 'live' | 'governance' | 'debug';
+export type CognitiveViewLens = 'live' | 'governance' | 'debug' | 'history' | 'llm';
 
-export type CognitiveViewSelection = 'A' | 'B' | 'C';
+export type CognitiveViewSelection = 'A' | 'B' | 'C' | 'D' | 'E';
 
 function colors(useColor: boolean): Record<string, ColorFn> {
   const wrap =
@@ -49,6 +51,12 @@ export function viewLensFromSelection(sel: CognitiveViewSelection | undefined): 
   }
   if (sel === 'C') {
     return 'debug';
+  }
+  if (sel === 'D') {
+    return 'history';
+  }
+  if (sel === 'E') {
+    return 'llm';
   }
   return 'live';
 }
@@ -390,7 +398,7 @@ export function renderCognitiveViewMode(
   const active = ctx.cognitiveModeActive ?? 'A';
   const dot = (id: CognitiveViewSelection, label: string) => {
     const on = sel === id;
-    const applied = id !== 'C' && active === id;
+    const applied = id !== 'C' && id !== 'D' && id !== 'E' && active === id;
     const marker = on ? c.bold('●') : c.dim('○');
     const text = on ? c.bold(label) : c.dim(label);
     const suffix = applied ? c.green(' ✓') : '';
@@ -402,7 +410,9 @@ export function renderCognitiveViewMode(
     dot('A', 'Live Cognition'),
     dot('B', 'Governance Overlay'),
     dot('C', 'Debug Trace'),
-    c.dim('↑↓ select · Enter apply (A/B) · [·]=static [+]=live'),
+    dot('D', 'Project History'),
+    dot('E', 'LLM Config'),
+    c.dim('↑↓ view · Enter apply (A/B) · C/D/E preview · E: ←→ provider'),
   ];
 }
 
@@ -427,6 +437,20 @@ export function renderCognitiveMainPanel(
     streamLines = renderGovernanceOverlayStreams(state, gov, streamCtx);
   } else if (lens === 'debug') {
     streamLines = renderDebugTraceStreams(gov, streamCtx);
+  } else if (lens === 'history') {
+    streamLines = renderHistoryStreams(ctx.cilHistoryLines, streamCtx);
+  } else if (lens === 'llm') {
+    streamLines = renderLlmConfigStreams({
+      snapshot: ctx.llmSnapshot,
+      step: ctx.llmStep ?? 'provider',
+      providerSelection: ctx.llmProviderSelection ?? 'openai',
+      keyInputBuffer: ctx.llmKeyInputBuffer ?? '',
+      lastTest: ctx.llmLastTest,
+      useColor: ctx.useColor,
+      width: inner,
+      tickCount: ctx.tickCount,
+      live: ctx.live,
+    });
   } else {
     streamLines = renderCognitiveStreams(state, gov, streamCtx);
   }

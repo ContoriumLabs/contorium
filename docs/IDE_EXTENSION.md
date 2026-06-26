@@ -92,7 +92,7 @@ If the sidebar stays blank, see [Troubleshooting](#troubleshooting).
 | **Transfer Context** | PIL **Transfer** (~300–800 tokens) → clipboard |
 | **Transfer Intelligence** | PIL **Transfer** full export (~8000 tokens) |
 | **Runtime dashboard** | Status bar CHP line + auto Cognitive State TUI |
-| **AI Cortex** (collapsible) | Knowledge graph, hotspots, function graph, impact |
+| **Cortex** (collapsible) | **History · Decisions · Ask** (CIL v3) + knowledge graph, hotspots, impact |
 | **Governance** | Review Change · View Rules · Edit Direction |
 | **Sync state to disk** | Persist `state.json` immediately |
 | **Restore editors** | Reopen editors from saved state |
@@ -112,6 +112,10 @@ If the sidebar stays blank, see [Troubleshooting](#troubleshooting).
 | Edit Direction | Update project intent |
 | Save session state now | Persist immediately |
 | Restore editors from saved state | Restore editors |
+| Ask Contorium… | CIL natural-language query (opens markdown preview) |
+| Test CIL AI connection | Test explanation-layer LLM using workspace config |
+| Project History… | CIL event feed overlay (last 7 days) |
+| Decision Center… | CIL ADR / decision overlay |
 | Configure API key… (BYOK) | Optional cloud model keys |
 | Observe workspace (AI summary) | BYOK workspace summary |
 | Learn workspace intent (AI) | BYOK intent learning |
@@ -129,12 +133,25 @@ When `contora.autoAttachDashboard` is enabled (default):
 1. Opening a folder → **bootstrap** runs automatically.
 2. **Passive line** on status bar (from `handoff.json` + mini-graph).
 3. **New AI chat** → auto notification: *Inject context?* + status bar **`[?]`** (no command).
-4. **Expanded dashboard** → **Space** in Contorium terminal tab (not `--show`).
-5. Terminal keys: **Space** toggle · **c** copy · **Enter/i** inject · **n** skip · **q** quit.
+4. **Expanded dashboard** — full-screen Cognitive State TUI in the Contorium terminal tab (automatic after bootstrap).
+5. Terminal keys: **`c`** copy · **`i`** / Enter inject · **`↑↓`** view modes (including **LLM Config**) · **`←→`** LLM provider in view E · **`q`** quit.
 
 Optional: **Ctrl+Shift+C** opens IDE Webview panel (secondary view).
 
-See [DASHBOARD.md](./DASHBOARD.md).
+### CIL AI Layer (optional)
+
+Enable explanation-layer LLM (Why / Story / Essence / DNA / Ask polish):
+
+| Setting | Purpose |
+|---------|---------|
+| `contora.cilAiEnabled` | Sync `enabled` to `.contora/config/llm.json` |
+| `contora.aiProvider` | Provider (openai · anthropic · google/gemini · deepseek · off) |
+| `contora.cilIntentRouter` | `rule` · `hybrid` · `llm` |
+| Configure API key… | BYOK via SecretStorage (not written to repo) |
+
+Sidebar **Developer → CIL AI Layer** shows status and test. CLI dashboard **View E** configures per-provider keys in `.llm-keys.json`.
+
+See [AI_LAYER.md](./AI_LAYER.md) · [DASHBOARD.md](./DASHBOARD.md).
 
 ### Governance (V4)
 
@@ -212,6 +229,9 @@ All data stays in the project; **not uploaded by default**:
 │   ├── snapshot.json
 │   ├── hotspots.json
 │   └── metadata.json
+├── config/                    # LLM (no secrets in llm.json)
+│   ├── llm.json
+│   └── .llm-keys.json       # per-provider keys (gitignored)
 └── mcp/                       # MCP store_memory (if used)
 ```
 

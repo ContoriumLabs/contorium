@@ -94,3 +94,78 @@ export function copyToClipboardAsync(text: string): Promise<boolean> {
   }
   return Promise.resolve(copyToClipboard(text));
 }
+
+function readWindowsSync(): string | undefined {
+  try {
+    const ps = spawnSync(
+      'powershell',
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw'],
+      { encoding: 'utf8', windowsHide: true, timeout: 5000 },
+    );
+    if (ps.status === 0 && typeof ps.stdout === 'string') {
+      return ps.stdout.replace(/\r\n/g, '\n').replace(/\n$/, '');
+    }
+  } catch {
+    /* fallback */
+  }
+  return undefined;
+}
+
+function readFromClipboardSync(): string | undefined {
+  try {
+    if (process.platform === 'win32') {
+      return readWindowsSync();
+    }
+    if (process.platform === 'darwin') {
+      const result = spawnSync('pbpaste', { encoding: 'utf8', timeout: 5000 });
+      if (result.status === 0 && typeof result.stdout === 'string') {
+        return result.stdout.replace(/\n$/, '');
+      }
+      return undefined;
+    }
+    const xclip = spawnSync('xclip', ['-selection', 'clipboard', '-o'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    if (xclip.status === 0 && typeof xclip.stdout === 'string') {
+      return xclip.stdout.replace(/\n$/, '');
+    }
+    const wl = spawnSync('wl-paste', ['-n'], { encoding: 'utf8', timeout: 5000 });
+    if (wl.status === 0 && typeof wl.stdout === 'string') {
+      return wl.stdout.replace(/\n$/, '');
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+/** Read system clipboard text (best-effort, cross-platform). */
+export function readFromClipboardAsync(): Promise<string | undefined> {
+  if (process.platform === 'win32') {
+    return new Promise((resolve) => {
+      try {
+        const child = spawn(
+          'powershell',
+          ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw'],
+          { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] },
+        );
+        let out = '';
+        child.stdout?.on('data', (buf: Buffer) => {
+          out += buf.toString('utf8');
+        });
+        child.on('error', () => resolve(readFromClipboardSync()));
+        child.on('close', (code) => {
+          if (code === 0 && out.length > 0) {
+            resolve(out.replace(/\r\n/g, '\n').replace(/\n$/, ''));
+            return;
+          }
+          resolve(readFromClipboardSync());
+        });
+      } catch {
+        resolve(readFromClipboardSync());
+      }
+    });
+  }
+  return Promise.resolve(readFromClipboardSync());
+}

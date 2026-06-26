@@ -6,7 +6,7 @@ import { artifactSignature, loadDashboardState } from './artifacts.js';
 import { buildDashboardExportText, buildTransferContextText } from './exportContext.js';
 import { tryClaimDashboardWorker, unregisterDashboardWorker } from './daemon.js';
 import { releaseDashboardSpawnLock } from './spawnLock.js';
-import { copyToClipboardAsync } from '../handoff/clipboard.js';
+import { copyToClipboardAsync, readFromClipboardAsync } from '../handoff/clipboard.js';
 import { setupKeyboard } from './input.js';
 import { renderExpanded, renderIdleLine } from './render.js';
 import { readDashboardCognitiveInsights } from './cognitiveInsights.js';
@@ -27,6 +27,20 @@ import {
 } from './cognitiveModeBridge.js';
 import { watchContoraArtifacts } from './watchArtifacts.js';
 import type { AttachOptions, DashboardFsmState, RenderContext } from './types.js';
+import {
+  applyDashboardLlmProvider,
+  loadDashboardLlmSnapshot,
+  LLM_PROVIDER_LABELS,
+  LLM_PROVIDER_ORDER,
+  providerHasSavedKey,
+  providerNeedsApiKey,
+  runDashboardLlmTest,
+  saveDashboardLlmKeyAndTest,
+  type DashboardLlmSnapshot,
+  type DashboardLlmTestResult,
+  type LlmConfigStep,
+} from './aiConfigBridge.js';
+import type { AiProviderId } from '@contora/state-core';
 
 function terminalWidth(): number {
   const cols = process.stdout.columns;
@@ -140,15 +154,35 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   let liveUntil = 0;
   let alternateActive = false;
   let tickCount = 0;
-  let cognitiveModeSelection: 'A' | 'B' | 'C' = 'A';
+  let cognitiveModeSelection: 'A' | 'B' | 'C' | 'D' | 'E' = 'A';
   let cognitiveModeActive: ContoriumMcpMode = 'A';
   let cognitiveInsights: DashboardCognitiveInsights | undefined;
+  let cilHistoryLines: string[] | undefined;
+  let llmSnapshot: DashboardLlmSnapshot | undefined;
+  let llmStep: LlmConfigStep = 'provider';
+  let llmProviderSelection: AiProviderId = 'openai';
+  let llmKeyInputBuffer = '';
+  let llmLastTest: DashboardLlmTestResult | undefined;
+  let llmTestInFlight = false;
   let copyInFlight = false;
   let expandedLineCount = 0;
   let lastPersistKey = '';
   cognitiveModeActive = await readDashboardCognitiveMode(options.workspaceRoot);
   cognitiveModeSelection = cognitiveModeActive;
   cognitiveInsights = await readDashboardCognitiveInsights(options.workspaceRoot);
+  llmSnapshot = await loadDashboardLlmSnapshot(options.workspaceRoot);
+  llmProviderSelection = llmSnapshot.provider;
+
+  const refreshLlmSnapshot = async (): Promise<void> => {
+    llmSnapshot = await loadDashboardLlmSnapshot(options.workspaceRoot);
+    llmProviderSelection = llmSnapshot.provider;
+  };
+
+  const enterLlmView = (): void => {
+    llmStep = 'provider';
+    llmKeyInputBuffer = '';
+    void refreshLlmSnapshot();
+  };
 
   const ctx = (): RenderContext => ({
     useColor: options.useColor,
@@ -161,6 +195,12 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     cognitiveModeSelection,
     cognitiveModeActive,
     cognitiveInsights,
+    cilHistoryLines,
+    llmSnapshot,
+    llmStep,
+    llmProviderSelection,
+    llmKeyInputBuffer,
+    llmLastTest,
   });
 
   const enterExpandedScreen = (): void => {
@@ -287,6 +327,18 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     cognitiveInsights = await readDashboardCognitiveInsights(options.workspaceRoot);
   };
 
+  const refreshCilHistory = async (): Promise<void> => {
+    try {
+      const { exploreHistory, syncCognitiveInteractionLayer } = await import('@contora/state-core');
+      await syncCognitiveInteractionLayer(options.workspaceRoot, 'cli').catch(() => undefined);
+      const result = await exploreHistory(options.workspaceRoot, 'last_7_days');
+      cilHistoryLines = result.formatted;
+    } catch {
+      cilHistoryLines = ['(history unavailable — run contorium sync)'];
+    }
+    render();
+  };
+
   const refreshData = async (): Promise<void> => {
     const sig = await artifactSignature(options.workspaceRoot);
     if (sig === lastSig) {
@@ -300,13 +352,96 @@ export async function runAttach(options: AttachOptions): Promise<void> {
       expandedAt = Date.now();
     }
     await refreshCognitiveInsights();
+    if (cognitiveModeSelection === 'D') {
+      void refreshCilHistory();
+    }
     maybeAutoInjectionFlash();
+    render();
+  };
+
+  const confirmLlmProvider = async (): Promise<void> => {
+    if (llmTestInFlight) {
+      return;
+    }
+    await applyDashboardLlmProvider(options.workspaceRoot, llmProviderSelection);
+    await refreshLlmSnapshot();
+    if (providerNeedsApiKey(llmProviderSelection)) {
+      if (providerHasSavedKey(llmSnapshot, llmProviderSelection)) {
+        llmTestInFlight = true;
+        showFlash(`Activating ${LLM_PROVIDER_LABELS[llmProviderSelection]}…`, 8000);
+        const result = await runDashboardLlmTest(options.workspaceRoot);
+        llmLastTest = result;
+        llmTestInFlight = false;
+        showFlash(result.ok ? result.message : `LLM test failed: ${result.message}`, 5000);
+        render();
+        return;
+      }
+      llmStep = 'key';
+      llmKeyInputBuffer = '';
+      showFlash(`${LLM_PROVIDER_LABELS[llmProviderSelection]} — enter API key`, 3500);
+      render();
+      return;
+    }
+    llmTestInFlight = true;
+    showFlash('Testing LLM connection…', 8000);
+    const result = await runDashboardLlmTest(options.workspaceRoot);
+    llmLastTest = result;
+    llmTestInFlight = false;
+    showFlash(result.ok ? result.message : `LLM test failed: ${result.message}`, 5000);
+    render();
+  };
+
+  const appendLlmKeyText = (text: string): void => {
+    const sanitized = text.replace(/[\r\n\t\0]/g, '').slice(0, Math.max(0, 512 - llmKeyInputBuffer.length));
+    if (!sanitized) {
+      return;
+    }
+    llmKeyInputBuffer += sanitized;
+    render();
+  };
+
+  const pasteLlmKeyFromClipboard = (): void => {
+    void readFromClipboardAsync().then((text) => {
+      if (!text?.trim()) {
+        showFlash('Clipboard empty — copy your API key first', 2500);
+        return;
+      }
+      appendLlmKeyText(text.trim());
+      showFlash('Pasted from clipboard', 1500);
+    });
+  };
+
+  const submitLlmKeyInput = async (): Promise<void> => {
+    if (llmTestInFlight) {
+      return;
+    }
+    llmStep = 'provider';
+    const key = llmKeyInputBuffer;
+    llmKeyInputBuffer = '';
+    llmTestInFlight = true;
+    showFlash('Saving API key & testing…', 8000);
+    const result = await saveDashboardLlmKeyAndTest(options.workspaceRoot, llmProviderSelection, key);
+    llmLastTest = result;
+    llmTestInFlight = false;
+    await refreshLlmSnapshot();
+    showFlash(result.ok ? result.message : `LLM key failed: ${result.message}`, 6000);
     render();
   };
 
   const applyCognitiveModeSelection = async (): Promise<void> => {
     if (cognitiveModeSelection === 'C') {
       showFlash('Debug Trace — view-only (not persisted to MCP)', 2500);
+      return;
+    }
+    if (cognitiveModeSelection === 'D') {
+      void refreshCilHistory();
+      showFlash('Project History — view-only (CIL last 7 days)', 2500);
+      return;
+    }
+    if (cognitiveModeSelection === 'E') {
+      if (llmStep === 'provider') {
+        void confirmLlmProvider();
+      }
       return;
     }
     if (cognitiveModeSelection === cognitiveModeActive) {
@@ -320,7 +455,7 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   };
 
   const persistStatusIfChanged = (mode: DashboardFsmState, line: string, frame?: string): void => {
-    const key = `${mode}|${updateCount}|${line}|${frame?.length ?? 0}|${flashMsg}|${filter ?? ''}|${cognitiveModeActive}|${cognitiveModeSelection}`;
+    const key = `${mode}|${updateCount}|${line}|${frame?.length ?? 0}|${flashMsg}|${filter ?? ''}|${cognitiveModeActive}|${cognitiveModeSelection}|${llmStep}|${llmProviderSelection}|${llmKeyInputBuffer.length}|${llmLastTest?.at ?? 0}`;
     if (key === lastPersistKey) {
       return;
     }
@@ -367,15 +502,82 @@ export async function runAttach(options: AttachOptions): Promise<void> {
     : (() => {
         try {
           return setupKeyboard((key, raw) => {
+    if (llmStep === 'key' && cognitiveModeSelection === 'E') {
+      const chunk = raw ?? key;
+      if (chunk === '\u001b' || key === '\u001b') {
+        llmStep = 'provider';
+        llmKeyInputBuffer = '';
+        showFlash('Back to provider selection', 2000);
+        render();
+        return;
+      }
+      if (key === '\r' || key === '\n') {
+        void submitLlmKeyInput();
+        return;
+      }
+      if (chunk === '\u007f' || chunk === '\b') {
+        llmKeyInputBuffer = llmKeyInputBuffer.slice(0, -1);
+        render();
+        return;
+      }
+      if (chunk === '\u0003') {
+        stopping = true;
+        return;
+      }
+      if (key === '\x16' || chunk === '\x16') {
+        pasteLlmKeyFromClipboard();
+        return;
+      }
+      if (raw && raw.length > 1) {
+        if (raw.startsWith('\x1b[200~') && raw.endsWith('\x1b[201~')) {
+          appendLlmKeyText(raw.slice(6, -6));
+          return;
+        }
+        if (!raw.startsWith('\x1b')) {
+          appendLlmKeyText(raw);
+          return;
+        }
+      }
+      if (chunk.length === 1 && chunk >= ' ' && chunk <= '~') {
+        appendLlmKeyText(chunk);
+      }
+      return;
+    }
+
     const modeSelectUp = raw === '\u001b[A' || key === 'k';
     const modeSelectDown = raw === '\u001b[B' || key === 'j';
+    const providerLeft = raw === '\u001b[D' || key === 'h' || key === 'H';
+    const providerRight = raw === '\u001b[C';
     const cycleViewMode = (dir: 1 | -1): void => {
-      const order: Array<'A' | 'B' | 'C'> = ['A', 'B', 'C'];
+      const order: Array<'A' | 'B' | 'C' | 'D' | 'E'> = ['A', 'B', 'C', 'D', 'E'];
       const idx = order.indexOf(cognitiveModeSelection);
       const next = order[(idx + dir + order.length) % order.length]!;
       cognitiveModeSelection = next;
+      if (next === 'D') {
+        void refreshCilHistory();
+      }
+      if (next === 'E') {
+        enterLlmView();
+      } else {
+        llmStep = 'provider';
+        llmKeyInputBuffer = '';
+      }
       render();
     };
+    const cycleLlmProvider = (dir: 1 | -1): void => {
+      const idx = LLM_PROVIDER_ORDER.indexOf(llmProviderSelection);
+      const next = LLM_PROVIDER_ORDER[(idx + dir + LLM_PROVIDER_ORDER.length) % LLM_PROVIDER_ORDER.length]!;
+      llmProviderSelection = next;
+      render();
+    };
+    if (fsm === 'expanded' && cognitiveModeSelection === 'E' && llmStep === 'provider' && providerLeft) {
+      cycleLlmProvider(-1);
+      return;
+    }
+    if (fsm === 'expanded' && cognitiveModeSelection === 'E' && llmStep === 'provider' && providerRight) {
+      cycleLlmProvider(1);
+      return;
+    }
     if (fsm === 'expanded' && modeSelectUp) {
       cycleViewMode(-1);
       return;

@@ -1,0 +1,1 @@
+{"version":3,"file":"actionEngine.d.ts","sourceRoot":"","sources":["../../src/cil/actionEngine.ts"],"names":[],"mappings":"AAQA,OAAO,KAAK,EAAqB,cAAc,EAAE,MAAM,YAAY,CAAC;AAoBpE,2FAA2F;AAC3F,wBAAsB,iBAAiB,CAAC,aAAa,EAAE,MAAM,GAAG,OAAO,CAAC,cAAc,EAAE,CAAC,CAwIxF;AAED,wBAAsB,cAAc,CAAC,aAAa,EAAE,MAAM,GAAG,OAAO,CAAC,MAAM,EAAE,CAAC,CAG7E"}

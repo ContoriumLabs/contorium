@@ -42,6 +42,7 @@ import { runGovernanceInject } from './ai/runGovernanceInject';
 import { runExportAIContext, type ExportMode, type ExportProgressReporter } from './ai/runExportAIContext';
 import { readExportFormat } from './ai/exportFormat';
 import { ContoraKeyManager } from './ai/auth/keyManager';
+import { bindCilLlmKeyManager, syncCilLlmConfigFromIde, testIdeCilAiConnection } from './ai/cilLlmBridge';
 import { buildAiReadyJsonExport, buildAiReadyMarkdownExport } from './ai/buildAiReadyExport';
 import { compressExportJsonForBudget, compressExportMarkdownForBudget } from './ai/aiReadyExportCompression';
 import { readExportLlmFallbackEnabled, readResolvedExportTokenBudget } from './ai/exportBudget';
@@ -59,6 +60,7 @@ import {
   runInjectRuntimeHandoff,
   showRuntimeDashboard,
 } from './dashboard/autoAttach';
+import { runAskContorium } from './cil/askContorium.js';
 import { scheduleDashboardWake, scheduleRuntimeBootstrap } from './dashboard/wakeSpawn';
 import {
   ideControlEnsureReady,
@@ -531,6 +533,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             );
           }
         }
+        if (
+          e.affectsConfiguration('contora.cilAiEnabled') ||
+          e.affectsConfiguration('contora.cilIntentRouter') ||
+          e.affectsConfiguration('contora.aiProvider') ||
+          e.affectsConfiguration('contora.openaiModel') ||
+          e.affectsConfiguration('contora.anthropicModel') ||
+          e.affectsConfiguration('contora.googleModel') ||
+          e.affectsConfiguration('contora.deepseekModel') ||
+          e.affectsConfiguration('contora.openaiBaseUrl') ||
+          e.affectsConfiguration('contora.deepseekBaseUrl')
+        ) {
+          const folder = stateManager.getPrimaryFolder();
+          if (folder) {
+            void syncCilLlmConfigFromIde(folder.uri.fsPath).catch(() => undefined);
+          }
+        }
       } finally {
         if (e.affectsConfiguration(CONTORA_CONFIG_SECTION)) {
           void sidebar.refresh();
@@ -558,6 +576,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const contoraKeys = new ContoraKeyManager(context.secrets);
+  bindCilLlmKeyManager(contoraKeys);
   const aiProviders = new ProviderManager(contoraKeys);
 
   const runExport = async (
@@ -695,35 +714,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   setTimeout(() => {
     void import('./ai/registerPhase3')
       .then(({ registerPhase3AiRuntime }) => {
-        registerPhase3AiRuntime(
-          context,
-          {
-            stateManager,
-            getEventStore: () => globalEventStore,
-            memoryBuilder,
-            modeEngine,
-            flushScanners: async () => {
-              for (const s of scanners) {
-                await s.flushNow();
-              }
-            },
-            eventsInPrompt,
-            exportTokenBudget,
-            maxPriorityFilesCap,
-            shouldIgnore,
-            refreshSidebar: () => {
-              void sidebar.refresh();
-            },
-            flushCognition: async () => {
+  registerPhase3AiRuntime(
+    context,
+    {
+      stateManager,
+      getEventStore: () => globalEventStore,
+      memoryBuilder,
+      modeEngine,
+      flushScanners: async () => {
+        for (const s of scanners) {
+          await s.flushNow();
+        }
+      },
+      eventsInPrompt,
+      exportTokenBudget,
+      maxPriorityFilesCap,
+      shouldIgnore,
+      refreshSidebar: () => {
+        void sidebar.refresh();
+      },
+      flushCognition: async () => {
               if (!cognitionPipeline) {
                 scheduleCognitionServices(context, stateManager, globalEventStore);
                 await cognitionInitPromise;
               }
-              await cognitionPipeline?.flushNow(globalEventStore);
-            },
-          },
-          { keys: contoraKeys, providers: aiProviders },
-        );
+        await cognitionPipeline?.flushNow(globalEventStore);
+      },
+    },
+    { keys: contoraKeys, providers: aiProviders },
+  );
       })
       .catch((err) => {
         console.warn(`[${PRODUCT_DISPLAY_NAME}] Phase3 AI runtime registration failed:`, err);
@@ -828,6 +847,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       await runInjectRuntimeHandoff(folder.uri.fsPath);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('contora.askContorium', () => runAskContorium()),
+    vscode.commands.registerCommand('contora.cilHistory', () => sidebar.showCilHistory()),
+    vscode.commands.registerCommand('contora.cilDecisions', () => sidebar.showCilDecisions()),
+    vscode.commands.registerCommand('contora.cilAiTest', async () => {
+      const folder = stateManager.getPrimaryFolder();
+      if (!folder) {
+        await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
+        return;
+      }
+      const result = await testIdeCilAiConnection(folder.uri.fsPath);
+      if (result.ok) {
+        await vscode.window.showInformationMessage(
+          `CIL AI OK — ${result.provider ?? 'provider'} / ${result.model ?? 'model'} (${result.latency_ms}ms)`,
+        );
+      } else {
+        await vscode.window.showErrorMessage(`CIL AI test failed: ${result.message}`);
+      }
     }),
   );
 

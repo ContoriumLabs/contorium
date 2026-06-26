@@ -44,6 +44,8 @@ import { registerGovernanceAuxTools } from './governanceTools.js';
 import { registerGovernanceV4Tools } from './governanceV4.js';
 import { registerIntelligenceTools } from './intelligenceTools.js';
 import { registerPilRuntimeTools } from './pilRuntime.js';
+import { registerCilRuntimeTools } from './cilRuntime.js';
+import { registerAiRuntimeTools } from './aiRuntime.js';
 import { resolveMcpStartupConfig } from './workspaceConfig.js';
 
 function mcpPackageVersion(): string {
@@ -78,9 +80,10 @@ PIL Runtime Contract (v3.0 — preferred):
     inspect_graph · inspect_confidence · inspect_impact · inspect_evolution · inspect_provenance · inspect_health · inspect_why
 
   Transfer — export for AI continuity
-    transfer_context (~300–800 tokens) — Intelligence Transfer, Context mode
-    transfer_intelligence (~8000 tokens) — Intelligence Transfer, Full mode
-    transfer_handoff (~100–300 tokens) — compact handoff for new-chat injection
+    transfer_project (mode: context | intelligence | story | essence | handoff) — unified CIL transfer
+    transfer_context (~300–800 tokens) — Intelligence Transfer, Context mode (legacy alias)
+    transfer_intelligence (~8000 tokens) — Intelligence Transfer, Full mode (legacy alias)
+    transfer_handoff (~100–300 tokens) — compact handoff for new-chat injection (legacy alias)
 
   Capture — write intelligence records
     capture_focus · capture_note · capture_decision
@@ -90,6 +93,15 @@ New chat with active runtime:
 2. Or call transfer_context / transfer_intelligence for Intelligence Transfer
 
 Legacy tools (still available): get_project_* · get_cognitive_snapshot · get_full_intelligence
+
+CIL — Cognitive Interaction Layer (v3 — Kernel First):
+  ask_project · transfer_project · get_next_actions · get_project_story
+  get_decision_graph · get_snapshot · get_cognitive_health · get_entity_knowledge
+  get_project_essence · get_handoff_replay · get_project_dna · get_suggested_questions
+  get_snapshot (date + perspective) · get_recent_events · get_project_history
+  get_decisions · get_module_history · get_blast_radius · get_project_journey
+  get_ai_status · test_ai_connection
+  (CIL outputs suggestions only — is_executable: false; never executes tasks)
 
 Decision Provenance: inspect_cognition_ready → get_decision_context → derive_decision_provenance
 Cognitive overlay (display-only): get_cognitive_mode · get_skill_suggestions`;
@@ -111,6 +123,8 @@ registerGovernanceAuxTools(server, workspaceRootForTools);
 registerGovernanceV4Tools(server, workspaceRootForTools);
 registerIntelligenceTools(server, workspaceRootForTools);
 registerPilRuntimeTools(server, workspaceRootForTools);
+registerCilRuntimeTools(server, workspaceRootForTools);
+registerAiRuntimeTools(server, workspaceRootForTools);
 
 server.registerTool(
   'store_memory',

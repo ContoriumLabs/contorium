@@ -14,14 +14,35 @@ import { cmdDecision } from './decision/commands.js';
 import { cmdCognition } from './cognition/commands.js';
 import { cmdCheckAction, cmdControl, cmdGetGovernance, cmdUpdateProjectIntent, } from './control/commands.js';
 import { cmdPil } from './pil/commands.js';
+import { cmdCil } from './cil/commands.js';
+import { cmdAi } from './ai/commands.js';
 const USAGE = `Contorium CLI — PIL Runtime (AI Project Intelligence Layer)
 
 Shared core: @contora/state-core · same intelligence model as IDE / MCP
 
 PIL Runtime Contract (v3.0 — preferred):
   contorium inspect <state|intent|decision|timeline|graph|confidence|health|why|handoff> [path]
-  contorium transfer <context|intelligence|handoff> [path] [--format json|markdown] [--copy]
+  contorium transfer [--mode=context|intelligence|story|essence|handoff] [path] [--format json|markdown] [--copy]
   contorium capture <focus|note|decision> [path] --text|--selected ...
+
+CIL — Cognitive Interaction Layer (v3 — Kernel First):
+  contorium ask "<question>" [path] [--json] [--suggest]
+  contorium history [path] [--range …] · contorium history <module>
+  contorium next [path] [--json]
+  contorium decisions [path] [--json]
+  contorium journey [path] [--json]
+  contorium impact <module> [path] [--json]
+  contorium health [path] [--json]
+  contorium entity <name> [path] [--json]
+  contorium essence [path] [--copy] [--json]
+  contorium replay [path] [--json]
+  contorium dna [path] [--copy] [--json]
+  contorium questions [path] [--json]          → alias for ask --suggest
+
+AI Layer (explanation only — default off):
+  contorium ai setup [path] [--provider …] [--model …] [--enable] [--router rule|hybrid|llm]
+  contorium ai status [path] [--json]
+  contorium ai test [path] [--json]
 
 Workspace:
   contorium init [workspaceRoot]       Bootstrap or merge .contora/state.json
@@ -588,6 +609,53 @@ async function main() {
         case 'capture':
             await cmdPil(root, 'capture');
             return;
+        case 'ask':
+            await cmdCil(root, 'ask');
+            return;
+        case 'history':
+            await cmdCil(root, 'history');
+            return;
+        case 'decisions':
+            await cmdCil(root, 'decisions');
+            return;
+        case 'journey':
+            await cmdCil(root, 'journey');
+            return;
+        case 'impact':
+            await cmdCil(root, 'impact');
+            return;
+        case 'story':
+            await cmdCil(root, 'story');
+            return;
+        case 'health':
+            await cmdCil(root, 'health');
+            return;
+        case 'entity':
+            await cmdCil(root, 'entity');
+            return;
+        case 'essence':
+            await cmdCil(root, 'essence');
+            return;
+        case 'replay':
+            await cmdCil(root, 'replay');
+            return;
+        case 'dna':
+            await cmdCil(root, 'dna');
+            return;
+        case 'questions':
+            await cmdCil(root, 'questions');
+            return;
+        case 'next':
+            await cmdCil(root, 'next');
+            return;
+        case 'module-history':
+            await cmdCil(root, 'module-history');
+            return;
+        case 'ai': {
+            const aiSub = process.argv[3] ?? 'help';
+            await cmdAi(root, aiSub);
+            return;
+        }
         case 'handoff':
             await cmdHandoff(root);
             return;

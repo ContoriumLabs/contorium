@@ -2,7 +2,7 @@
 
 The CLI is a **peer PIL Runtime** with IDE and MCP, sharing `@contora/state-core` and `.contora/`.
 
-- [PIL Runtime Guide](./PIL_RUNTIME.md) · [INSTALL](./INSTALL.md) · [README](../README.md) · [Dashboard](./DASHBOARD.md)
+- [PIL Runtime Guide](./PIL_RUNTIME.md) · [INSTALL](./INSTALL.md) · [README](../README.md) · [Overview](./OVERVIEW.md) · [Dashboard](./DASHBOARD.md)
 
 ---
 
@@ -108,10 +108,20 @@ When MCP or IDE bootstraps the workspace, a **Cognitive State** dashboard worker
 | Copy context | **`c`** |
 | Inject handoff | **`i`** or **Enter** (when injection pending) |
 | Quit | **`q`** |
-| View mode | **`↑` / `↓`** — Live · Governance Overlay · Debug Trace |
-| Apply mode | **Enter** |
+| View mode | **`↑` / `↓`** — Live · Governance · Debug · History · **LLM Config** |
+| LLM provider (view E) | **`←` / `→`** or **`h`** — cycle provider · **Enter** confirm |
+| LLM API key (view E step 2) | Type or **Ctrl+V** · **Enter** save & test · **Esc** back |
+| Apply cognitive mode | **Enter** — A/B persist · C/D/E preview (E uses provider/key flow) |
 
-See [DASHBOARD.md](./DASHBOARD.md).
+See [DASHBOARD.md](./DASHBOARD.md) and [AI_LAYER.md](./AI_LAYER.md).
+
+### AI Layer (CLI)
+
+```bash
+contorium ai setup [path] [--provider openai|anthropic|open_router|gemini|deepseek|ollama] [--model MODEL] [--enable]
+contorium ai status [path] [--json]
+contorium ai test [path] [--json]
+```
 
 ### Runtime dashboard commands (debug / dev only)
 

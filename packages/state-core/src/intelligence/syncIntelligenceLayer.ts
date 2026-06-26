@@ -20,4 +20,6 @@ export async function syncIntelligenceLayer(
   await syncProjectIntelligenceRepository(workspaceRoot, writer, mode, prevIdentity).catch(
     () => undefined,
   );
+  const { syncCognitiveInteractionLayer } = await import('../cil/kernel.js');
+  await syncCognitiveInteractionLayer(workspaceRoot, writer).catch(() => undefined);
 }
