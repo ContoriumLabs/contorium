@@ -5,7 +5,8 @@ import { MemoryBuilder } from '../core/engine/memoryBuilder';
 import { ModeEngine } from '../core/context/modeEngine';
 import type { StateManager } from '../state/stateManager';
 import { buildWorkspaceMemorySnapshot } from './buildWorkspaceMemorySnapshot';
-import { ContoraKeyManager, type StoredProviderId } from './auth/keyManager';
+import { ContoraKeyManager } from './auth/keyManager';
+import { openLlmSettings } from './llmSettingsHandler';
 import { ProviderManager } from './providers/providerManager';
 
 export interface Phase3SharedClients {
@@ -52,41 +53,7 @@ export function registerPhase3AiRuntime(
 
   context.subscriptions.push(
     vscode.commands.registerCommand('contora.configureApiKey', async () => {
-      const sel = await vscode.window.showQuickPick(
-        [
-          { label: 'OpenAI', description: 'openai' },
-          { label: 'Anthropic (Claude)', description: 'anthropic' },
-          { label: 'Google Gemini', description: 'google' },
-          { label: 'DeepSeek', description: 'deepseek' },
-          { label: `Clear all ${PRODUCT_DISPLAY_NAME} API keys`, description: 'clear' },
-        ],
-        { title: `${PRODUCT_DISPLAY_NAME}: API key (stored in SecretStorage only)` },
-      );
-      if (!sel?.description) {
-        return;
-      }
-      if (sel.description === 'clear') {
-        await keys.deleteKey('openai');
-        await keys.deleteKey('anthropic');
-        await keys.deleteKey('google');
-        await keys.deleteKey('deepseek');
-        await vscode.window.showInformationMessage(`${PRODUCT_DISPLAY_NAME}: Cleared stored API keys.`);
-        return;
-      }
-      const pid = sel.description as StoredProviderId;
-      const input = await vscode.window.showInputBox({
-        title: `${PRODUCT_DISPLAY_NAME}: API key for ${sel.label}`,
-        password: true,
-        ignoreFocusOut: true,
-        prompt: 'Key is stored with vscode.SecretStorage (never in settings.json).',
-      });
-      if (!input) {
-        return;
-      }
-      await keys.setKey(pid, input.trim());
-      await vscode.window.showInformationMessage(
-        `${PRODUCT_DISPLAY_NAME}: Saved ${sel.label} key. Set "contora.aiProvider" to "${pid}" to use it.`,
-      );
+      await openLlmSettings();
     }),
   );
 

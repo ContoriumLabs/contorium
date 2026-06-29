@@ -632,13 +632,13 @@ async function cmdExport(root: string): Promise<void> {
   const format = flagValue('--format', 'markdown');
   if (format === 'json') {
     await ensureUnderstanding(root);
-    const [snapshot, handoff, timeline, state, knowledgeSnapshot] = await Promise.all([
-      readProjectSnapshotMarkdown(root),
-      readHandoffArtifact(root),
-      readProjectTimeline(root),
-      readStateJson(root),
-      readKnowledgeSnapshot(root),
-    ]);
+  const [snapshot, handoff, timeline, state, knowledgeSnapshot] = await Promise.all([
+    readProjectSnapshotMarkdown(root),
+    readHandoffArtifact(root),
+    readProjectTimeline(root),
+    readStateJson(root),
+    readKnowledgeSnapshot(root),
+  ]);
     const taskAnchor = state?.currentTask?.trim() || '';
     if (!handoff) {
       console.error('contorium export: handoff not generated');

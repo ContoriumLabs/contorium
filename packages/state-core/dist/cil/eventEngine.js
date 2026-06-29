@@ -13,6 +13,7 @@ const types_js_1 = require("./types.js");
 const confidenceLabels_js_2 = require("./confidenceLabels.js");
 const snapshotEngine_js_1 = require("./snapshotEngine.js");
 const decisionLifecycle_js_1 = require("./decisionLifecycle.js");
+const timeCoerce_js_1 = require("./timeCoerce.js");
 function sourceFromWriter(writer) {
     if (writer === 'ide') {
         return 'ide';
@@ -23,7 +24,7 @@ function sourceFromWriter(writer) {
     return 'cli';
 }
 function eventIdFromTimestamp(ts, suffix) {
-    const d = ts.slice(0, 10);
+    const d = (0, timeCoerce_js_1.isoDatePrefix)(ts);
     const slug = suffix.replace(/[^\w]+/g, '_').slice(0, 24) || 'evt';
     return `${d}_evt_${slug}`;
 }
@@ -43,7 +44,7 @@ async function syncCognitiveEvents(workspaceRoot, writer = 'cli') {
     const events = [];
     const seen = new Set();
     for (const evt of timeline?.events ?? []) {
-        const ts = new Date(evt.timestamp * 1000).toISOString();
+        const ts = (0, timeCoerce_js_1.coerceTimestampToIso)(evt.timestamp);
         const id = eventIdFromTimestamp(ts, evt.event_id || evt.entity_id);
         if (seen.has(id)) {
             continue;
@@ -64,7 +65,7 @@ async function syncCognitiveEvents(workspaceRoot, writer = 'cli') {
         });
     }
     for (const node of decisionGraph?.nodes ?? []) {
-        const ts = node.timestamp || new Date().toISOString();
+        const ts = (0, timeCoerce_js_1.coerceTimestampToIso)(node.timestamp);
         const id = eventIdFromTimestamp(ts, node.decision_id);
         if (seen.has(id)) {
             continue;
@@ -88,7 +89,7 @@ async function syncCognitiveEvents(workspaceRoot, writer = 'cli') {
         });
     }
     for (const entry of decisionLog?.entries ?? []) {
-        const ts = entry.created_at;
+        const ts = (0, timeCoerce_js_1.coerceTimestampToIso)(entry.created_at);
         const id = eventIdFromTimestamp(ts, entry.decision_id);
         if (seen.has(id)) {
             continue;
@@ -112,7 +113,7 @@ async function syncCognitiveEvents(workspaceRoot, writer = 'cli') {
         });
     }
     if (change?.changed_files?.length) {
-        const ts = new Date(change.generatedAt || Date.now()).toISOString();
+        const ts = (0, timeCoerce_js_1.coerceTimestampToIso)(change.generatedAt ?? Date.now());
         const id = eventIdFromTimestamp(ts, 'workspace_change');
         if (!seen.has(id)) {
             seen.add(id);
@@ -132,9 +133,7 @@ async function syncCognitiveEvents(workspaceRoot, writer = 'cli') {
     }
     const focus = state?.currentTask?.trim();
     if (focus) {
-        const ts = state?.lastUpdated
-            ? new Date(state.lastUpdated).toISOString()
-            : new Date().toISOString();
+        const ts = (0, timeCoerce_js_1.coerceTimestampToIso)(state?.lastUpdated ?? Date.now());
         const id = eventIdFromTimestamp(ts, 'current_focus');
         if (!seen.has(id)) {
             seen.add(id);
@@ -192,6 +191,7 @@ async function syncDecisionCenter(workspaceRoot) {
     for (const node of graph?.nodes ?? []) {
         const id = `ADR-${String(seq).padStart(3, '0')}`;
         seq += 1;
+        const nodeTs = (0, timeCoerce_js_1.coerceTimestampToIso)(node.timestamp);
         const related = events
             .filter((e) => e.linked_decision_id === node.decision_id)
             .map((e) => e.id);
@@ -200,14 +200,14 @@ async function syncDecisionCenter(workspaceRoot) {
             id,
             title: node.title,
             status: 'accepted',
-            date: (node.timestamp || new Date().toISOString()).slice(0, 10),
+            date: (0, timeCoerce_js_1.isoDatePrefix)(nodeTs),
             reason: node.reason,
             alternatives: node.alternatives?.length ? node.alternatives : ['no change', 'defer'],
             risk: (0, confidenceLabels_js_2.riskFromReversibility)(node.reversibility),
             related_events: related,
             edges: related,
-            freshness: (0, confidenceLabels_js_1.freshnessFromAge)(node.timestamp),
-            last_verified: node.timestamp,
+            freshness: (0, confidenceLabels_js_1.freshnessFromAge)(nodeTs),
+            last_verified: nodeTs,
         };
         await (0, eventStore_js_1.writeAdrRecord)(workspaceRoot, record);
         records.push(record);

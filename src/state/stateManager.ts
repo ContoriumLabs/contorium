@@ -132,6 +132,26 @@ export class StateManager {
     return state;
   }
 
+  /** Prefer cache; bounded disk read so sidebar/bootstrap cannot hang on IO locks. */
+  async loadResilient(folder: vscode.WorkspaceFolder, timeoutMs = 8_000): Promise<ProjectState> {
+    const cached = this.getCached(folder);
+    try {
+      return await Promise.race([
+        this.load(folder),
+        new Promise<ProjectState>((_, reject) => {
+          setTimeout(() => reject(new Error('state load timeout')), timeoutMs);
+        }),
+      ]);
+    } catch (err) {
+      if (cached) {
+        console.warn('[Contorium] state load slow/failed — using cache:', err);
+        return cached;
+      }
+      console.warn('[Contorium] state load failed — defaults:', err);
+      return defaultProjectState();
+    }
+  }
+
   getCached(folder: vscode.WorkspaceFolder): ProjectState | undefined {
     return this.cache.get(this.key(folder));
   }

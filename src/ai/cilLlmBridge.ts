@@ -4,7 +4,7 @@ import { ContoraKeyManager, type StoredProviderId } from './auth/keyManager';
 import { readAiRuntimeSettings, type AiProviderSetting } from './auth/providerConfig';
 
 type IntentRouterMode = 'rule' | 'hybrid' | 'llm';
-type AiProviderId = 'openai' | 'anthropic' | 'gemini' | 'open_router' | 'ollama';
+type AiProviderId = 'openai' | 'anthropic' | 'gemini' | 'open_router' | 'ollama' | 'deepseek';
 
 /** Injected at runtime from extension activate — never persisted to disk. */
 export const IDE_LLM_ENV_KEY = 'CONTORIUM_IDE_LLM_API_KEY';
@@ -29,7 +29,7 @@ function mapIdeProviderToCil(aiProvider: AiProviderSetting): AiProviderId {
     case 'google':
       return 'gemini';
     case 'deepseek':
-      return 'openai';
+      return 'deepseek';
     case 'openai':
     default:
       return 'openai';
@@ -76,12 +76,16 @@ export function readCilAiSettings(): {
 }
 
 /** Sync IDE BYOK settings → `.contora/config/llm.json` (no secrets in file). */
-export async function syncCilLlmConfigFromIde(workspaceRoot: string): Promise<unknown> {
+export async function syncCilLlmConfigFromIde(
+  workspaceRoot: string,
+  options?: { forceEnabled?: boolean },
+): Promise<unknown> {
   const sc = await import('@contora/state-core');
   const { writeLlmConfig, DEFAULT_LLM_CONFIG } = sc;
   const { cilAiEnabled, intentRouter } = readCilAiSettings();
   const ai = readAiRuntimeSettings();
-  const enabled = cilAiEnabled && ai.aiProvider !== 'off';
+  const enabled =
+    options?.forceEnabled === true ? ai.aiProvider !== 'off' : cilAiEnabled && ai.aiProvider !== 'off';
   const patch: Record<string, unknown> = {
     enabled,
     provider: mapIdeProviderToCil(ai.aiProvider),
@@ -111,14 +115,18 @@ async function resolveIdeApiKey(): Promise<string | undefined> {
 export async function withIdeCilAiContext<T>(
   workspaceRoot: string,
   fn: () => Promise<T>,
+  options?: { requireCilEnabled?: boolean; forceSyncEnabled?: boolean },
 ): Promise<T> {
   const { cilAiEnabled } = readCilAiSettings();
   const ai = readAiRuntimeSettings();
-  if (!cilAiEnabled || ai.aiProvider === 'off') {
+  const requireCil = options?.requireCilEnabled !== false;
+  if (ai.aiProvider === 'off' || (requireCil && !cilAiEnabled)) {
     return fn();
   }
 
-  await syncCilLlmConfigFromIde(workspaceRoot);
+  await syncCilLlmConfigFromIde(workspaceRoot, {
+    forceEnabled: options?.forceSyncEnabled,
+  });
   const apiKey = await resolveIdeApiKey();
   if (!apiKey) {
     return fn();
@@ -137,6 +145,38 @@ export async function withIdeCilAiContext<T>(
   }
 }
 
+/** Test the configured provider + key (does not require contora.cilAiEnabled). */
+export async function testIdeLlmConnection(workspaceRoot: string): Promise<{
+  ok: boolean;
+  latency_ms: number;
+  message: string;
+  provider?: string;
+  model?: string;
+}> {
+  const ai = readAiRuntimeSettings();
+  if (ai.aiProvider === 'off') {
+    return { ok: false, latency_ms: 0, message: 'Set contora.aiProvider in Settings (not off)' };
+  }
+  const apiKey = await resolveIdeApiKey();
+  if (!apiKey) {
+    return {
+      ok: false,
+      latency_ms: 0,
+      message: 'API key missing — Configure LLM in Settings (contora.llmApiKey)',
+    };
+  }
+  return withIdeCilAiContext(
+    workspaceRoot,
+    async () => {
+      await syncCilLlmConfigFromIde(workspaceRoot, { forceEnabled: true });
+      const { testAiConnection } = await import('@contora/state-core');
+      return testAiConnection(workspaceRoot);
+    },
+    { requireCilEnabled: false, forceSyncEnabled: true },
+  );
+}
+
+/** @deprecated Use testIdeLlmConnection */
 export async function testIdeCilAiConnection(workspaceRoot: string): Promise<{
   ok: boolean;
   latency_ms: number;
@@ -144,22 +184,7 @@ export async function testIdeCilAiConnection(workspaceRoot: string): Promise<{
   provider?: string;
   model?: string;
 }> {
-  const { cilAiEnabled } = readCilAiSettings();
-  if (!cilAiEnabled) {
-    return { ok: false, latency_ms: 0, message: 'CIL AI disabled — enable contora.cilAiEnabled in settings' };
-  }
-  const ai = readAiRuntimeSettings();
-  if (ai.aiProvider === 'off') {
-    return { ok: false, latency_ms: 0, message: 'Set contora.aiProvider and configure an API key' };
-  }
-  const apiKey = await resolveIdeApiKey();
-  if (!apiKey) {
-    return { ok: false, latency_ms: 0, message: 'API key missing — use Contorium: Configure API key…' };
-  }
-  return withIdeCilAiContext(workspaceRoot, async () => {
-    const { testAiConnection } = await import('@contora/state-core');
-    return testAiConnection(workspaceRoot);
-  });
+  return testIdeLlmConnection(workspaceRoot);
 }
 
 export async function loadIdeCilAiPanelState(workspaceRoot: string | undefined): Promise<{
@@ -175,7 +200,7 @@ export async function loadIdeCilAiPanelState(workspaceRoot: string | undefined):
   const { cilAiEnabled, intentRouter } = readCilAiSettings();
   const ai = readAiRuntimeSettings();
   const keyReady = Boolean(await resolveIdeApiKey());
-  const needsKey = cilAiEnabled && ai.aiProvider !== 'off' && !keyReady;
+  const needsKey = ai.aiProvider !== 'off' && !keyReady;
 
   let modulesOn: string[] = [];
   let provider: string = mapIdeProviderToCil(ai.aiProvider);

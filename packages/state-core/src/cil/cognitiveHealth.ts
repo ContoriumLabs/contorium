@@ -8,12 +8,17 @@ import { readAllAdrRecords, readAllCognitiveEvents } from './eventStore.js';
 import { readKnowledgeEntityIndex } from './knowledgeGraph.js';
 import type { CognitiveHealthReport, CognitiveHealthWarning } from './types.js';
 import { COGNITIVE_HEALTH_SCHEMA } from './types.js';
+import { coerceTimestampToIso } from './timeCoerce.js';
 
 const STALE_ADR_DAYS = 60;
 const DEAD_FOCUS_DAYS = 14;
 
 function daysSince(iso: string): number {
-  const ms = Date.now() - Date.parse(iso);
+  const parsed = Date.parse(iso);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  const ms = Date.now() - parsed;
   return ms / (24 * 60 * 60 * 1000);
 }
 
@@ -69,7 +74,9 @@ export async function computeCognitiveHealth(workspaceRoot: string): Promise<Cog
 
   const focus = state?.currentTask?.trim();
   const lastUpdated = state?.lastUpdated;
-  if (focus && lastUpdated && daysSince(new Date(lastUpdated).toISOString()) > DEAD_FOCUS_DAYS) {
+  const focusUpdatedIso =
+    lastUpdated != null ? coerceTimestampToIso(lastUpdated) : undefined;
+  if (focus && focusUpdatedIso && daysSince(focusUpdatedIso) > DEAD_FOCUS_DAYS) {
     warnings.push({
       code: 'dead_focus',
       message: `Focus unchanged > ${DEAD_FOCUS_DAYS} days: "${focus.slice(0, 48)}"`,

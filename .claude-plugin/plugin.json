@@ -1,6 +1,6 @@
 {
   "name": "contorium",
-  "version": "1.2.1",
+  "version": "1.2.4",
   "description": "Contorium: AI Project Intelligence Layer — project cognition assets for Claude Code via MCP inspect and CLI derive.",
   "author": {
     "name": "franklee-dev"

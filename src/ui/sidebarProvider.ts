@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ContoraKeyManager } from '../ai/auth/keyManager';
-import { loadIdeCilAiPanelState, syncCilLlmConfigFromIde, testIdeCilAiConnection } from '../ai/cilLlmBridge';
+import { loadIdeCilAiPanelState, syncCilLlmConfigFromIde } from '../ai/cilLlmBridge';
 import { readAiRuntimeSettings } from '../ai/auth/providerConfig';
 import { CONTORA_CONFIG_SECTION, PRODUCT_DISPLAY_NAME } from '../constants';
 import { readResolvedExportTokenBudget } from '../ai/exportBudget';
@@ -51,6 +51,7 @@ type WebviewToExt =
   | { type: 'restoreSession' }
   | { type: 'configureApiKey' }
   | { type: 'openContoraSettings' }
+  | { type: 'openLlmSettings' }
   | { type: 'cilAiTest' }
   | { type: 'cilAiSync' }
   | { type: 'generateSemanticSummary' }
@@ -195,7 +196,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   /** Bust on layout changes so Reload Window picks up sidebar HTML. */
   private static htmlTemplateCache: string | undefined;
   private static htmlTemplateCachedVersion = 0;
-  private static htmlTemplateVersion = 12;
+  private static htmlTemplateVersion = 15;
 
   private view?: vscode.WebviewView;
   private folder: vscode.WorkspaceFolder | undefined;
@@ -208,6 +209,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   private webviewScriptReady = false;
   /** Fast workspace shell painted at least once. */
   private webviewBaseHydrated = false;
+  private webviewReadyFallbackTimer: ReturnType<typeof setTimeout> | undefined;
   private exportInFlight = false;
   private exportRunner?: (
     report: ExportProgressReporter,
@@ -260,6 +262,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     // posted before the listener exists and the webview never receives initial state.
     webviewView.webview.onDidReceiveMessage(async (msg: WebviewToExt) => {
       if (msg.type === 'ready') {
+        if (this.webviewReadyFallbackTimer !== undefined) {
+          clearTimeout(this.webviewReadyFallbackTimer);
+          this.webviewReadyFallbackTimer = undefined;
+        }
         this.webviewScriptReady = true;
         void this.pushStateToWebview();
         return;
@@ -306,24 +312,15 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (msg.type === 'openContoraSettings') {
-        await vscode.commands.executeCommand('workbench.action.openSettings', CONTORA_CONFIG_SECTION);
+        void vscode.commands.executeCommand('workbench.action.openSettings', CONTORA_CONFIG_SECTION);
+        return;
+      }
+      if (msg.type === 'openLlmSettings') {
+        void vscode.commands.executeCommand('contora.openLlmSettings');
         return;
       }
       if (msg.type === 'cilAiTest') {
-        const folder = this.folder ?? this.stateManager.getPrimaryFolder();
-        if (!folder) {
-          void vscode.window.showWarningMessage('Open a folder workspace to test CIL AI.');
-          return;
-        }
-        const result = await testIdeCilAiConnection(folder.uri.fsPath);
-        if (result.ok) {
-          void vscode.window.showInformationMessage(
-            `CIL AI OK — ${result.provider ?? 'provider'} / ${result.model ?? 'model'} (${result.latency_ms}ms)`,
-          );
-        } else {
-          void vscode.window.showErrorMessage(`CIL AI test failed: ${result.message}`);
-        }
-        void this.pushStateToWebview();
+        void vscode.commands.executeCommand('contora.testLlmConnection');
         return;
       }
       if (msg.type === 'cilAiSync') {
@@ -481,6 +478,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     });
 
     webviewView.onDidDispose(() => {
+      if (this.webviewReadyFallbackTimer !== undefined) {
+        clearTimeout(this.webviewReadyFallbackTimer);
+        this.webviewReadyFallbackTimer = undefined;
+      }
       this.view = undefined;
       this.webviewScriptReady = false;
       this.webviewBaseHydrated = false;
@@ -496,6 +497,17 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       this.webviewScriptReady = false;
       this.webviewBaseHydrated = false;
       webviewView.webview.html = this.getHtml(webviewView.webview);
+      // Recovery: if `ready` is lost (webview race), still hydrate after a short wait.
+      if (this.webviewReadyFallbackTimer !== undefined) {
+        clearTimeout(this.webviewReadyFallbackTimer);
+      }
+      this.webviewReadyFallbackTimer = setTimeout(() => {
+        this.webviewReadyFallbackTimer = undefined;
+        if (!this.webviewScriptReady && this.view) {
+          this.webviewScriptReady = true;
+          void this.pushStateToWebview();
+        }
+      }, 400);
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar HTML failed:`, err);
       webviewView.webview.html = this.getFallbackHtml(
@@ -661,10 +673,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     };
   }
 
-  private async loadCilAiPanelState(): Promise<SidebarCilAiPanelState> {
+  private async loadCilAiPanelState(options?: { skipSync?: boolean }): Promise<SidebarCilAiPanelState> {
     const folder = this.folder ?? this.stateManager.getPrimaryFolder();
     const root = folder?.uri.fsPath;
-    if (root) {
+    if (root && !options?.skipSync) {
       try {
         await syncCilLlmConfigFromIde(root);
       } catch {
@@ -672,6 +684,34 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
     }
     return loadIdeCilAiPanelState(root);
+  }
+
+  private yieldToUi(ms = 0): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Sync paint from cache — UI shell before disk / cognition panels load. */
+  private pushInstantShell(
+    seq: number,
+    folder: vscode.WorkspaceFolder | undefined,
+    ver: string,
+  ): void {
+    const byokDefault = this.defaultByokPanelState();
+    const cilAiDefault = this.defaultCilAiPanelState();
+    const emptyCog = this.emptyCognitionState();
+
+    if (!folder) {
+      this.postWebviewState(seq, null, byokDefault, cilAiDefault, true);
+      return;
+    }
+
+    const cached = this.stateManager.getCached(folder) ?? defaultProjectState();
+    const shellState = {
+      ...buildSidebarWebviewState(cached, this.events, ver),
+      ...emptyCog,
+      dataLoading: true,
+    };
+    this.postWebviewState(seq, shellState, byokDefault, cilAiDefault, true);
   }
 
   private defaultByokPanelState(): SidebarByokPanelState {
@@ -830,41 +870,36 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
     this.pushStateInFlight = true;
     const seq = ++this.pushStateSeq;
-    const emptyCog = this.emptyCognitionState();
     try {
       const folder = this.folder ?? this.stateManager.getPrimaryFolder();
       const ver = String((this.ctx.extension.packageJSON as { version?: string }).version ?? '');
-      const byokDefault = this.defaultByokPanelState();
-      const cilAiDefault = this.defaultCilAiPanelState();
 
-      if (!folder) {
-        this.postWebviewState(seq, null, byokDefault, cilAiDefault, !this.webviewBaseHydrated);
-        this.webviewBaseHydrated = true;
+      // Phase 0 — sync UI shell (layout + cache), then yield so webview can paint.
+      this.pushInstantShell(seq, folder, ver);
+      this.webviewBaseHydrated = true;
+      await this.yieldToUi();
+      if (seq !== this.pushStateSeq || !this.view) {
         return;
       }
 
-      const needsFastShell = !this.webviewBaseHydrated;
-      if (needsFastShell) {
-      const cached = this.stateManager.getCached(folder) ?? defaultProjectState();
-      const baseInstant = buildSidebarWebviewState(cached, this.events, ver);
-      this.postWebviewState(
-        seq,
-        { ...baseInstant, ...emptyCog },
-        byokDefault,
-        cilAiDefault,
-        true,
-      );
-        this.webviewBaseHydrated = true;
+      if (!folder) {
+        return;
       }
 
-      const state = await this.stateManager.load(folder);
+      const byokDefault = this.defaultByokPanelState();
+      const cilAiDefault = this.defaultCilAiPanelState();
+
+      // Phase 1 — workspace state + core panels (skip LLM file sync on first pass).
+      const [state, byokLoaded] = await Promise.all([
+        this.stateManager.loadResilient(folder, 4_000),
+        this.loadByokPanelState(),
+      ]);
       if (seq !== this.pushStateSeq || !this.view) {
         return;
       }
 
       const settledCore = await Promise.allSettled([
-        this.loadByokPanelState(),
-        this.loadCilAiPanelState(),
+        this.loadCilAiPanelState({ skipSync: true }),
         buildSidebarProjectStatePanel(folder),
         buildSidebarGraphPanel(folder),
         buildSidebarConflictsPanel(folder),
@@ -884,13 +919,13 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           ? (settledCore[i] as PromiseFulfilledResult<T>).value
           : fallback;
 
-      const byok = pick(0, byokDefault);
-      const cilAi = pick(1, cilAiDefault);
-      const projectState = pick(2, { ...EMPTY_PROJECT_STATE });
-      const intentGraph = pick(3, { ...EMPTY_INTENT_GRAPH });
-      const stateConflicts = pick(4, { ...EMPTY_CONFLICTS });
-      const aiIntent = pick(5, { goals: [] } as SidebarAiIntentPanel);
-      const governanceStatus = pick(6, {
+      const byok = byokLoaded ?? byokDefault;
+      const cilAi = pick(0, cilAiDefault);
+      const projectState = pick(1, { ...EMPTY_PROJECT_STATE });
+      const intentGraph = pick(2, { ...EMPTY_INTENT_GRAPH });
+      const stateConflicts = pick(3, { ...EMPTY_CONFLICTS });
+      const aiIntent = pick(4, { goals: [] } as SidebarAiIntentPanel);
+      const governanceStatus = pick(5, {
         active: false,
         constitutionLoaded: false,
         truthLoaded: false,
@@ -937,11 +972,15 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         aiIntent,
         governanceStatus,
         v22View: { ...EMPTY_V22_PLACEHOLDER },
+        dataLoading: false,
       };
       this.postWebviewState(seq, mergedCore, byok, cilAi, false);
 
+      // Background: sync LLM config file without blocking UI.
+      void syncCilLlmConfigFromIde(folder.uri.fsPath).catch(() => undefined);
+
       // Phase 2 — heavy PIL readers; yield so core UI paints first.
-      await new Promise((r) => setTimeout(r, 16));
+      await this.yieldToUi(16);
       if (seq !== this.pushStateSeq || !this.view) {
         return;
       }
@@ -2921,6 +2960,21 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       border: 1px solid var(--vscode-button-border, transparent);
       box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
     }
+    .cr-ask-group {
+      display: flex;
+      flex-direction: column;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--vscode-button-border, transparent);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
+    }
+    .cr-ask-group > .cr-module-card--ask {
+      border-radius: 0;
+      border: none;
+      border-bottom: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.22));
+      box-shadow: none;
+      margin: 0;
+    }
     .cr-transfer-group > .cr-primary {
       border-radius: 0;
       border: none;
@@ -2942,6 +2996,34 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       border-radius: 0 0 8px 8px;
       border-top: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.22));
       background: var(--vscode-input-background, rgba(0, 0, 0, 0.12));
+      border-left: none;
+      border-right: none;
+      border-bottom: none;
+    }
+    .cr-ask-group .cr-fold-btn--attached {
+      border-radius: 0 0 8px 8px;
+    }
+    .cr-fold-btn--attached > summary {
+      flex-wrap: wrap;
+      row-gap: 2px;
+    }
+    .cr-fold-summary-hint {
+      flex: 1 1 100%;
+      margin-left: 19px;
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0.01em;
+      opacity: 0.62;
+      color: var(--vscode-descriptionForeground);
+    }
+    .cr-fold-panel--llm {
+      padding: 8px 10px 10px;
+    }
+    .cr-fold-panel--llm .cr-section { margin: 0; }
+    .cr-fold-panel--llm .cr-module-card {
+      border: none;
+      box-shadow: none;
+      background: transparent;
     }
     .cr-fold-btn > summary {
       display: flex;
@@ -3032,7 +3114,21 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: 0;
     }
+    .cr-ask-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 0;
+    }
     .cr-module-card--ask .cr-primary { margin-top: 0; }
+    .cr-ask-hint {
+      margin: 0;
+      font-size: 10px;
+      line-height: 1.4;
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.72;
+      letter-spacing: 0.02em;
+    }
     .cr-more-section { margin-bottom: 14px; }
     .cr-more-section:last-child { margin-bottom: 0; }
     .cr-more-section-k {
@@ -3055,9 +3151,37 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     #crDeveloperDetails .cr-stack { margin-top: 8px; }
     #crDeveloperDetails .cr-stack:first-child { margin-top: 0; }
     #crDeveloperDetails .cr-fold-panel { max-height: 60vh; overflow-y: auto; }
+    .cr-boot-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 8px 8px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,0.12));
+      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25));
+    }
+    .cr-boot-bar[hidden] { display: none !important; }
+    .cr-boot-bar-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--vscode-textLink-foreground, #3794ff);
+      animation: cr-boot-pulse 1s ease-in-out infinite;
+    }
+    @keyframes cr-boot-pulse {
+      0%, 100% { opacity: 0.35; transform: scale(0.85); }
+      50% { opacity: 1; transform: scale(1); }
+    }
   </style>
 </head>
 <body>
+  <div id="crBootBar" class="cr-boot-bar" aria-live="polite">
+    <span class="cr-boot-bar-dot" aria-hidden="true"></span>
+    <span>Loading workspace data…</span>
+  </div>
   <header class="cr-header">
     <div class="cr-brand"><span class="cr-logo">C</span> CONTORIUM</div>
     <div class="cr-header-actions" aria-hidden="true">
@@ -3134,9 +3258,36 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
   <div class="cr-action-bar cr-action-bar--ask" aria-label="Ask">
     <div class="cr-stack-label"><span>Ask Contorium</span></div>
-    <div class="cr-module-card cr-module-card--ask">
-      <input type="text" id="homeAskInput" class="cr-ask-input" maxlength="240" placeholder="Why was MCP added?" aria-label="Question for Contorium" />
-      <button type="button" class="cr-primary" id="btnHomeAsk" title="Ask about project history, decisions, or next steps">Ask</button>
+    <div class="cr-ask-group">
+      <div class="cr-module-card cr-module-card--ask">
+        <form id="homeAskForm" class="cr-ask-form" aria-label="Ask your project">
+          <input type="text" id="homeAskInput" class="cr-ask-input" maxlength="240" placeholder="Ask your project…" aria-label="Ask your project" autocomplete="off" />
+          <p class="cr-ask-hint">History • Decisions • Architecture • Timeline • Next Steps · Press Enter to ask</p>
+          <button type="submit" class="cr-primary" id="btnHomeAsk" title="Ask about project history, decisions, or next steps">Ask</button>
+        </form>
+      </div>
+      <details class="cr-fold-btn cr-fold-btn--attached" id="crAskLlmConfig">
+        <summary>
+          <span>Configure LLM</span>
+          <span class="cr-fold-summary-hint">Configure LLM for better results</span>
+        </summary>
+        <div class="cr-fold-panel cr-fold-panel--llm">
+          <section class="cr-section" id="crSecCilAi">
+            <div class="cr-module-card cr-module-card--intelligence">
+              <div class="cr-module-card-body cr-v22-fields">
+                <div class="cr-v22-row"><span class="cr-psb-k">Status</span><p id="v22CilAiStatus" class="cr-graph-line">—</p></div>
+                <div class="cr-v22-row"><span class="cr-psb-k">Provider / model</span><p id="v22CilAiProvider" class="cr-graph-line">—</p></div>
+                <div class="cr-v22-row"><span class="cr-psb-k">Modules</span><p id="v22CilAiModules" class="cr-graph-muted">—</p></div>
+                <div class="cr-v22-row"><span class="cr-psb-k">Intent router</span><p id="v22CilAiRouter" class="cr-graph-muted">—</p></div>
+                <p id="v22CilAiWarn" class="cr-byok-warn" hidden></p>
+                <div class="cr-more-workspace" style="margin-top:8px">
+                  <button type="button" class="cr-action-workspace" id="btnCilAiConfigure">Configure LLM</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -3179,26 +3330,6 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     <details class="cr-fold-btn" id="crDeveloperDetails" aria-label="Developer">
       <summary>Developer</summary>
       <div class="cr-fold-panel">
-  <div class="cr-stack" aria-label="CIL AI Layer">
-    <div class="cr-stack-label"><span>CIL AI Layer</span></div>
-    <section class="cr-section" id="crSecCilAi">
-      <div class="cr-module-card cr-module-card--intelligence">
-        <div class="cr-module-card-body cr-v22-fields">
-          <div class="cr-v22-row"><span class="cr-psb-k">Status</span><p id="v22CilAiStatus" class="cr-graph-line">—</p></div>
-          <div class="cr-v22-row"><span class="cr-psb-k">Provider / model</span><p id="v22CilAiProvider" class="cr-graph-line">—</p></div>
-          <div class="cr-v22-row"><span class="cr-psb-k">Modules</span><p id="v22CilAiModules" class="cr-graph-muted">—</p></div>
-          <div class="cr-v22-row"><span class="cr-psb-k">Intent router</span><p id="v22CilAiRouter" class="cr-graph-muted">—</p></div>
-          <p id="v22CilAiWarn" class="cr-byok-warn" hidden></p>
-          <div class="cr-more-workspace" style="margin-top:8px">
-            <button type="button" class="cr-action-workspace" id="btnCilAiKey">API Key</button>
-            <button type="button" class="cr-action-workspace" id="btnCilAiSettings">Settings</button>
-            <button type="button" class="cr-action-workspace" id="btnCilAiTest">Test</button>
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
-
   <div class="cr-stack" aria-label="Cognition field">
     <div class="cr-stack-label"><span>Cognition field</span><span class="cr-live-badge" title="Live updates" aria-label="Live"></span></div>
     <section class="cr-section" id="crSecCognitionField" aria-label="Derived cognition">
@@ -3621,21 +3752,30 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       });
     }
     const btnHomeAsk = document.getElementById('btnHomeAsk');
+    const homeAskForm = document.getElementById('homeAskForm');
     const homeAskInput = document.getElementById('homeAskInput');
     function submitHomeAsk() {
       const q = homeAskInput && homeAskInput.value ? homeAskInput.value.trim() : '';
       if (q) {
         vscode.postMessage({ type: 'askHome', query: q });
+        if (homeAskInput) {
+          homeAskInput.value = '';
+        }
       } else {
         vscode.postMessage({ type: 'askHome' });
       }
     }
-    if (btnHomeAsk) {
+    if (homeAskForm) {
+      homeAskForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        submitHomeAsk();
+      });
+    } else if (btnHomeAsk) {
       btnHomeAsk.addEventListener('click', submitHomeAsk);
     }
     if (homeAskInput) {
       homeAskInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
           e.preventDefault();
           submitHomeAsk();
         }
@@ -4222,7 +4362,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         c.modulesOn && c.modulesOn.length ? c.modulesOn.join(', ') : '(none — enable contora.cilAiEnabled)';
       routerEl.textContent = c.intentRouter || 'hybrid';
       if (c.needsKey) {
-        warnEl.textContent = 'API key missing — configure via API Key or Settings (contora.cilAiEnabled + contora.aiProvider).';
+        warnEl.textContent = 'API key missing — expand Configure LLM below, then open Settings.';
         warnEl.hidden = false;
       } else {
         warnEl.hidden = true;
@@ -5358,11 +5498,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintActivityStream((s && s.activityStreamItems) || [], silent);
     }
 
-    wireClick(document.getElementById('btnByokKey'), 'configureApiKey');
-    wireClick(document.getElementById('btnByokSettings'), 'openContoraSettings');
-    wireClick(document.getElementById('btnCilAiKey'), 'configureApiKey');
-    wireClick(document.getElementById('btnCilAiSettings'), 'openContoraSettings');
-    wireClick(document.getElementById('btnCilAiTest'), 'cilAiTest');
+    wireClick(document.getElementById('btnCilAiConfigure'), 'openLlmSettings');
     wireClick(document.getElementById('btnFooterSettings'), 'openContoraSettings');
     wireClick(document.getElementById('btnAiSemantic'), 'generateSemanticSummary');
     wireClick(document.getElementById('btnAiIntent'), 'analyzeWorkspaceIntent');
@@ -5488,6 +5624,12 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       });
     }
 
+    const bootBarEl = document.getElementById('crBootBar');
+    function setBootLoading(active) {
+      if (bootBarEl) bootBarEl.hidden = !active;
+    }
+    setBootLoading(true);
+
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (!msg) return;
@@ -5500,6 +5642,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (msg.type !== 'state') return;
+      if (!msg.state || msg.state.dataLoading !== true) {
+        setBootLoading(false);
+      }
       const s = msg.state;
       const byokPayload = msg.byok || null;
       const cilAiPayload = msg.cilAi || null;

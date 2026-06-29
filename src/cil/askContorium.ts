@@ -2,6 +2,56 @@ import * as vscode from 'vscode';
 import type { AskProjectResult } from '@contora/state-core';
 import { withIdeCilAiContext } from '../ai/cilLlmBridge';
 
+function formatAskDataSources(result: AskProjectResult): string {
+  const engineSources: Record<string, string> = {
+    kernel: 'Cognitive Kernel (orchestrator)',
+    query_router: 'Rule router (`queryRouter`) — optional LLM intent when `contora.cilAiEnabled`',
+    event_engine: '`.contora/cognitive/events/` — synced from timeline, git changes, decisions, focus',
+    decision_engine: '`.contora/cognitive/adrs/` + decision provenance graph',
+    action_engine: 'Focus (`.contora/state.json`), handoff, intent graph, events, ADRs, impact graph',
+    state_engine: '`.contora/state.json` + `.contora/intelligence/intent-graph.json`',
+    narrative_layer: 'Transfer story / project narrative (rule-built)',
+    snapshot_engine: '`.contora/cognitive/snapshots/` — project snapshots & time travel',
+    cognitive_health: '`.contora/cognitive/health.json` — derived quality signals',
+    knowledge_graph: '`.contora/cognitive/knowledge/` — entity links',
+    module_projection: '`.contora/cognitive/modules/` — per-module event history',
+    handoff_replay: '`.contora/understanding/handoff.json` — replay stages',
+    journey_builder: 'Project journey stages (events + decisions)',
+    impact_engine: '`.contora/intelligence/impact-graph.json`',
+    ai_layer: 'LLM polish only (DeepSeek/OpenAI/etc. via SecretStorage) — does not invent facts',
+  };
+
+  const lines = ['## Data sources', ''];
+  lines.push(`**Routed intent:** \`${result.intent}\``, '');
+
+  if (result.trace?.length) {
+    lines.push('**Engines used:**');
+    const seen = new Set<string>();
+    for (const step of result.trace) {
+      const key = `${step.engine}:${step.phase}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const desc = engineSources[step.engine] ?? 'Project artifacts under `.contora/`';
+      lines.push(`- \`${step.engine}\` / ${step.phase} — ${desc}`);
+    }
+    lines.push('');
+  }
+
+  const data = result.data as Record<string, unknown> | undefined;
+  if (data?.llm_enhanced) {
+    lines.push('*Answer text was LLM-enhanced from the rule-based facts above.*', '');
+  } else {
+    lines.push('*Primary answer is rule-based from workspace artifacts (no LLM rewrite).*', '');
+  }
+
+  lines.push(
+    '**Artifact roots:** `.contora/state.json` · `.contora/cognitive/` · `.contora/intelligence/` · `.contora/understanding/` · IDE session events (`.contora/events/*.jsonl`)',
+  );
+  return lines.join('\n');
+}
+
 function formatAskResult(result: AskProjectResult): string {
   const lines = [`# Ask Contorium`, '', `**Question:** ${result.question}`, '', result.answer, ''];
 
@@ -38,6 +88,8 @@ function formatAskResult(result: AskProjectResult): string {
   if (typeof data?.formatted === 'string') {
     lines.push(data.formatted);
   }
+
+  lines.push(formatAskDataSources(result));
   return lines.join('\n');
 }
 
@@ -55,7 +107,9 @@ export async function runAskContoriumWithQuery(question: string): Promise<void> 
   try {
     const { askProject, syncCognitiveInteractionLayer } = await import('@contora/state-core');
     await withIdeCilAiContext(root, async () => {
-      await syncCognitiveInteractionLayer(root, 'ide');
+      await syncCognitiveInteractionLayer(root, 'ide').catch((syncErr) => {
+        console.warn('[Contorium] CIL sync before ask (non-fatal):', syncErr);
+      });
       const result = await askProject(root, q);
       const doc = await vscode.workspace.openTextDocument({
         content: formatAskResult(result),
@@ -85,7 +139,9 @@ export async function runAskContorium(): Promise<void> {
       await import('@contora/state-core');
 
     await withIdeCilAiContext(root, async () => {
-      await syncCognitiveInteractionLayer(root, 'ide');
+      await syncCognitiveInteractionLayer(root, 'ide').catch((syncErr) => {
+        console.warn('[Contorium] CIL sync before ask (non-fatal):', syncErr);
+      });
       const suggested = await buildSuggestedQuestions(root);
 
       if (suggested.questions.length) {
@@ -104,7 +160,7 @@ export async function runAskContorium(): Promise<void> {
             (await vscode.window.showInputBox({
               title: 'Ask Contorium',
               prompt: 'Ask about project history, decisions, impact, or next steps',
-              placeHolder: 'Why was MCP added?',
+              placeHolder: 'Ask your project…',
             })) ?? '';
         } else {
           question = pick;
@@ -114,7 +170,7 @@ export async function runAskContorium(): Promise<void> {
           (await vscode.window.showInputBox({
             title: 'Ask Contorium',
             prompt: 'Ask about project history, decisions, impact, or next steps',
-            placeHolder: 'Why was MCP added?',
+            placeHolder: 'Ask your project…',
           })) ?? '';
       }
 

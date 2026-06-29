@@ -42,7 +42,8 @@ import { runGovernanceInject } from './ai/runGovernanceInject';
 import { runExportAIContext, type ExportMode, type ExportProgressReporter } from './ai/runExportAIContext';
 import { readExportFormat } from './ai/exportFormat';
 import { ContoraKeyManager } from './ai/auth/keyManager';
-import { bindCilLlmKeyManager, syncCilLlmConfigFromIde, testIdeCilAiConnection } from './ai/cilLlmBridge';
+import { bindCilLlmKeyManager, syncCilLlmConfigFromIde } from './ai/cilLlmBridge';
+import { registerLlmSettingsHandlers } from './ai/llmSettingsHandler';
 import { buildAiReadyJsonExport, buildAiReadyMarkdownExport } from './ai/buildAiReadyExport';
 import { compressExportJsonForBudget, compressExportMarkdownForBudget } from './ai/aiReadyExportCompression';
 import { readExportLlmFallbackEnabled, readResolvedExportTokenBudget } from './ai/exportBudget';
@@ -135,8 +136,17 @@ let cognitionInitPromise: Promise<void> | undefined;
 
 /** Defer tree-sitter / cognition pipeline so activate returns before heavy modules load. */
 const COGNITION_DEFER_MS = 2_000;
-const CONTROL_ENSURE_DEFER_MS = 4_000;
-const BOOTSTRAP_DEFER_MS = 150;
+const CONTROL_ENSURE_DEFER_MS = 6_000;
+const BOOTSTRAP_DEFER_MS = 50;
+const RUNTIME_BOOTSTRAP_DEFER_MS = 2_500;
+const WORKSPACE_BOOTSTRAP_TIMEOUT_MS = 45_000;
+
+async function loadStateWithTimeout(
+  stateManager: StateManager,
+  folder: vscode.WorkspaceFolder,
+): Promise<import('./types/state').ProjectState> {
+  return stateManager.loadResilient(folder);
+}
 
 function scheduleCognitionServices(
   context: vscode.ExtensionContext,
@@ -330,14 +340,11 @@ function scheduleSidebarRefresh(sidebar: ContoraSidebarProvider): () => void {
     timer = setTimeout(() => {
       timer = undefined;
       void sidebar.refresh();
-    }, 400);
+    }, 180);
   };
 }
 
-function scheduleGovernanceReviewRefresh(
-  sidebar: ContoraSidebarProvider,
-  stateManager: StateManager,
-): () => void {
+function scheduleSidebarRefreshFromEditor(sidebar: ContoraSidebarProvider): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return () => {
     if (timer !== undefined) {
@@ -345,18 +352,13 @@ function scheduleGovernanceReviewRefresh(
     }
     timer = setTimeout(() => {
       timer = undefined;
-      void (async () => {
-        const folder = stateManager.getPrimaryFolder();
-        if (folder) {
-          await sidebar.refreshGovernanceReview();
-        }
-        await sidebar.refresh();
-      })();
-    }, 550);
+      // Read-only sidebar refresh — do not run governance review on every tab/focus change.
+      void sidebar.refresh();
+    }, 450);
   };
 }
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+export function activate(context: vscode.ExtensionContext): void {
   void import('@contora/state-core').catch((err) => {
     console.error(
       `[${PRODUCT_DISPLAY_NAME}] Failed to load @contora/state-core — run "npm run compile" and Reload Window:`,
@@ -404,25 +406,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const refreshSidebarDebounced = scheduleSidebarRefresh(sidebar);
-  const refreshGovernanceDebounced = scheduleGovernanceReviewRefresh(sidebar, stateManager);
+  const refreshFromEditorDebounced = scheduleSidebarRefreshFromEditor(sidebar);
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => {
-      refreshGovernanceDebounced();
+      refreshFromEditorDebounced();
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.uri.scheme === 'file' && e.document.isDirty) {
-        refreshGovernanceDebounced();
+        refreshFromEditorDebounced();
       }
     }),
     vscode.window.tabGroups.onDidChangeTabs(() => {
-      refreshGovernanceDebounced();
+      refreshFromEditorDebounced();
     }),
   );
 
   const onAfterScannerPersist = (): void => {
     refreshSidebarDebounced();
-    refreshGovernanceDebounced();
     if (cognitionPipeline) {
       cognitionPipeline.scheduleUpdate(globalEventStore);
     } else {
@@ -447,11 +448,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    const st0 = await stateManager.load(folder);
+    // Paint sidebar shell from cache immediately (before disk / scanners).
+    void sidebar.refresh();
+
+    const matcherPromise = ensureIgnoreMatcher(folder);
+    void mergeDiskIfEnabled(stateManager, globalEventStore);
+
+    const st0 = await loadStateWithTimeout(stateManager, folder);
     refreshSidebarDebounced();
 
-    const matcher = await ensureIgnoreMatcher(folder);
-    void mergeDiskIfEnabled(stateManager, globalEventStore);
+    const matcher = await matcherPromise;
     const eventCount = globalEventStore?.getAll().length ?? 0;
 
     bindIgnoreFileWatcher(folder, matcher);
@@ -477,7 +483,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       paths: topWorkspacePathsFromState(st0),
     };
 
-    scheduleRuntimeBootstrap(context, folder.uri.fsPath);
+    setTimeout(() => {
+      scheduleRuntimeBootstrap(context, folder.uri.fsPath);
+    }, RUNTIME_BOOTSTRAP_DEFER_MS);
 
     setTimeout(() => {
       void ideControlEnsureReady(folder).catch(() => undefined);
@@ -486,7 +494,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const runWorkspaceBootstrap = (): Promise<void> => {
     if (!workspaceBootstrapPromise) {
-      workspaceBootstrapPromise = syncWorkspace().catch((err) => {
+      workspaceBootstrapPromise = Promise.race([
+        syncWorkspace(),
+        new Promise<void>((_, reject) => {
+          setTimeout(
+            () => reject(new Error('workspace bootstrap timeout')),
+            WORKSPACE_BOOTSTRAP_TIMEOUT_MS,
+          );
+        }),
+      ]).catch((err) => {
         workspaceBootstrapPromise = undefined;
         console.error(`[${PRODUCT_DISPLAY_NAME}] workspace bootstrap failed:`, err);
         throw err;
@@ -550,7 +566,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
         }
       } finally {
-        if (e.affectsConfiguration(CONTORA_CONFIG_SECTION)) {
+        const refreshKeys = [
+          'contora.aiProvider',
+          'contora.cilAiEnabled',
+          'contora.cilIntentRouter',
+          'contora.defaultAIMode',
+          'contora.exportFormat',
+          'contora.exportTokenBudget',
+          'contora.appendAiSummaryOnExport',
+        ];
+        if (refreshKeys.some((k) => e.affectsConfiguration(k))) {
           void sidebar.refresh();
         }
       }
@@ -577,6 +602,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const contoraKeys = new ContoraKeyManager(context.secrets);
   bindCilLlmKeyManager(contoraKeys);
+  registerLlmSettingsHandlers(context, contoraKeys, stateManager);
   const aiProviders = new ProviderManager(contoraKeys);
 
   const runExport = async (
@@ -855,19 +881,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('contora.cilHistory', () => sidebar.showCilHistory()),
     vscode.commands.registerCommand('contora.cilDecisions', () => sidebar.showCilDecisions()),
     vscode.commands.registerCommand('contora.cilAiTest', async () => {
-      const folder = stateManager.getPrimaryFolder();
-      if (!folder) {
-        await vscode.window.showWarningMessage(`${PRODUCT_DISPLAY_NAME}: Open a folder workspace first.`);
-        return;
-      }
-      const result = await testIdeCilAiConnection(folder.uri.fsPath);
-      if (result.ok) {
-        await vscode.window.showInformationMessage(
-          `CIL AI OK — ${result.provider ?? 'provider'} / ${result.model ?? 'model'} (${result.latency_ms}ms)`,
-        );
-      } else {
-        await vscode.window.showErrorMessage(`CIL AI test failed: ${result.message}`);
-      }
+      await vscode.commands.executeCommand('contora.testLlmConnection');
     }),
   );
 

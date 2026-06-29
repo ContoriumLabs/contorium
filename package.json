@@ -2,7 +2,7 @@
   "name": "contorium",
   "displayName": "Contorium",
   "description": "Contorium: AI Project Intelligence Layer — capture, structure, preserve, retrieve and transfer project intelligence across IDE, MCP, and CLI.",
-  "version": "1.2.1",
+  "version": "1.2.4",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -34,6 +34,9 @@
     "onStartupFinished",
     "onView:contora.sidebar",
     "onCommand:contora.configureApiKey",
+    "onCommand:contora.configureLlm",
+    "onCommand:contora.openLlmSettings",
+    "onCommand:contora.testLlmConnection",
     "onCommand:contora.generateSemanticSummary",
     "onCommand:contora.analyzeWorkspaceIntent",
     "onCommand:contora.compressContextPreview",
@@ -72,7 +75,7 @@
       },
       {
         "command": "contora.configureApiKey",
-        "title": "Contorium: Configure API key… (BYOK)"
+        "title": "Contorium: Configure LLM (Settings)"
       },
       {
         "command": "contora.generateSemanticSummary",
@@ -100,7 +103,19 @@
       },
       {
         "command": "contora.cilAiTest",
-        "title": "Contorium: Test CIL AI connection"
+        "title": "Contorium: Test LLM connection"
+      },
+      {
+        "command": "contora.openLlmSettings",
+        "title": "Contorium: Open LLM settings"
+      },
+      {
+        "command": "contora.configureLlm",
+        "title": "Contorium: Configure LLM (Settings)"
+      },
+      {
+        "command": "contora.testLlmConnection",
+        "title": "Contorium: Test LLM connection"
       },
       {
         "command": "contora.cilHistory",
@@ -172,133 +187,9 @@
     "configuration": {
       "title": "Contorium",
       "properties": {
-        "contora.maxRestoreEditors": {
-          "type": "number",
-          "default": 8,
-          "minimum": 0,
-          "maximum": 30,
-          "description": "Maximum editors to open when using \"Restore editors from saved state\" (0 = none)."
-        },
-        "contora.workingSetMaxFiles": {
-          "type": "number",
-          "default": 40,
-          "minimum": 5,
-          "maximum": 200,
-          "description": "Max paths in working set (recentFiles); counts focus/save only."
-        },
-        "contora.defaultAIMode": {
-          "type": "string",
-          "enum": [
-            "debug",
-            "feature",
-            "refactor",
-            "review"
-          ],
-          "default": "feature",
-          "description": "Default AI mode for structured export (# MODE / instruction)."
-        },
-        "contora.exportFormat": {
-          "type": "string",
-          "enum": [
-            "markdown",
-            "cursor",
-            "json",
-            "claude",
-            "openai"
-          ],
-          "default": "markdown",
-          "description": "Export: markdown / cursor fences / JSON (schema v2 Lite) / Claude framing / OpenAI messages JSON."
-        },
-        "contora.exportDelivery": {
-          "type": "string",
-          "enum": [
-            "chat",
-            "clipboard",
-            "both"
-          ],
-          "default": "chat",
-          "description": "Where Export AI context goes: inject into the current Cursor/VS Code AI chat (default), copy to clipboard only, or both. Chat injection uses editor focus + paste — not an official API; press Enter to send after inject."
-        },
-        "contora.governanceReviewScope": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "current_file",
-            "open_files",
-            "git_staged",
-            "git_commit"
-          ],
-          "default": "auto",
-          "description": "Governance review scope: auto merges current file, open files, git staged, and last commit; or restrict to one scope."
-        },
-        "contora.persistEventLog": {
-          "type": "boolean",
-          "default": true,
-          "description": "Append each workspace event to .contora/events/<sessionId>.jsonl (immutable log)."
-        },
-        "contora.autoAttachDashboard": {
-          "type": "boolean",
-          "default": true,
-          "description": "When a folder workspace opens, auto-start the Contorium Dashboard CLI worker in a background terminal tab (Passive mode). Disable to stop auto-attach."
-        },
-        "contora.maxPriorityFiles": {
-          "type": "number",
-          "default": 12,
-          "minimum": 1,
-          "maximum": 40,
-          "description": "Max ranked paths in # PRIORITY FILES / payload (capped by mode strategy)."
-        },
-        "contora.maxEventBuffer": {
-          "type": "number",
-          "default": 200,
-          "minimum": 20,
-          "maximum": 5000,
-          "description": "Max session events kept in memory (ring buffer)."
-        },
-        "contora.eventsInPrompt": {
-          "type": "number",
-          "default": 50,
-          "minimum": 0,
-          "maximum": 200,
-          "description": "How many recent events to append under # RECENT EVENTS in export."
-        },
-        "contora.exportTokenBudget": {
-          "type": "number",
-          "default": 800,
-          "minimum": 0,
-          "maximum": 200000,
-          "description": "Approximate max tokens for “Copy AI-ready context”. Default 800. Contorium compresses locally toward ~500 first, allows up to ~800 without a model; if the export is still over ~800 tokens and exportLlmFallbackWhenOverBudget is on, one BYOK pass may tighten it. Set 0 for unlimited (expert). Any positive value is honored (no minimum clamp)."
-        },
-        "contora.exportLlmFallbackWhenOverBudget": {
-          "type": "boolean",
-          "default": true,
-          "description": "When the markdown export is still over ~800 tokens after local shrinking, allow one BYOK completion to compress (requires contora.aiProvider ≠ off and a key). Turn off to skip that call; local shrinking and line trim still enforce contora.exportTokenBudget when it is finite."
-        },
-        "contora.useDefaultIgnoreRules": {
-          "type": "boolean",
-          "default": true,
-          "description": "Exclude noisy paths (node_modules, venv, .git, dist, …) from ranking, summary, export lists."
-        },
-        "contora.extraIgnoreSubstrings": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "description": "Extra path substrings to exclude (case-insensitive substring match on workspace-relative paths)."
-        },
-        "contora.mergeDiskEventLog": {
-          "type": "boolean",
-          "default": true,
-          "description": "On workspace sync, merge JSONL events from disk into the in-memory ring buffer (same sessionId)."
-        },
-        "contora.writeLatestMemoryOnSave": {
-          "type": "boolean",
-          "default": true,
-          "description": "After Save session state, also write .contora/memory/latest-memory.json (ranked memory mirror)."
-        },
         "contora.aiProvider": {
           "type": "string",
+          "order": 1,
           "enum": [
             "off",
             "openai",
@@ -307,78 +198,31 @@
             "deepseek"
           ],
           "default": "deepseek",
-          "description": "Phase 3 BYOK: which LLM provider to use for on-demand semantic summary / intent / compression. Keys via \"Contorium: Configure API key…\" (SecretStorage only)."
+          "description": "Step 1 — LLM provider. Sidebar \"Configure LLM\" opens this panel."
         },
-        "contora.openaiModel": {
+        "contora.llmApiKey": {
           "type": "string",
-          "default": "gpt-4o-mini",
-          "description": "OpenAI chat model id when contora.aiProvider is openai."
+          "order": 2,
+          "default": "",
+          "markdownDescription": "Step 2 — Paste API key for the selected provider. Saved to SecretStorage on change (field clears after save). Step 3 — enable **contora.llmTestConnection** to test."
         },
-        "contora.openaiBaseUrl": {
-          "type": "string",
-          "default": "https://api.openai.com/v1",
-          "description": "OpenAI-compatible API base URL (no trailing slash)."
+        "contora.llmTestConnection": {
+          "type": "boolean",
+          "order": 3,
+          "default": false,
+          "description": "Step 3 — Check and save to test the LLM connection (auto-resets). Or run command \"Contorium: Test LLM connection\"."
         },
-        "contora.anthropicModel": {
-          "type": "string",
-          "default": "claude-3-5-haiku-20241022",
-          "description": "Anthropic model id when contora.aiProvider is anthropic."
-        },
-        "contora.googleModel": {
-          "type": "string",
-          "default": "gemini-1.5-flash",
-          "description": "Gemini model id when contora.aiProvider is google."
-        },
-        "contora.deepseekModel": {
-          "type": "string",
-          "default": "deepseek-chat",
-          "description": "DeepSeek chat model id when contora.aiProvider is deepseek (OpenAI-compatible API)."
-        },
-        "contora.deepseekBaseUrl": {
-          "type": "string",
-          "default": "https://api.deepseek.com/v1",
-          "description": "DeepSeek API base URL (OpenAI-compatible /v1/chat/completions; no trailing slash)."
-        },
-        "contora.aiMaxOutputTokens": {
-          "type": "number",
-          "default": 1024,
-          "minimum": 256,
-          "maximum": 4096,
-          "description": "Max completion tokens for BYOK AI calls (semantic / intent / compression)."
+        "contora.autoTestLlmOnKeySave": {
+          "type": "boolean",
+          "order": 4,
+          "default": true,
+          "description": "When contora.llmApiKey is saved, automatically run a connection test."
         },
         "contora.cilAiEnabled": {
           "type": "boolean",
+          "order": 5,
           "default": false,
-          "description": "Enable CIL explanation-layer LLM (Why / Story / Essence / DNA / Ask polish). Uses contora.aiProvider + SecretStorage key; syncs to .contora/config/llm.json without storing secrets."
-        },
-        "contora.cilIntentRouter": {
-          "type": "string",
-          "enum": [
-            "rule",
-            "hybrid",
-            "llm"
-          ],
-          "default": "hybrid",
-          "description": "CIL intent router mode when cilAiEnabled: rule-only, hybrid (LLM fallback), or llm-first."
-        },
-        "contora.appendAiSummaryOnExport": {
-          "type": "boolean",
-          "default": false,
-          "description": "When true, \"Export AI context\" may append an extra BYOK LLM semantic block (uses API quota). Off by default to avoid surprise cost."
-        },
-        "contora.appendAiSummaryMinEvents": {
-          "type": "number",
-          "default": 24,
-          "minimum": 0,
-          "maximum": 500,
-          "description": "Minimum session events before an auto AI summary on export is attempted."
-        },
-        "contora.appendAiSummaryCooldownMs": {
-          "type": "number",
-          "default": 120000,
-          "minimum": 5000,
-          "maximum": 3600000,
-          "description": "Minimum milliseconds between auto AI summaries on export for the same session fingerprint."
+          "description": "Enable CIL explanation-layer LLM (Why / Story / Essence / DNA). Requires provider + API key."
         }
       }
     }
@@ -409,8 +253,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.2.1.tgz",
-    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.2.1.tgz",
+    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.2.4.tgz",
+    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.2.4.tgz",
     "simple-git": "^3.22.0"
   }
 }

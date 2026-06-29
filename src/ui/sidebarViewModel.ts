@@ -171,15 +171,12 @@ function dedupeConsecutivePathsWithSuffixes(
   return { paths: outP, suffixes: outS };
 }
 
-/** One-line labels for the sidebar “Recent activity” feed (doc §4 event stream). */
+/** One-line labels for the sidebar activity feed (doc §4 event stream). */
 export function formatActivityStreamLine(ev: WorkspaceEvent): string | null {
   switch (ev.type) {
     case 'file_save':
-      return `Edited ${basenameForSidebar(ev.file)}`;
-    case 'file_focus': {
-      const name = basenameForSidebar(ev.file);
-      return `Working in ${name}`;
-    }
+    case 'file_focus':
+      return `Working in ${basenameForSidebar(ev.file)}`;
     case 'file_create':
       return `Created ${basenameForSidebar(ev.file)}`;
     case 'file_delete':
@@ -226,7 +223,21 @@ function eventHasEngineeringFile(ev: WorkspaceEvent): boolean {
   }
 }
 
-/** Home “What happened recently” — engineering file events only. */
+function fileKeyForProjectActivity(ev: WorkspaceEvent): string | null {
+  switch (ev.type) {
+    case 'file_save':
+    case 'file_focus':
+    case 'file_create':
+    case 'file_delete':
+      return ev.file;
+    case 'file_rename':
+      return ev.newFile;
+    default:
+      return null;
+  }
+}
+
+/** Home “What happened recently” — engineering file events only (one line per file, newest wins). */
 export function buildProjectFileActivityItems(
   events: EventStore | undefined,
   maxItems: number,
@@ -237,17 +248,22 @@ export function buildProjectFileActivityItems(
   }
   const all = events.getAll();
   const out: string[] = [];
+  const seenFiles = new Set<string>();
   for (let i = all.length - 1; i >= 0 && out.length < cap; i--) {
     const ev = all[i]!;
     if (!PROJECT_FILE_EVENT_TYPES.has(ev.type) || !eventHasEngineeringFile(ev)) {
+      continue;
+    }
+    const fileKey = fileKeyForProjectActivity(ev);
+    if (fileKey && seenFiles.has(fileKey)) {
       continue;
     }
     const line = formatActivityStreamLine(ev);
     if (!line) {
       continue;
     }
-    if (out.length > 0 && out[out.length - 1] === line) {
-      continue;
+    if (fileKey) {
+      seenFiles.add(fileKey);
     }
     out.push(line);
   }

@@ -15,6 +15,7 @@ import { ADR_RECORD_SCHEMA, COGNITIVE_EVENT_SCHEMA } from './types.js';
 import { riskFromReversibility } from './confidenceLabels.js';
 import { linkEventVersions } from './snapshotEngine.js';
 import { applyImplementedStatus } from './decisionLifecycle.js';
+import { coerceTimestampToIso, isoDatePrefix } from './timeCoerce.js';
 
 function sourceFromWriter(writer: AdapterKind): CognitiveEventSource {
   if (writer === 'ide') {
@@ -27,7 +28,7 @@ function sourceFromWriter(writer: AdapterKind): CognitiveEventSource {
 }
 
 function eventIdFromTimestamp(ts: string, suffix: string): string {
-  const d = ts.slice(0, 10);
+  const d = isoDatePrefix(ts);
   const slug = suffix.replace(/[^\w]+/g, '_').slice(0, 24) || 'evt';
   return `${d}_evt_${slug}`;
 }
@@ -54,7 +55,7 @@ export async function syncCognitiveEvents(
   const seen = new Set<string>();
 
   for (const evt of timeline?.events ?? []) {
-    const ts = new Date(evt.timestamp * 1000).toISOString();
+    const ts = coerceTimestampToIso(evt.timestamp);
     const id = eventIdFromTimestamp(ts, evt.event_id || evt.entity_id);
     if (seen.has(id)) {
       continue;
@@ -76,7 +77,7 @@ export async function syncCognitiveEvents(
   }
 
   for (const node of decisionGraph?.nodes ?? []) {
-    const ts = node.timestamp || new Date().toISOString();
+    const ts = coerceTimestampToIso(node.timestamp);
     const id = eventIdFromTimestamp(ts, node.decision_id);
     if (seen.has(id)) {
       continue;
@@ -101,7 +102,7 @@ export async function syncCognitiveEvents(
   }
 
   for (const entry of decisionLog?.entries ?? []) {
-    const ts = entry.created_at;
+    const ts = coerceTimestampToIso(entry.created_at);
     const id = eventIdFromTimestamp(ts, entry.decision_id);
     if (seen.has(id)) {
       continue;
@@ -126,7 +127,7 @@ export async function syncCognitiveEvents(
   }
 
   if (change?.changed_files?.length) {
-    const ts = new Date(change.generatedAt || Date.now()).toISOString();
+    const ts = coerceTimestampToIso(change.generatedAt ?? Date.now());
     const id = eventIdFromTimestamp(ts, 'workspace_change');
     if (!seen.has(id)) {
       seen.add(id);
@@ -147,9 +148,7 @@ export async function syncCognitiveEvents(
 
   const focus = state?.currentTask?.trim();
   if (focus) {
-    const ts = state?.lastUpdated
-      ? new Date(state.lastUpdated).toISOString()
-      : new Date().toISOString();
+    const ts = coerceTimestampToIso(state?.lastUpdated ?? Date.now());
     const id = eventIdFromTimestamp(ts, 'current_focus');
     if (!seen.has(id)) {
       seen.add(id);
@@ -215,6 +214,7 @@ export async function syncDecisionCenter(workspaceRoot: string): Promise<AdrReco
   for (const node of graph?.nodes ?? []) {
     const id = `ADR-${String(seq).padStart(3, '0')}`;
     seq += 1;
+    const nodeTs = coerceTimestampToIso(node.timestamp);
     const related = events
       .filter((e) => e.linked_decision_id === node.decision_id)
       .map((e) => e.id);
@@ -223,14 +223,14 @@ export async function syncDecisionCenter(workspaceRoot: string): Promise<AdrReco
       id,
       title: node.title,
       status: 'accepted',
-      date: (node.timestamp || new Date().toISOString()).slice(0, 10),
+      date: isoDatePrefix(nodeTs),
       reason: node.reason,
       alternatives: node.alternatives?.length ? node.alternatives : ['no change', 'defer'],
       risk: riskFromReversibility(node.reversibility),
       related_events: related,
       edges: related,
-      freshness: freshnessFromAge(node.timestamp),
-      last_verified: node.timestamp,
+      freshness: freshnessFromAge(nodeTs),
+      last_verified: nodeTs,
     };
     await writeAdrRecord(workspaceRoot, record);
     records.push(record);

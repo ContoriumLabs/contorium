@@ -12,10 +12,15 @@ const decisionGraph_js_1 = require("./decisionGraph.js");
 const eventStore_js_1 = require("./eventStore.js");
 const knowledgeGraph_js_1 = require("./knowledgeGraph.js");
 const types_js_1 = require("./types.js");
+const timeCoerce_js_1 = require("./timeCoerce.js");
 const STALE_ADR_DAYS = 60;
 const DEAD_FOCUS_DAYS = 14;
 function daysSince(iso) {
-    const ms = Date.now() - Date.parse(iso);
+    const parsed = Date.parse(iso);
+    if (!Number.isFinite(parsed)) {
+        return 0;
+    }
+    const ms = Date.now() - parsed;
     return ms / (24 * 60 * 60 * 1000);
 }
 /** Cognitive Health — CIL-native quality signals for Dashboard / Action Engine. */
@@ -59,7 +64,8 @@ async function computeCognitiveHealth(workspaceRoot) {
     }
     const focus = state?.currentTask?.trim();
     const lastUpdated = state?.lastUpdated;
-    if (focus && lastUpdated && daysSince(new Date(lastUpdated).toISOString()) > DEAD_FOCUS_DAYS) {
+    const focusUpdatedIso = lastUpdated != null ? (0, timeCoerce_js_1.coerceTimestampToIso)(lastUpdated) : undefined;
+    if (focus && focusUpdatedIso && daysSince(focusUpdatedIso) > DEAD_FOCUS_DAYS) {
         warnings.push({
             code: 'dead_focus',
             message: `Focus unchanged > ${DEAD_FOCUS_DAYS} days: "${focus.slice(0, 48)}"`,
