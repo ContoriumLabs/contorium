@@ -455,7 +455,7 @@ export function activate(context: vscode.ExtensionContext): void {
     void mergeDiskIfEnabled(stateManager, globalEventStore);
 
     const st0 = await loadStateWithTimeout(stateManager, folder);
-    refreshSidebarDebounced();
+    void sidebar.refresh();
 
     const matcher = await matcherPromise;
     const eventCount = globalEventStore?.getAll().length ?? 0;
@@ -470,7 +470,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const stMerged = await applyDualModeWorkspaceInput(folder, st0, eventCount);
         if (JSON.stringify(stMerged) !== JSON.stringify(st0)) {
           await stateManager.replace(folder, stMerged);
-          refreshSidebarDebounced();
+          void sidebar.refresh();
         }
       } catch (err) {
         console.warn(`[${PRODUCT_DISPLAY_NAME}] dual-mode background merge failed:`, err);

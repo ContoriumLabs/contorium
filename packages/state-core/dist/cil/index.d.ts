@@ -1,4 +1,4 @@
-export type { ActionConstraints, AdrRecord, AdrStatus, AskProjectResult, BlastRadiusResult, CilIntent, CilStructuredResponse, CognitiveEvent, CognitiveEventIndex, CognitiveEventSource, DecisionGraphArtifact, DecisionGraphNode, FreshnessLabel, HistoryExplorerResult, HistoryRange, KernelInput, KernelMode, KernelOutput, KernelTraceStep, ModuleHistoryRecord, NextActionItem, ProjectEssence, ProjectJourneyStage, ProjectSnapshotRecord, TransferStoryPayload, KnowledgeEntityRecord, CognitiveHealthReport, TimeTravelResult, DecisionContradiction, HandoffReplayResult, ProjectDna, SuggestedQuestionsResult, TimeTravelPerspective, CilTruthSource, } from './types.js';
+export type { ActionConstraints, AdrRecord, AdrStatus, AskProjectResult, AskSemanticBundle, BlastRadiusResult, CilIntent, CilStructuredResponse, CognitiveEvent, CognitiveEventIndex, CognitiveEventSource, DecisionGraphArtifact, DecisionGraphNode, FreshnessLabel, HistoryExplorerResult, HistoryRange, KernelInput, KernelMode, KernelOutput, KernelTraceStep, ModuleHistoryRecord, NextActionItem, ProjectEssence, ProjectJourneyStage, ProjectSnapshotRecord, TransferStoryPayload, KnowledgeEntityRecord, CognitiveHealthReport, TimeTravelResult, DecisionContradiction, HandoffReplayResult, ProjectDna, SuggestedQuestionsResult, TimeTravelPerspective, CilTruthSource, } from './types.js';
 export { COGNITIVE_EVENT_SCHEMA, ADR_RECORD_SCHEMA, CIL_INDEX_SCHEMA, DECISION_GRAPH_SCHEMA, PROJECT_SNAPSHOT_SCHEMA, KNOWLEDGE_ENTITY_SCHEMA, COGNITIVE_HEALTH_SCHEMA, } from './types.js';
 export { cognitiveEventsDir, adrDir, snapshotsDir, moduleHistoryDir, knowledgeDir, decisionGraphPath, cilIndexPath, cognitiveHealthPath, } from './paths.js';
 export { freshnessFromAge, freshnessLabelText } from './confidenceLabels.js';
@@ -26,4 +26,7 @@ export { buildHandoffReplay } from './handoffReplay.js';
 export { buildProjectDna } from './projectDna.js';
 export { buildSuggestedQuestions } from './suggestedQuestions.js';
 export { resolveDecisionByTopic, applyImplementedStatus } from './decisionLifecycle.js';
+export { PIK_SCHEMA, DEFAULT_PIK, ensureProjectIntentKernel, generateProjectIntentKernel, readProjectIntentKernel, writeProjectIntentKernel, detectProjectDrift, type ProjectIntentKernel, type PikGoal, type DriftReport, } from './pik/index.js';
+export { isDirectionQuery, isDriftQuery, fuseSemanticContext, type FusedSemanticContext } from './semantic/index.js';
+export { prepareAskV2Context, buildDirectionKernelOutput, appendAlignmentNote, type AskV2Context, } from './askV2.js';
 //# sourceMappingURL=index.d.ts.map

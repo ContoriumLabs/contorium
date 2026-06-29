@@ -5,12 +5,47 @@ import { exploreHistory } from './historyExplorer.js';
 import { getDecisionCenter } from './decisionCenter.js';
 import { buildProjectJourney } from './journeyBuilder.js';
 import { readHandoffArtifact } from '../understanding/store.js';
-import type { AskProjectResult } from './types.js';
+import type { AskProjectResult, AskSemanticBundle } from './types.js';
+import {
+  appendAlignmentNote,
+  buildDirectionKernelOutput,
+  prepareAskV2Context,
+} from './askV2.js';
 
-/** Ask Contorium — routed through Cognitive Kernel only. */
+function toSemanticBundle(
+  fusion: Awaited<ReturnType<typeof prepareAskV2Context>>['fusion'],
+  pikSource: string,
+): AskSemanticBundle {
+  return {
+    primary_intent: fusion.primary_intent_statement,
+    alignment_score: fusion.current_alignment_score,
+    drift: fusion.drift,
+    recommended_next_focus: fusion.recommended_next_focus,
+    pik_source: pikSource,
+    reasoning_trace: fusion.reasoning_trace,
+  };
+}
+
+/** Ask Contorium v2 — PIK + semantic fusion, then cognitive kernel. */
 export async function askProject(workspaceRoot: string, question: string): Promise<AskProjectResult> {
+  const ctx = await prepareAskV2Context(workspaceRoot, question);
+  const semantic = toSemanticBundle(ctx.fusion, ctx.pik.source);
+
+  if (ctx.isDirection || ctx.isDrift) {
+    const output = buildDirectionKernelOutput(question, ctx);
+    return {
+      ...kernelOutputToAskResult(question, output),
+      semantic,
+    };
+  }
+
   const output = await runCognitiveKernel(workspaceRoot, { mode: 'ask', query: question });
   let base = kernelOutputToAskResult(question, output);
+  base = {
+    ...base,
+    answer: appendAlignmentNote(base.answer, ctx.fusion),
+    semantic,
+  };
 
   if (output.intent === 'decision') {
     const result = base.data as Record<string, unknown> | undefined;
@@ -25,9 +60,10 @@ export async function askProject(workspaceRoot: string, question: string): Promi
     if (llmWhy) {
       base = {
         ...base,
-        answer: llmWhy,
+        answer: appendAlignmentNote(llmWhy, ctx.fusion),
         data: { ...result, answer: llmWhy, llm_enhanced: true },
         trace: [...(base.trace ?? []), { engine: 'ai_layer', phase: 'why', at: new Date().toISOString() }],
+        semantic,
       };
       return base;
     }
@@ -41,7 +77,7 @@ export async function askProject(workspaceRoot: string, question: string): Promi
     base.structured?.fact,
   );
   if (enhanced) {
-    return { ...base, answer: enhanced };
+    return { ...base, answer: appendAlignmentNote(enhanced, ctx.fusion), semantic };
   }
   return base;
 }

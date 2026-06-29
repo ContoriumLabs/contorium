@@ -25,6 +25,8 @@ const handoffReplay_js_1 = require("./handoffReplay.js");
 const decisionLifecycle_js_1 = require("./decisionLifecycle.js");
 const suggestedQuestions_js_1 = require("./suggestedQuestions.js");
 const timeTravel_js_1 = require("./timeTravel.js");
+const askV2_js_1 = require("./askV2.js");
+const generator_js_1 = require("./pik/generator.js");
 function traceStep(engine, phase) {
     return { engine, phase, at: new Date().toISOString() };
 }
@@ -32,6 +34,12 @@ async function dispatchAsk(workspaceRoot, query, trace) {
     const routed = await (0, routeIntent_js_1.routeIntent)(workspaceRoot, query);
     trace.push(traceStep('query_router', routed.intent));
     switch (routed.intent) {
+        case 'direction': {
+            trace.push(traceStep('pik', 'load'));
+            const ctx = await (0, askV2_js_1.prepareAskV2Context)(workspaceRoot, query);
+            trace.push(traceStep('semantic_fusion', 'fuse'));
+            return (0, askV2_js_1.buildDirectionKernelOutput)(query, ctx);
+        }
         case 'action': {
             trace.push(traceStep('action_engine', 'derive'));
             const items = await (0, actionEngine_js_1.deriveNextActions)(workspaceRoot);
@@ -296,6 +304,8 @@ async function runCognitiveKernel(workspaceRoot, input, writer = 'cli') {
         await (0, knowledgeGraph_js_1.syncKnowledgeGraph)(workspaceRoot, events, adrs, snapshots).catch(() => undefined);
         trace.push(traceStep('cognitive_health', 'compute'));
         await (0, cognitiveHealth_js_1.persistCognitiveHealth)(workspaceRoot).catch(() => undefined);
+        trace.push(traceStep('pik', 'ensure'));
+        await (0, generator_js_1.ensureProjectIntentKernel)(workspaceRoot).catch(() => undefined);
         await (0, eventStore_js_1.persistCilIndex)(workspaceRoot, events.map((e) => e.id), adrs.map((a) => a.id));
         return { intent: 'sync', result: { events, adrs, event_count: events.length }, trace };
     }

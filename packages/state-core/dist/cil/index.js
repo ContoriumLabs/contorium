@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.askProject = exports.readDecisionGraph = exports.persistDecisionGraph = exports.buildDecisionGraphFromAdrs = exports.readModuleHistoryRecord = exports.exploreModuleHistory = exports.syncModuleHistory = exports.listProjectSnapshots = exports.findSnapshotByDate = exports.writeProjectSnapshot = exports.linkEventVersions = exports.buildProjectJourney = exports.exploreImpact = exports.getBlastRadius = exports.getNextActions = exports.deriveNextActions = exports.getDecisionCenter = exports.exploreModuleHistoryFeed = exports.getModuleHistory = exports.getRecentEvents = exports.exploreHistory = exports.kernelOutputToAskResult = exports.buildStructuredResponse = exports.routeQuery = exports.readProjectSnapshot = exports.syncCognitiveInteractionLayer = exports.runCognitiveKernel = exports.syncDecisionCenter = exports.syncCognitiveEvents = exports.readAdrRecord = exports.readCognitiveEvent = exports.readAllCognitiveEvents = exports.readAllAdrRecords = exports.freshnessLabelText = exports.freshnessFromAge = exports.cognitiveHealthPath = exports.cilIndexPath = exports.decisionGraphPath = exports.knowledgeDir = exports.moduleHistoryDir = exports.snapshotsDir = exports.adrDir = exports.cognitiveEventsDir = exports.COGNITIVE_HEALTH_SCHEMA = exports.KNOWLEDGE_ENTITY_SCHEMA = exports.PROJECT_SNAPSHOT_SCHEMA = exports.DECISION_GRAPH_SCHEMA = exports.CIL_INDEX_SCHEMA = exports.ADR_RECORD_SCHEMA = exports.COGNITIVE_EVENT_SCHEMA = void 0;
-exports.applyImplementedStatus = exports.resolveDecisionByTopic = exports.buildSuggestedQuestions = exports.buildProjectDna = exports.buildHandoffReplay = exports.buildProjectEssence = exports.readCognitiveHealthReport = exports.persistCognitiveHealth = exports.computeCognitiveHealth = exports.detectDecisionContradictions = exports.queryTimeTravel = exports.readKnowledgeEntityIndex = exports.readKnowledgeEntity = exports.exploreEntityKnowledge = exports.syncKnowledgeGraph = exports.buildTransferStory = exports.getProjectStory = void 0;
+exports.appendAlignmentNote = exports.buildDirectionKernelOutput = exports.prepareAskV2Context = exports.fuseSemanticContext = exports.isDriftQuery = exports.isDirectionQuery = exports.detectProjectDrift = exports.writeProjectIntentKernel = exports.readProjectIntentKernel = exports.generateProjectIntentKernel = exports.ensureProjectIntentKernel = exports.DEFAULT_PIK = exports.PIK_SCHEMA = exports.applyImplementedStatus = exports.resolveDecisionByTopic = exports.buildSuggestedQuestions = exports.buildProjectDna = exports.buildHandoffReplay = exports.buildProjectEssence = exports.readCognitiveHealthReport = exports.persistCognitiveHealth = exports.computeCognitiveHealth = exports.detectDecisionContradictions = exports.queryTimeTravel = exports.readKnowledgeEntityIndex = exports.readKnowledgeEntity = exports.exploreEntityKnowledge = exports.syncKnowledgeGraph = exports.buildTransferStory = exports.getProjectStory = void 0;
 var types_js_1 = require("./types.js");
 Object.defineProperty(exports, "COGNITIVE_EVENT_SCHEMA", { enumerable: true, get: function () { return types_js_1.COGNITIVE_EVENT_SCHEMA; } });
 Object.defineProperty(exports, "ADR_RECORD_SCHEMA", { enumerable: true, get: function () { return types_js_1.ADR_RECORD_SCHEMA; } });
@@ -96,3 +96,19 @@ Object.defineProperty(exports, "buildSuggestedQuestions", { enumerable: true, ge
 var decisionLifecycle_js_1 = require("./decisionLifecycle.js");
 Object.defineProperty(exports, "resolveDecisionByTopic", { enumerable: true, get: function () { return decisionLifecycle_js_1.resolveDecisionByTopic; } });
 Object.defineProperty(exports, "applyImplementedStatus", { enumerable: true, get: function () { return decisionLifecycle_js_1.applyImplementedStatus; } });
+var index_js_1 = require("./pik/index.js");
+Object.defineProperty(exports, "PIK_SCHEMA", { enumerable: true, get: function () { return index_js_1.PIK_SCHEMA; } });
+Object.defineProperty(exports, "DEFAULT_PIK", { enumerable: true, get: function () { return index_js_1.DEFAULT_PIK; } });
+Object.defineProperty(exports, "ensureProjectIntentKernel", { enumerable: true, get: function () { return index_js_1.ensureProjectIntentKernel; } });
+Object.defineProperty(exports, "generateProjectIntentKernel", { enumerable: true, get: function () { return index_js_1.generateProjectIntentKernel; } });
+Object.defineProperty(exports, "readProjectIntentKernel", { enumerable: true, get: function () { return index_js_1.readProjectIntentKernel; } });
+Object.defineProperty(exports, "writeProjectIntentKernel", { enumerable: true, get: function () { return index_js_1.writeProjectIntentKernel; } });
+Object.defineProperty(exports, "detectProjectDrift", { enumerable: true, get: function () { return index_js_1.detectProjectDrift; } });
+var index_js_2 = require("./semantic/index.js");
+Object.defineProperty(exports, "isDirectionQuery", { enumerable: true, get: function () { return index_js_2.isDirectionQuery; } });
+Object.defineProperty(exports, "isDriftQuery", { enumerable: true, get: function () { return index_js_2.isDriftQuery; } });
+Object.defineProperty(exports, "fuseSemanticContext", { enumerable: true, get: function () { return index_js_2.fuseSemanticContext; } });
+var askV2_js_1 = require("./askV2.js");
+Object.defineProperty(exports, "prepareAskV2Context", { enumerable: true, get: function () { return askV2_js_1.prepareAskV2Context; } });
+Object.defineProperty(exports, "buildDirectionKernelOutput", { enumerable: true, get: function () { return askV2_js_1.buildDirectionKernelOutput; } });
+Object.defineProperty(exports, "appendAlignmentNote", { enumerable: true, get: function () { return askV2_js_1.appendAlignmentNote; } });

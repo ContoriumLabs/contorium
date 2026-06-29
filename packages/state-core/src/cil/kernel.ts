@@ -35,6 +35,8 @@ import { buildHandoffReplay } from './handoffReplay.js';
 import { resolveDecisionByTopic } from './decisionLifecycle.js';
 import { buildSuggestedQuestions } from './suggestedQuestions.js';
 import { queryTimeTravel } from './timeTravel.js';
+import { prepareAskV2Context, buildDirectionKernelOutput } from './askV2.js';
+import { ensureProjectIntentKernel } from './pik/generator.js';
 import type {
   CilIntent,
   HistoryRange,
@@ -56,6 +58,12 @@ async function dispatchAsk(
   trace.push(traceStep('query_router', routed.intent));
 
   switch (routed.intent) {
+    case 'direction': {
+      trace.push(traceStep('pik', 'load'));
+      const ctx = await prepareAskV2Context(workspaceRoot, query);
+      trace.push(traceStep('semantic_fusion', 'fuse'));
+      return buildDirectionKernelOutput(query, ctx);
+    }
     case 'action': {
       trace.push(traceStep('action_engine', 'derive'));
       const items = await deriveNextActions(workspaceRoot);
@@ -337,6 +345,9 @@ export async function runCognitiveKernel(
 
     trace.push(traceStep('cognitive_health', 'compute'));
     await persistCognitiveHealth(workspaceRoot).catch(() => undefined);
+
+    trace.push(traceStep('pik', 'ensure'));
+    await ensureProjectIntentKernel(workspaceRoot).catch(() => undefined);
 
     await persistCilIndex(
       workspaceRoot,

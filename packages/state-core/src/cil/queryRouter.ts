@@ -1,3 +1,4 @@
+import { isDirectionQuery, isDriftQuery } from './semantic/directionQuery.js';
 import type { CilIntent, HistoryRange } from './types.js';
 
 export interface RoutedQuery {
@@ -12,6 +13,10 @@ export interface RoutedQuery {
 export function routeQuery(question: string): RoutedQuery {
   const q = question.toLowerCase().trim();
   const raw = question.trim();
+
+  if (isDirectionQuery(question) || isDriftQuery(question)) {
+    return { intent: 'direction', raw };
+  }
 
   if (/what should i do next|what next|next action|next step/.test(q)) {
     return { intent: 'action', raw };
@@ -80,7 +85,7 @@ export function routeQuery(question: string): RoutedQuery {
     return { intent: 'state', raw };
   }
 
-  if (/tell me this project|project story|describe project|what is this project|story|essence|evolved through/.test(q)) {
+  if (/tell me this project|project story|describe project|story|essence|evolved through/.test(q)) {
     return { intent: 'story', raw };
   }
 

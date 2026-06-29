@@ -2,9 +2,36 @@ import * as vscode from 'vscode';
 import type { AskProjectResult } from '@contora/state-core';
 import { withIdeCilAiContext } from '../ai/cilLlmBridge';
 
+function formatSemanticSection(result: AskProjectResult): string {
+  const sem = result.semantic;
+  if (!sem) {
+    return '';
+  }
+  const lines = [
+    '## Project direction (PIK)',
+    '',
+    `**Primary intent:** ${sem.primary_intent}`,
+    `**Alignment:** ${Math.round(sem.alignment_score * 100)}%`,
+    `**Drift:** ${sem.drift.severity} (${sem.drift.drift_type}) — ${sem.drift.explanation}`,
+    '',
+  ];
+  if (sem.recommended_next_focus.length) {
+    lines.push(
+      '**Goal-aligned focus:**',
+      ...sem.recommended_next_focus.map((t: string) => `- ${t}`),
+      '',
+    );
+  }
+  lines.push(`_PIK source: \`${sem.pik_source}\` · \`.contora/intent/kernel.json\`_`, '');
+  return lines.join('\n');
+}
+
 function formatAskDataSources(result: AskProjectResult): string {
   const engineSources: Record<string, string> = {
     kernel: 'Cognitive Kernel (orchestrator)',
+    pik: '`.contora/intent/kernel.json` — Project Intent Kernel (direction & goals)',
+    semantic_fusion: 'PIK + state + handoff + intents + events + ADRs → alignment & drift',
+    ask_v2: 'Ask v2 — direction queries prioritize PIK over event logs',
     query_router: 'Rule router (`queryRouter`) — optional LLM intent when `contora.cilAiEnabled`',
     event_engine: '`.contora/cognitive/events/` — synced from timeline, git changes, decisions, focus',
     decision_engine: '`.contora/cognitive/adrs/` + decision provenance graph',
@@ -47,13 +74,18 @@ function formatAskDataSources(result: AskProjectResult): string {
   }
 
   lines.push(
-    '**Artifact roots:** `.contora/state.json` · `.contora/cognitive/` · `.contora/intelligence/` · `.contora/understanding/` · IDE session events (`.contora/events/*.jsonl`)',
+    '**Artifact roots:** `.contora/intent/kernel.json` · `.contora/state.json` · `.contora/cognitive/` · `.contora/intelligence/` · `.contora/understanding/` · IDE session events (`.contora/events/*.jsonl`)',
   );
   return lines.join('\n');
 }
 
 function formatAskResult(result: AskProjectResult): string {
   const lines = [`# Ask Contorium`, '', `**Question:** ${result.question}`, '', result.answer, ''];
+
+  const semanticBlock = formatSemanticSection(result);
+  if (semanticBlock) {
+    lines.push(semanticBlock);
+  }
 
   if (result.structured) {
     if (result.structured.fact.length) {

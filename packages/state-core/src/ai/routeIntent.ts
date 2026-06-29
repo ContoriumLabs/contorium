@@ -6,6 +6,7 @@ import { aiGenerate } from './runtime.js';
 const VALID_INTENTS: CilIntent[] = [
   'action',
   'decision',
+  'direction',
   'history',
   'state',
   'story',
@@ -28,7 +29,7 @@ function isWeakDefaultRoute(routed: RoutedQuery, question: string): boolean {
 async function classifyIntentWithLlm(workspaceRoot: string, question: string): Promise<RoutedQuery | null> {
   const prompt = [
     'Classify this project question into exactly one intent label.',
-    'Labels: action, decision, history, state, story, debug, time_travel, entity',
+    'Labels: action, decision, direction, history, state, story, debug, time_travel, entity',
     'Reply with JSON only: {"intent":"...","topic":"optional short topic"}',
     '',
     `Question: ${question}`,

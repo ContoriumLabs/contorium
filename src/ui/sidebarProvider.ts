@@ -196,7 +196,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   /** Bust on layout changes so Reload Window picks up sidebar HTML. */
   private static htmlTemplateCache: string | undefined;
   private static htmlTemplateCachedVersion = 0;
-  private static htmlTemplateVersion = 15;
+  private static htmlTemplateVersion = 16;
 
   private view?: vscode.WebviewView;
   private folder: vscode.WorkspaceFolder | undefined;
@@ -207,6 +207,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   private pushStateQueued = false;
   /** Webview posted `ready` — listener is registered. */
   private webviewScriptReady = false;
+  /** Refresh requested before webview script was ready. */
+  private pendingStatePush = false;
   /** Fast workspace shell painted at least once. */
   private webviewBaseHydrated = false;
   private webviewReadyFallbackTimer: ReturnType<typeof setTimeout> | undefined;
@@ -238,9 +240,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
   setWorkspaceFolder(folder: vscode.WorkspaceFolder | undefined): void {
     this.folder = folder;
-    if (this.view) {
-      void this.pushStateToWebview();
-    }
+    void this.refresh();
   }
 
   private postExportProgress(update: {
@@ -267,6 +267,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           this.webviewReadyFallbackTimer = undefined;
         }
         this.webviewScriptReady = true;
+        this.pendingStatePush = false;
         void this.pushStateToWebview();
         return;
       }
@@ -505,9 +506,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         this.webviewReadyFallbackTimer = undefined;
         if (!this.webviewScriptReady && this.view) {
           this.webviewScriptReady = true;
+          this.pendingStatePush = false;
           void this.pushStateToWebview();
         }
-      }, 400);
+      }, 200);
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar HTML failed:`, err);
       webviewView.webview.html = this.getFallbackHtml(
@@ -532,6 +534,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   async refresh(): Promise<void> {
+    if (!this.view || !this.webviewScriptReady) {
+      this.pendingStatePush = true;
+      return;
+    }
     await this.pushStateToWebview();
   }
 
@@ -690,6 +696,18 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private emptyCognitionPlaceholders() {
+    return {
+      aiIntent: { goals: [] } as SidebarAiIntentPanel,
+      intentGraph: { ...EMPTY_INTENT_GRAPH },
+      projectState: { ...EMPTY_PROJECT_STATE },
+      stateConflicts: { ...EMPTY_CONFLICTS },
+      understandingPanel: { ...EMPTY_UNDERSTANDING },
+      governanceStatus: undefined as Record<string, unknown> | undefined,
+      v22View: { ...EMPTY_V22_PLACEHOLDER },
+    };
+  }
+
   /** Sync paint from cache — UI shell before disk / cognition panels load. */
   private pushInstantShell(
     seq: number,
@@ -698,7 +716,6 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   ): void {
     const byokDefault = this.defaultByokPanelState();
     const cilAiDefault = this.defaultCilAiPanelState();
-    const emptyCog = this.emptyCognitionState();
 
     if (!folder) {
       this.postWebviewState(seq, null, byokDefault, cilAiDefault, true);
@@ -708,8 +725,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const cached = this.stateManager.getCached(folder) ?? defaultProjectState();
     const shellState = {
       ...buildSidebarWebviewState(cached, this.events, ver),
-      ...emptyCog,
+      ...this.emptyCognitionPlaceholders(),
       dataLoading: true,
+      heavyLoading: true,
     };
     this.postWebviewState(seq, shellState, byokDefault, cilAiDefault, true);
   }
@@ -862,6 +880,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
   private async pushStateToWebview(): Promise<void> {
     if (!this.view || !this.webviewScriptReady) {
+      this.pendingStatePush = true;
       return;
     }
     if (this.pushStateInFlight) {
@@ -877,7 +896,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       // Phase 0 — sync UI shell (layout + cache), then yield so webview can paint.
       this.pushInstantShell(seq, folder, ver);
       this.webviewBaseHydrated = true;
-      await this.yieldToUi();
+      await this.yieldToUi(1);
       if (seq !== this.pushStateSeq || !this.view) {
         return;
       }
@@ -888,17 +907,56 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
       const byokDefault = this.defaultByokPanelState();
       const cilAiDefault = this.defaultCilAiPanelState();
+      const placeholders = this.emptyCognitionPlaceholders();
 
-      // Phase 1 — workspace state + core panels (skip LLM file sync on first pass).
-      const [state, byokLoaded] = await Promise.all([
-        this.stateManager.loadResilient(folder, 4_000),
-        this.loadByokPanelState(),
-      ]);
+      // Phase 1a — paint from memory cache first (activate pre-warm), then reconcile disk.
+      const cachedState = this.stateManager.getCached(folder);
+      if (cachedState) {
+        const cachedBase = buildSidebarWebviewState(cachedState, this.events, ver);
+        this.postWebviewState(
+          seq,
+          { ...cachedBase, ...placeholders, dataLoading: false, heavyLoading: true },
+          byokDefault,
+          cilAiDefault,
+          false,
+        );
+        await this.yieldToUi(1);
+        if (seq !== this.pushStateSeq || !this.view) {
+          return;
+        }
+      }
+
+      const state = await this.stateManager.loadResilient(folder, 4_000);
       if (seq !== this.pushStateSeq || !this.view) {
         return;
       }
 
+      if (!cachedState) {
+        const base = buildSidebarWebviewState(state, this.events, ver);
+        this.postWebviewState(
+          seq,
+          { ...base, ...placeholders, dataLoading: false, heavyLoading: true },
+          byokDefault,
+          cilAiDefault,
+          false,
+        );
+        await this.yieldToUi(1);
+        if (seq !== this.pushStateSeq || !this.view) {
+          return;
+        }
+      }
+
+      const base = buildSidebarWebviewState(state, this.events, ver);
+      const fastCore: Record<string, unknown> = {
+        ...base,
+        ...placeholders,
+        dataLoading: false,
+        heavyLoading: true,
+      };
+
+      // Phase 1b — cognition panels + BYOK/CIL AI (SecretStorage + .contora reads).
       const settledCore = await Promise.allSettled([
+        this.loadByokPanelState(),
         this.loadCilAiPanelState({ skipSync: true }),
         buildSidebarProjectStatePanel(folder),
         buildSidebarGraphPanel(folder),
@@ -919,13 +977,13 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           ? (settledCore[i] as PromiseFulfilledResult<T>).value
           : fallback;
 
-      const byok = byokLoaded ?? byokDefault;
-      const cilAi = pick(0, cilAiDefault);
-      const projectState = pick(1, { ...EMPTY_PROJECT_STATE });
-      const intentGraph = pick(2, { ...EMPTY_INTENT_GRAPH });
-      const stateConflicts = pick(3, { ...EMPTY_CONFLICTS });
-      const aiIntent = pick(4, { goals: [] } as SidebarAiIntentPanel);
-      const governanceStatus = pick(5, {
+      const byok = pick(0, byokDefault);
+      const cilAi = pick(1, cilAiDefault);
+      const projectState = pick(2, { ...EMPTY_PROJECT_STATE });
+      const intentGraph = pick(3, { ...EMPTY_INTENT_GRAPH });
+      const stateConflicts = pick(4, { ...EMPTY_CONFLICTS });
+      const aiIntent = pick(5, { goals: [] } as SidebarAiIntentPanel);
+      const governanceStatus = pick(6, {
         active: false,
         constitutionLoaded: false,
         truthLoaded: false,
@@ -962,25 +1020,26 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         }
       }
 
-      const base = buildSidebarWebviewState(state, this.events, ver);
       const mergedCore: Record<string, unknown> = {
-        ...base,
+        ...fastCore,
         projectState,
         intentGraph,
         stateConflicts,
-        understandingPanel: { ...EMPTY_UNDERSTANDING },
         aiIntent,
         governanceStatus,
-        v22View: { ...EMPTY_V22_PLACEHOLDER },
-        dataLoading: false,
+        heavyLoading: true,
       };
       this.postWebviewState(seq, mergedCore, byok, cilAi, false);
 
       // Background: sync LLM config file without blocking UI.
       void syncCilLlmConfigFromIde(folder.uri.fsPath).catch(() => undefined);
 
-      // Phase 2 — heavy PIL readers; yield so core UI paints first.
-      await this.yieldToUi(16);
+      // Phase 2 — heavy PIL readers; defer when sidebar is hidden.
+      if (!this.view.visible) {
+        return;
+      }
+
+      await this.yieldToUi(8);
       if (seq !== this.pushStateSeq || !this.view) {
         return;
       }
@@ -993,9 +1052,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         const understandingPanel = await buildSidebarUnderstandingPanel(folder).catch(
           () => ({ ...EMPTY_UNDERSTANDING }),
         );
-      if (seq !== this.pushStateSeq || !this.view) {
-        return;
-      }
+        if (seq !== this.pushStateSeq || !this.view) {
+          return;
+        }
 
         const v22View = await v22Mod
           .buildSidebarV22View(
@@ -1015,13 +1074,14 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 
         this.postWebviewState(
           seq,
-          { ...mergedCore, understandingPanel, v22View },
+          { ...mergedCore, understandingPanel, v22View, heavyLoading: false },
           byok,
           cilAi,
           false,
         );
       } catch (err) {
         console.warn(`[${PRODUCT_DISPLAY_NAME}] sidebar heavy panel load:`, err);
+        this.postWebviewState(seq, { ...mergedCore, heavyLoading: false }, byok, cilAi, false);
       }
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar state push failed:`, err);
@@ -1040,6 +1100,9 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       this.pushStateInFlight = false;
       if (this.pushStateQueued) {
         this.pushStateQueued = false;
+        void this.pushStateToWebview();
+      } else if (this.pendingStatePush) {
+        this.pendingStatePush = false;
         void this.pushStateToWebview();
       }
     }
@@ -3180,7 +3243,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
 <body>
   <div id="crBootBar" class="cr-boot-bar" aria-live="polite">
     <span class="cr-boot-bar-dot" aria-hidden="true"></span>
-    <span>Loading workspace data…</span>
+    <span id="crBootBarText">Loading workspace data…</span>
   </div>
   <header class="cr-header">
     <div class="cr-brand"><span class="cr-logo">C</span> CONTORIUM</div>
@@ -5625,10 +5688,20 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     const bootBarEl = document.getElementById('crBootBar');
-    function setBootLoading(active) {
-      if (bootBarEl) bootBarEl.hidden = !active;
+    const bootBarText = document.getElementById('crBootBarText');
+    function setBootLoading(state) {
+      if (!bootBarEl) return;
+      const active = !state || state.dataLoading === true || state.heavyLoading === true;
+      bootBarEl.hidden = !active;
+      if (bootBarText && state) {
+        if (state.dataLoading === true) {
+          bootBarText.textContent = 'Loading workspace data…';
+        } else if (state.heavyLoading === true) {
+          bootBarText.textContent = 'Loading intelligence panels…';
+        }
+      }
     }
-    setBootLoading(true);
+    setBootLoading({ dataLoading: true, heavyLoading: true });
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
@@ -5642,9 +5715,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (msg.type !== 'state') return;
-      if (!msg.state || msg.state.dataLoading !== true) {
-        setBootLoading(false);
-      }
+      setBootLoading(msg.state);
       const s = msg.state;
       const byokPayload = msg.byok || null;
       const cilAiPayload = msg.cilAi || null;

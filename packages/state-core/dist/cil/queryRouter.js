@@ -1,10 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routeQuery = routeQuery;
+const directionQuery_js_1 = require("./semantic/directionQuery.js");
 /** Map natural language → structured CIL intent (Query Router). */
 function routeQuery(question) {
     const q = question.toLowerCase().trim();
     const raw = question.trim();
+    if ((0, directionQuery_js_1.isDirectionQuery)(question) || (0, directionQuery_js_1.isDriftQuery)(question)) {
+        return { intent: 'direction', raw };
+    }
     if (/what should i do next|what next|next action|next step/.test(q)) {
         return { intent: 'action', raw };
     }
@@ -64,7 +68,7 @@ function routeQuery(question) {
         }
         return { intent: 'state', raw };
     }
-    if (/tell me this project|project story|describe project|what is this project|story|essence|evolved through/.test(q)) {
+    if (/tell me this project|project story|describe project|story|essence|evolved through/.test(q)) {
         return { intent: 'story', raw };
     }
     if (/replay|how this project evolved|evolution replay/.test(q)) {

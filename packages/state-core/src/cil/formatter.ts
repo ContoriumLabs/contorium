@@ -24,6 +24,12 @@ export function buildStructuredResponse(output: KernelOutput): CilStructuredResp
   if (result?.decision || result?.why) {
     insights.push(String(result.why ?? result.decision ?? ''));
   }
+  if (output.intent === 'direction' && typeof result?.pik_summary === 'string') {
+    insights.push(String(result.pik_summary));
+  }
+  if (result?.alignment_score != null) {
+    insights.push(`Alignment ${Math.round(Number(result.alignment_score) * 100)}%`);
+  }
   if (Array.isArray(result?.next_actions)) {
     actions.push(...(result.next_actions as NextActionItem[]));
   }

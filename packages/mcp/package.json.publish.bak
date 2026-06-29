@@ -1,0 +1,61 @@
+{
+  "name": "@contorium/mcp",
+  "version": "1.2.4",
+  "description": "Contorium MCP Server — standardized AI runtime handoff for Claude Code, Cursor, Codex (stdio MCP).",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ContoriumLabs/contorium.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/ContoriumLabs/contorium#readme",
+  "bugs": {
+    "url": "https://github.com/ContoriumLabs/contorium/issues"
+  },
+  "keywords": [
+    "mcp",
+    "contorium",
+    "ai",
+    "handoff",
+    "claude",
+    "cursor",
+    "codex"
+  ],
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "bin": {
+    "contorium-mcp": "./bin/contorium-mcp.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node ../../scripts/clean-dist.mjs packages/mcp && tsc -p ./",
+    "start": "node ./bin/contorium-mcp.js",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@contora/state-core": "file:../state-core",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  },
+  "bundledDependencies": [
+    "@contora/state-core"
+  ],
+  "bundleDependencies": [
+    "@contora/state-core"
+  ]
+}

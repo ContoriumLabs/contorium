@@ -620,6 +620,11 @@ export {
   detectDecisionContradictions,
   buildProjectDna,
   buildSuggestedQuestions,
+  ensureProjectIntentKernel,
+  fuseSemanticContext,
+  isDirectionQuery,
+  isDriftQuery,
+  detectProjectDrift,
   type NextActionItem,
   type ModuleHistoryRecord,
   type ProjectSnapshotRecord,
@@ -630,6 +635,7 @@ export {
   type CilStructuredResponse,
   type AdrRecord,
   type AskProjectResult,
+  type AskSemanticBundle,
   type BlastRadiusResult,
   type CognitiveEvent,
   type HistoryExplorerResult,
@@ -641,6 +647,8 @@ export {
   type TimeTravelResult,
   type DecisionContradiction,
   type ProjectEssence,
+  type ProjectIntentKernel,
+  type DriftReport,
   type HandoffReplayResult,
 } from './cil/index.js';
 

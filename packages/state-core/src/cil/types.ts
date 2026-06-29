@@ -15,6 +15,7 @@ export const COGNITIVE_HEALTH_SCHEMA = 'cognitive_health.v1' as const;
 export type CilIntent =
   | 'action'
   | 'decision'
+  | 'direction'
   | 'history'
   | 'state'
   | 'story'
@@ -221,6 +222,17 @@ export interface CilStructuredResponse {
   actions: NextActionItem[];
 }
 
+import type { DriftReport } from './pik/types.js';
+
+export interface AskSemanticBundle {
+  primary_intent: string;
+  alignment_score: number;
+  drift: DriftReport;
+  recommended_next_focus: string[];
+  pik_source: string;
+  reasoning_trace: string[];
+}
+
 export interface AskProjectResult {
   question: string;
   intent: string;
@@ -228,6 +240,8 @@ export interface AskProjectResult {
   data?: Record<string, unknown>;
   structured?: CilStructuredResponse;
   trace?: KernelTraceStep[];
+  /** PIK + semantic fusion overlay (Ask v2). */
+  semantic?: AskSemanticBundle;
 }
 
 export interface TransferStoryPayload {

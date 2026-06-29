@@ -9,6 +9,7 @@ const runtime_js_1 = require("./runtime.js");
 const VALID_INTENTS = [
     'action',
     'decision',
+    'direction',
     'history',
     'state',
     'story',
@@ -29,7 +30,7 @@ function isWeakDefaultRoute(routed, question) {
 async function classifyIntentWithLlm(workspaceRoot, question) {
     const prompt = [
         'Classify this project question into exactly one intent label.',
-        'Labels: action, decision, history, state, story, debug, time_travel, entity',
+        'Labels: action, decision, direction, history, state, story, debug, time_travel, entity',
         'Reply with JSON only: {"intent":"...","topic":"optional short topic"}',
         '',
         `Question: ${question}`,
