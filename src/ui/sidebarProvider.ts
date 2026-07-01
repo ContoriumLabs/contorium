@@ -3325,7 +3325,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       <div class="cr-module-card cr-module-card--ask">
         <form id="homeAskForm" class="cr-ask-form" aria-label="Ask your project">
           <input type="text" id="homeAskInput" class="cr-ask-input" maxlength="240" placeholder="Ask your project…" aria-label="Ask your project" autocomplete="off" />
-          <p class="cr-ask-hint">History • Decisions • Architecture • Timeline • Next Steps · Press Enter to ask</p>
+          <p class="cr-ask-hint">What happened · Why · Next · Story · Health · MCP · Timeline · Press Enter</p>
           <button type="submit" class="cr-primary" id="btnHomeAsk" title="Ask about project history, decisions, or next steps">Ask</button>
         </form>
       </div>

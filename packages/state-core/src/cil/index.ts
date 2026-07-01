@@ -155,7 +155,7 @@ export {
   type DriftReport,
 } from './pik/index.js';
 
-export { isDirectionQuery, isDriftQuery, fuseSemanticContext, type FusedSemanticContext } from './semantic/index.js';
+export { isDirectionQuery, isDriftQuery, isStoryIdentityQuery, extractWhatIsEntityTopic, fuseSemanticContext, type FusedSemanticContext } from './semantic/index.js';
 
 export {
   prepareAskV2Context,

@@ -1,6 +1,6 @@
 {
   "name": "@contorium/mcp",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "Contorium MCP Server — standardized AI runtime handoff for Claude Code, Cursor, Codex (stdio MCP).",
   "type": "module",
   "license": "MIT",

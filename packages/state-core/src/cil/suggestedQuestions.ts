@@ -22,7 +22,7 @@ export async function buildSuggestedQuestions(
   if (mcpEvent) {
     questions.push('Why was MCP added?');
   } else {
-    questions.push('Tell me everything about this project');
+    questions.push('What is this project?');
   }
 
   const focus = state?.currentTask?.trim();
@@ -45,7 +45,7 @@ export async function buildSuggestedQuestions(
   }
 
   if (health && health.score < 85) {
-    questions.push('What is cognitive health score?');
+    questions.push('Is the project healthy?');
   }
 
   const recentFile = events.find((e) => e.files.length)?.files[0];

@@ -37,6 +37,7 @@ import { buildSuggestedQuestions } from './suggestedQuestions.js';
 import { queryTimeTravel } from './timeTravel.js';
 import { prepareAskV2Context, buildDirectionKernelOutput } from './askV2.js';
 import { ensureProjectIntentKernel } from './pik/generator.js';
+import { extractWhatIsEntityTopic } from './semantic/directionQuery.js';
 import type {
   CilIntent,
   HistoryRange,
@@ -145,13 +146,21 @@ async function dispatchAsk(
           trace,
         };
       }
-      if (routed.topic && routed.topic.length > 2 && !/what happened|history|replay/.test(routed.topic)) {
+      const moduleTopic = routed.topic?.trim();
+      const looksLikeModule =
+        moduleTopic &&
+        moduleTopic.length >= 2 &&
+        moduleTopic.length <= 64 &&
+        !/\s/.test(moduleTopic) &&
+        !/[?!]/.test(moduleTopic) &&
+        !/what happened|history|replay/i.test(moduleTopic);
+      if (looksLikeModule) {
         trace.push(traceStep('module_projection', 'history'));
-        const mod = await exploreModuleHistory(workspaceRoot, routed.topic);
+        const mod = await exploreModuleHistory(workspaceRoot, moduleTopic);
         return {
           intent: 'history',
           result: {
-            answer: `${mod.record?.events.length ?? 0} event(s) for "${routed.topic}"`,
+            answer: `${mod.record?.events.length ?? 0} event(s) for "${moduleTopic}"`,
             module: mod.module,
             formatted: mod.formatted,
           },
@@ -160,10 +169,13 @@ async function dispatchAsk(
       }
       trace.push(traceStep('event_engine', 'history'));
       const history = await exploreHistory(workspaceRoot, routed.range ?? 'last_7_days');
+      const preview = history.formatted.slice(0, 10).join('\n');
       return {
         intent: 'history',
         result: {
-          answer: `${history.count} cognitive event(s)`,
+          answer: history.count
+            ? `${history.count} cognitive event(s)\n\n${preview}`
+            : 'No cognitive events yet — run sync to build project history.',
           events: history.events.slice(0, 12),
           formatted: history.formatted.slice(0, 40),
         },
@@ -199,7 +211,7 @@ async function dispatchAsk(
         return {
           intent: 'state',
           result: {
-            answer: `Cognitive health: ${health.score}% (${health.warnings.length} warning(s))`,
+            answer: `Cognitive health: ${health.score}% (${health.warnings.length} warning(s))\n\n${health.formatted.slice(0, 12).join('\n')}`,
             health,
           },
           trace,
@@ -240,7 +252,10 @@ async function dispatchAsk(
       if (!date) {
         return {
           intent: 'time_travel',
-          result: { answer: 'Specify a date (YYYY-MM-DD) for time travel query.' },
+          result: {
+            answer:
+              'Specify a date (YYYY-MM-DD) for time travel — e.g. "What was state on 2024-06-01?" or "Focus on 2024-06-01".',
+          },
           trace,
         };
       }
@@ -251,8 +266,8 @@ async function dispatchAsk(
         intent: 'time_travel',
         result: {
           answer: travel.focus
-            ? `On ${date}, focus: ${travel.focus}`
-            : `Project state on ${date} — ${travel.decisions.length} decisions, ${travel.events.length} events`,
+            ? `On ${date}, focus: ${travel.focus}\n\n${travel.formatted.slice(0, 14).join('\n')}`
+            : `Project state on ${date} — ${travel.decisions.length} decisions, ${travel.events.length} events\n\n${travel.formatted.slice(0, 14).join('\n')}`,
           ...travel,
         },
         trace,
@@ -260,14 +275,15 @@ async function dispatchAsk(
     }
     case 'entity': {
       trace.push(traceStep('knowledge_graph', 'entity'));
-      const topic = routed.topic ?? query.split(/\s+/).pop() ?? 'project';
+      const topic = routed.topic ?? extractWhatIsEntityTopic(query) ?? query.split(/\s+/).pop() ?? 'project';
       const entity = await exploreEntityKnowledge(workspaceRoot, topic);
+      const summary = entity.record
+        ? `Knowledge Graph — "${entity.entity}": ${entity.record.events.length} event(s), ${entity.record.decisions.length} decision(s), ${entity.record.modules.length} module(s)`
+        : `No knowledge graph links for "${topic}" — run sync to build .contora/cognitive/knowledge/`;
       return {
         intent: 'entity',
         result: {
-          answer: entity.record
-            ? `Found ${entity.record.events.length} events, ${entity.record.decisions.length} decisions for "${entity.entity}"`
-            : `No knowledge graph links for "${topic}"`,
+          answer: `${summary}\n\n${entity.formatted.slice(0, 16).join('\n')}`,
           ...entity,
         },
         trace,

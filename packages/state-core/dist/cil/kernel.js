@@ -27,6 +27,7 @@ const suggestedQuestions_js_1 = require("./suggestedQuestions.js");
 const timeTravel_js_1 = require("./timeTravel.js");
 const askV2_js_1 = require("./askV2.js");
 const generator_js_1 = require("./pik/generator.js");
+const directionQuery_js_1 = require("./semantic/directionQuery.js");
 function traceStep(engine, phase) {
     return { engine, phase, at: new Date().toISOString() };
 }
@@ -118,13 +119,20 @@ async function dispatchAsk(workspaceRoot, query, trace) {
                     trace,
                 };
             }
-            if (routed.topic && routed.topic.length > 2 && !/what happened|history|replay/.test(routed.topic)) {
+            const moduleTopic = routed.topic?.trim();
+            const looksLikeModule = moduleTopic &&
+                moduleTopic.length >= 2 &&
+                moduleTopic.length <= 64 &&
+                !/\s/.test(moduleTopic) &&
+                !/[?!]/.test(moduleTopic) &&
+                !/what happened|history|replay/i.test(moduleTopic);
+            if (looksLikeModule) {
                 trace.push(traceStep('module_projection', 'history'));
-                const mod = await (0, moduleHistory_js_1.exploreModuleHistory)(workspaceRoot, routed.topic);
+                const mod = await (0, moduleHistory_js_1.exploreModuleHistory)(workspaceRoot, moduleTopic);
                 return {
                     intent: 'history',
                     result: {
-                        answer: `${mod.record?.events.length ?? 0} event(s) for "${routed.topic}"`,
+                        answer: `${mod.record?.events.length ?? 0} event(s) for "${moduleTopic}"`,
                         module: mod.module,
                         formatted: mod.formatted,
                     },
@@ -133,10 +141,13 @@ async function dispatchAsk(workspaceRoot, query, trace) {
             }
             trace.push(traceStep('event_engine', 'history'));
             const history = await (0, historyExplorer_js_1.exploreHistory)(workspaceRoot, routed.range ?? 'last_7_days');
+            const preview = history.formatted.slice(0, 10).join('\n');
             return {
                 intent: 'history',
                 result: {
-                    answer: `${history.count} cognitive event(s)`,
+                    answer: history.count
+                        ? `${history.count} cognitive event(s)\n\n${preview}`
+                        : 'No cognitive events yet — run sync to build project history.',
                     events: history.events.slice(0, 12),
                     formatted: history.formatted.slice(0, 40),
                 },
@@ -172,7 +183,7 @@ async function dispatchAsk(workspaceRoot, query, trace) {
                 return {
                     intent: 'state',
                     result: {
-                        answer: `Cognitive health: ${health.score}% (${health.warnings.length} warning(s))`,
+                        answer: `Cognitive health: ${health.score}% (${health.warnings.length} warning(s))\n\n${health.formatted.slice(0, 12).join('\n')}`,
                         health,
                     },
                     trace,
@@ -213,7 +224,9 @@ async function dispatchAsk(workspaceRoot, query, trace) {
             if (!date) {
                 return {
                     intent: 'time_travel',
-                    result: { answer: 'Specify a date (YYYY-MM-DD) for time travel query.' },
+                    result: {
+                        answer: 'Specify a date (YYYY-MM-DD) for time travel — e.g. "What was state on 2024-06-01?" or "Focus on 2024-06-01".',
+                    },
                     trace,
                 };
             }
@@ -224,8 +237,8 @@ async function dispatchAsk(workspaceRoot, query, trace) {
                 intent: 'time_travel',
                 result: {
                     answer: travel.focus
-                        ? `On ${date}, focus: ${travel.focus}`
-                        : `Project state on ${date} — ${travel.decisions.length} decisions, ${travel.events.length} events`,
+                        ? `On ${date}, focus: ${travel.focus}\n\n${travel.formatted.slice(0, 14).join('\n')}`
+                        : `Project state on ${date} — ${travel.decisions.length} decisions, ${travel.events.length} events\n\n${travel.formatted.slice(0, 14).join('\n')}`,
                     ...travel,
                 },
                 trace,
@@ -233,14 +246,15 @@ async function dispatchAsk(workspaceRoot, query, trace) {
         }
         case 'entity': {
             trace.push(traceStep('knowledge_graph', 'entity'));
-            const topic = routed.topic ?? query.split(/\s+/).pop() ?? 'project';
+            const topic = routed.topic ?? (0, directionQuery_js_1.extractWhatIsEntityTopic)(query) ?? query.split(/\s+/).pop() ?? 'project';
             const entity = await (0, knowledgeGraph_js_1.exploreEntityKnowledge)(workspaceRoot, topic);
+            const summary = entity.record
+                ? `Knowledge Graph — "${entity.entity}": ${entity.record.events.length} event(s), ${entity.record.decisions.length} decision(s), ${entity.record.modules.length} module(s)`
+                : `No knowledge graph links for "${topic}" — run sync to build .contora/cognitive/knowledge/`;
             return {
                 intent: 'entity',
                 result: {
-                    answer: entity.record
-                        ? `Found ${entity.record.events.length} events, ${entity.record.decisions.length} decisions for "${entity.entity}"`
-                        : `No knowledge graph links for "${topic}"`,
+                    answer: `${summary}\n\n${entity.formatted.slice(0, 16).join('\n')}`,
                     ...entity,
                 },
                 trace,

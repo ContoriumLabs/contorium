@@ -20,7 +20,7 @@ async function buildSuggestedQuestions(workspaceRoot) {
         questions.push('Why was MCP added?');
     }
     else {
-        questions.push('Tell me everything about this project');
+        questions.push('What is this project?');
     }
     const focus = state?.currentTask?.trim();
     if (focus) {
@@ -39,7 +39,7 @@ async function buildSuggestedQuestions(workspaceRoot) {
         questions.push('Which decisions conflict?');
     }
     if (health && health.score < 85) {
-        questions.push('What is cognitive health score?');
+        questions.push('Is the project healthy?');
     }
     const recentFile = events.find((e) => e.files.length)?.files[0];
     if (recentFile) {

@@ -2,7 +2,7 @@
   "name": "contorium",
   "displayName": "Contorium",
   "description": "Contorium: AI Project Intelligence Layer — capture, structure, preserve, retrieve and transfer project intelligence across IDE, MCP, and CLI.",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -253,8 +253,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.2.5.tgz",
-    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.2.5.tgz",
+    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.2.6.tgz",
+    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.2.6.tgz",
     "simple-git": "^3.22.0"
   }
 }

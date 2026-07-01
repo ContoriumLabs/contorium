@@ -2,13 +2,26 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routeQuery = routeQuery;
 const directionQuery_js_1 = require("./semantic/directionQuery.js");
+function extractEntityTopic(question, q) {
+    const fromWhatIs = (0, directionQuery_js_1.extractWhatIsEntityTopic)(question);
+    if (fromWhatIs) {
+        return fromWhatIs;
+    }
+    if (/tell me (everything )?about|everything related to|related to|what links to/.test(q)) {
+        return q
+            .replace(/tell me (everything )?about\s+/i, '')
+            .replace(/everything related to\s+/i, '')
+            .replace(/related to\s+/i, '')
+            .replace(/what links to\s+/i, '')
+            .replace(/\?$/, '')
+            .trim();
+    }
+    return undefined;
+}
 /** Map natural language → structured CIL intent (Query Router). */
 function routeQuery(question) {
     const q = question.toLowerCase().trim();
     const raw = question.trim();
-    if ((0, directionQuery_js_1.isDirectionQuery)(question) || (0, directionQuery_js_1.isDriftQuery)(question)) {
-        return { intent: 'direction', raw };
-    }
     if (/what should i do next|what next|next action|next step/.test(q)) {
         return { intent: 'action', raw };
     }
@@ -23,15 +36,22 @@ function routeQuery(question) {
             raw,
         };
     }
-    if (/tell me (everything )?about|everything related to|related to|what links to/.test(q)) {
-        const topic = q
-            .replace(/tell me (everything )?about\s+/i, '')
-            .replace(/everything related to\s+/i, '')
-            .replace(/related to\s+/i, '')
-            .replace(/what links to\s+/i, '')
-            .replace(/\?$/, '')
-            .trim();
-        return { intent: 'entity', topic: topic || undefined, raw };
+    if (/what was (the )?state|state at a time|state at time|project state at|snapshot at|time travel|on what date|what was focus on/.test(q) &&
+        !/\d{4}-\d{2}-\d{2}/.test(q)) {
+        return { intent: 'time_travel', raw };
+    }
+    if ((0, directionQuery_js_1.isStoryIdentityQuery)(question)) {
+        return { intent: 'story', raw };
+    }
+    if ((0, directionQuery_js_1.isDirectionQuery)(question) || (0, directionQuery_js_1.isDriftQuery)(question)) {
+        return { intent: 'direction', raw };
+    }
+    if (/healthy|health status|project health|is (the |this )?project (ok|well|healthy)|cognitive health|health score/.test(q)) {
+        return { intent: 'state', topic: 'health', raw };
+    }
+    const entityTopic = extractEntityTopic(question, q);
+    if (entityTopic) {
+        return { intent: 'entity', topic: entityTopic, raw };
     }
     if (/^why not\b|why wasn't|why isn't/.test(q)) {
         const topic = q.replace(/^why\s+(not|wasn't|isn't)\s+/i, '').replace(/\?$/, '').trim();
@@ -45,7 +65,7 @@ function routeQuery(question) {
             .trim();
         return { intent: 'decision', topic: topic || undefined, raw };
     }
-    if (/what happened|recent|this week|today|yesterday|history|module history/.test(q)) {
+    if (/what happened|recent|this week|today|yesterday|history|module history|what changed this week/.test(q)) {
         let range = 'last_7_days';
         if (q.includes('today')) {
             range = 'today';
@@ -58,13 +78,10 @@ function routeQuery(question) {
         }
         return { intent: 'history', range, raw };
     }
-    if (/state on|project state|current focus|what matters|focus now|cognitive health|health score/.test(q)) {
+    if (/state on|project state|current focus|what matters|focus now/.test(q)) {
         const dateMatch = q.match(/\d{4}-\d{2}-\d{2}/);
         if (dateMatch) {
             return { intent: 'time_travel', topic: dateMatch[0], raw };
-        }
-        if (/health|cognitive health/.test(q)) {
-            return { intent: 'state', topic: 'health', raw };
         }
         return { intent: 'state', raw };
     }
@@ -87,5 +104,5 @@ function routeQuery(question) {
     if (/journey|evolution|roadmap/.test(q)) {
         return { intent: 'debug', topic: 'journey', raw };
     }
-    return { intent: 'history', topic: q || undefined, raw };
+    return { intent: 'history', range: 'last_7_days', raw };
 }

@@ -3,6 +3,9 @@ import type { AskProjectResult } from '@contora/state-core';
 import { withIdeCilAiContext } from '../ai/cilLlmBridge';
 
 function formatSemanticSection(result: AskProjectResult): string {
+  if (result.intent !== 'direction') {
+    return '';
+  }
   const sem = result.semantic;
   if (!sem) {
     return '';
@@ -24,6 +27,22 @@ function formatSemanticSection(result: AskProjectResult): string {
   }
   lines.push(`_PIK source: \`${sem.pik_source}\` · \`.contora/intent/kernel.json\`_`, '');
   return lines.join('\n');
+}
+
+function appendFormattedBlocks(lines: string[], data: Record<string, unknown> | undefined): void {
+  if (!data) {
+    return;
+  }
+  const fmt = data.formatted;
+  if (typeof fmt === 'string' && fmt.trim()) {
+    lines.push(fmt.trim(), '');
+  } else if (Array.isArray(fmt) && fmt.length) {
+    lines.push(...fmt.map(String), '');
+  }
+  const health = data.health as { formatted?: string[]; score?: number } | undefined;
+  if (health?.formatted?.length) {
+    lines.push('## Cognitive Health', ...health.formatted.map(String), '');
+  }
 }
 
 function formatAskDataSources(result: AskProjectResult): string {
@@ -105,7 +124,7 @@ function formatAskResult(result: AskProjectResult): string {
     }
   }
 
-  const data = result.data;
+  const data = result.data as Record<string, unknown> | undefined;
   if (data?.decision || data?.why) {
     lines.push('## Decision', String(data.decision ?? ''), '', '**Reason:**', String(data.why ?? ''), '');
     if (data.date) {
@@ -117,9 +136,7 @@ function formatAskResult(result: AskProjectResult): string {
       (a) => `- ${a.task} — ${a.reason}`,
     ), '');
   }
-  if (typeof data?.formatted === 'string') {
-    lines.push(data.formatted);
-  }
+  appendFormattedBlocks(lines, data);
 
   lines.push(formatAskDataSources(result));
   return lines.join('\n');
@@ -191,8 +208,8 @@ export async function runAskContorium(): Promise<void> {
           question =
             (await vscode.window.showInputBox({
               title: 'Ask Contorium',
-              prompt: 'Ask about project history, decisions, impact, or next steps',
-              placeHolder: 'Ask your project…',
+              prompt: 'History · Decisions · Story · Health · MCP · Next steps',
+              placeHolder: 'e.g. What happened? · What is MCP? · Is the project healthy?',
             })) ?? '';
         } else {
           question = pick;
@@ -201,8 +218,8 @@ export async function runAskContorium(): Promise<void> {
         question =
           (await vscode.window.showInputBox({
             title: 'Ask Contorium',
-            prompt: 'Ask about project history, decisions, impact, or next steps',
-            placeHolder: 'Ask your project…',
+            prompt: 'History · Decisions · Story · Health · MCP · Next steps',
+            placeHolder: 'e.g. What happened? · What is MCP? · Is the project healthy?',
           })) ?? '';
       }
 

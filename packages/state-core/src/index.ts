@@ -624,6 +624,7 @@ export {
   fuseSemanticContext,
   isDirectionQuery,
   isDriftQuery,
+  isStoryIdentityQuery,
   detectProjectDrift,
   type NextActionItem,
   type ModuleHistoryRecord,
