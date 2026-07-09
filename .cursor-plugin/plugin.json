@@ -1,7 +1,7 @@
 {
   "name": "contorium",
   "displayName": "Contorium",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "Contorium: AI Project Intelligence Layer — capture, structure, preserve, retrieve and transfer project intelligence across IDE, MCP, and CLI.",
   "publisher": "franklee-dev",
   "author": {

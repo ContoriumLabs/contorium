@@ -11,6 +11,8 @@ import {
   buildDirectionKernelOutput,
   prepareAskV2Context,
 } from './askV2.js';
+import { enrichDecisionAskAnswer } from '../lifecycle/askBridge.js';
+import { appendLifecycleTrustWarnings } from '../lifecycle/askHints.js';
 
 function toSemanticBundle(
   fusion: Awaited<ReturnType<typeof prepareAskV2Context>>['fusion'],
@@ -50,6 +52,16 @@ export async function askProject(workspaceRoot: string, question: string): Promi
   if (output.intent === 'decision') {
     const result = base.data as Record<string, unknown> | undefined;
     const center = await getDecisionCenter(workspaceRoot);
+    const enriched = await enrichDecisionAskAnswer(
+      workspaceRoot,
+      base.answer,
+      {
+        id: result?.decision ? String(result.decision) : undefined,
+        title: typeof result?.decision === 'string' ? String(result.decision) : undefined,
+      },
+      question,
+    );
+    let decisionAnswer = enriched.answer;
     const llmWhy = await generateWhyExplanation(workspaceRoot, {
       question,
       decision: String(result?.decision ?? ''),
@@ -58,15 +70,36 @@ export async function askProject(workspaceRoot: string, question: string): Promi
       adrs: center.decisions.slice(0, 4).map((d) => `${d.title}: ${d.reason}`),
     });
     if (llmWhy) {
+      const llmEnriched = await enrichDecisionAskAnswer(
+        workspaceRoot,
+        llmWhy,
+        {
+          id: result?.decision ? String(result.decision) : undefined,
+          title: typeof result?.decision === 'string' ? String(result.decision) : undefined,
+        },
+        question,
+      );
+      decisionAnswer = llmEnriched.answer;
       base = {
         ...base,
-        answer: appendAlignmentNote(llmWhy, ctx.fusion),
-        data: { ...result, answer: llmWhy, llm_enhanced: true },
+        answer: appendAlignmentNote(decisionAnswer, ctx.fusion),
+        data: {
+          ...result,
+          answer: decisionAnswer,
+          llm_enhanced: true,
+          lifecycle: enriched.lifecycle,
+        },
         trace: [...(base.trace ?? []), { engine: 'ai_layer', phase: 'why', at: new Date().toISOString() }],
         semantic,
       };
       return base;
     }
+    base = {
+      ...base,
+      answer: appendAlignmentNote(decisionAnswer, ctx.fusion),
+      data: { ...result, answer: decisionAnswer, lifecycle: enriched.lifecycle },
+      semantic,
+    };
     return base;
   }
 
@@ -77,8 +110,13 @@ export async function askProject(workspaceRoot: string, question: string): Promi
     base.structured?.fact,
   );
   if (enhanced) {
-    return { ...base, answer: appendAlignmentNote(enhanced, ctx.fusion), semantic };
+    base = { ...base, answer: appendAlignmentNote(enhanced, ctx.fusion), semantic };
   }
+
+  base = {
+    ...base,
+    answer: await appendLifecycleTrustWarnings(workspaceRoot, base.answer, output.intent),
+  };
   return base;
 }
 

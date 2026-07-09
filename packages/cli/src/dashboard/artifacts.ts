@@ -14,6 +14,8 @@ import {
   readProvenanceChain,
   readImpactGraph,
   readProjectIntelligenceHealth,
+  readKnowledgeLifecycle,
+  readCognitiveHealthReport,
 } from '@contora/state-core';
 import { GOVERNANCE_ARTIFACT_FILES } from '@contora/state-core';
 import { loadGovernanceSnapshot } from './governanceDashboard.js';
@@ -41,6 +43,10 @@ const ARTIFACT_FILES = [
   'provenance/provenance_chain.json',
   'evolution/evolution_graph.json',
   'decision/decision_log.json',
+  'lifecycle/decisions/',
+  'lifecycle/index.json',
+  'lifecycle/review-queue.json',
+  'cognitive/health.json',
   'intelligence/health.json',
   'intelligence/repository_state.json',
 ] as const;
@@ -128,6 +134,8 @@ export async function loadDashboardState(workspaceRoot: string): Promise<Dashboa
     evolutionGraph,
     provenanceChain,
     impactGraph,
+    knowledgeLifecycle,
+    cognitiveHealth,
   ] = await Promise.all([
     readWorkspaceStatus(workspaceRoot),
     readChangeArtifact(workspaceRoot),
@@ -144,6 +152,8 @@ export async function loadDashboardState(workspaceRoot: string): Promise<Dashboa
     readEvolutionGraph(workspaceRoot),
     readProvenanceChain(workspaceRoot),
     readImpactGraph(workspaceRoot),
+    readKnowledgeLifecycle(workspaceRoot),
+    readCognitiveHealthReport(workspaceRoot).catch(() => null),
   ]);
 
   return {
@@ -172,5 +182,7 @@ export async function loadDashboardState(workspaceRoot: string): Promise<Dashboa
     evolutionGraph: evolutionGraph ?? undefined,
     provenanceChain: provenanceChain ?? undefined,
     impactGraph: impactGraph ?? undefined,
+    knowledgeLifecycle: knowledgeLifecycle ?? undefined,
+    cognitiveHealthScore: cognitiveHealth?.score,
   };
 }

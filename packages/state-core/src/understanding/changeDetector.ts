@@ -1,6 +1,7 @@
 import type { BootstrapStateJson, WorkspaceScanFacts } from '../types.js';
 import { runGit } from '../scanner/runGit.js';
 import { isTrackableFile } from './extractor.js';
+import { isContoraInternalPath } from '../cil/pathFilters.js';
 
 function norm(p: string): string {
   return p.replace(/\\/g, '/');
@@ -11,7 +12,7 @@ function uniqueTrackableFiles(paths: string[]): string[] {
   const seen = new Set<string>();
   for (const p of paths) {
     const n = norm(p);
-    if (!n || seen.has(n) || !isTrackableFile(n)) {
+    if (!n || seen.has(n) || !isTrackableFile(n) || isContoraInternalPath(n)) {
       continue;
     }
     seen.add(n);

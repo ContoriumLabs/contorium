@@ -7,6 +7,7 @@ exports.exploreModuleHistoryFeed = exploreModuleHistoryFeed;
 const confidenceLabels_js_1 = require("./confidenceLabels.js");
 const eventStore_js_1 = require("./eventStore.js");
 const moduleHistory_js_1 = require("./moduleHistory.js");
+const pathFilters_js_1 = require("./pathFilters.js");
 function rangeBounds(range, now = Date.now()) {
     const to = now;
     const day = 24 * 60 * 60 * 1000;
@@ -25,32 +26,33 @@ function rangeBounds(range, now = Date.now()) {
     }
 }
 function formatEventBlock(evt) {
-    const date = evt.timestamp.slice(0, 10);
+    const event = (0, pathFilters_js_1.sanitizeCognitiveEventForDisplay)(evt);
+    const date = event.timestamp.slice(0, 10);
     const lines = [
         date,
         '',
-        evt.title,
+        event.title,
         '',
     ];
-    if (evt.version) {
-        lines.push(`Version: ${evt.version}`, '');
+    if (event.version) {
+        lines.push(`Version: ${event.version}`, '');
     }
-    if (evt.why) {
-        lines.push('WHY', evt.why, '');
+    if (event.why) {
+        lines.push('WHY', event.why, '');
     }
-    if (evt.decision) {
-        lines.push('DECISION', evt.decision, '');
+    if (event.decision) {
+        lines.push('DECISION', event.decision, '');
     }
-    if (evt.impact.length) {
-        lines.push('IMPACT', ...evt.impact, '');
+    if (event.impact.length) {
+        lines.push('IMPACT', ...event.impact, '');
     }
-    if (evt.files.length) {
-        lines.push('FILES', ...evt.files.slice(0, 8).map((f) => `  ${f}`), '');
+    if (event.files.length) {
+        lines.push('FILES', ...event.files.slice(0, 8).map((f) => `  ${f}`), '');
     }
-    if (evt.provenance?.length) {
-        lines.push('SOURCE', ...evt.provenance.map((p) => `  ${p}`), '');
+    if (event.provenance?.length) {
+        lines.push('SOURCE', ...event.provenance.map((p) => `  ${p}`), '');
     }
-    lines.push(`Freshness: ${(0, confidenceLabels_js_1.freshnessLabelText)(evt.freshness)}`, '');
+    lines.push(`Freshness: ${(0, confidenceLabels_js_1.freshnessLabelText)(event.freshness)}`, '');
     return lines;
 }
 async function exploreHistory(workspaceRoot, range = 'last_7_days') {
@@ -64,15 +66,15 @@ async function exploreHistory(workspaceRoot, range = 'last_7_days') {
     for (const evt of events.slice(0, 24)) {
         formatted.push(...formatEventBlock(evt));
     }
-    return { range, count: events.length, events, formatted };
+    return { range, count: events.length, events: events.map(pathFilters_js_1.sanitizeCognitiveEventForDisplay), formatted };
 }
 async function getRecentEvents(workspaceRoot, limit = 10) {
     const all = await (0, eventStore_js_1.readAllCognitiveEvents)(workspaceRoot);
-    return all.slice(0, limit);
+    return all.slice(0, limit).map(pathFilters_js_1.sanitizeCognitiveEventForDisplay);
 }
 async function getModuleHistory(workspaceRoot, modulePath, limit = 20) {
     const all = await (0, eventStore_js_1.readAllCognitiveEvents)(workspaceRoot);
-    return (0, moduleHistory_js_1.filterEventsByModule)(all, modulePath).slice(0, limit);
+    return (0, moduleHistory_js_1.filterEventsByModule)(all, modulePath).slice(0, limit).map(pathFilters_js_1.sanitizeCognitiveEventForDisplay);
 }
 async function exploreModuleHistoryFeed(workspaceRoot, module) {
     const all = await (0, eventStore_js_1.readAllCognitiveEvents)(workspaceRoot);

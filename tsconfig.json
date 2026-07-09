@@ -5,6 +5,11 @@
     "lib": ["ES2022"],
     "outDir": "out",
     "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@contora/state-core": ["packages/state-core/dist/index"],
+      "@contora/runtime": ["packages/runtime/dist/index"]
+    },
     "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,

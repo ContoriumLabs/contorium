@@ -1,6 +1,6 @@
 {
   "name": "@contora/cli",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "Contorium PIL Runtime — inspect, capture, transfer project intelligence (shared state-core).",
   "type": "module",
   "license": "MIT",

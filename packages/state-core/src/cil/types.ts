@@ -36,7 +36,9 @@ export type KernelMode =
   | 'essence'
   | 'replay'
   | 'dna'
-  | 'questions';
+  | 'questions'
+  | 'lifecycle'
+  | 'review';
 
 export type CognitiveEventSource = 'git' | 'ide' | 'cli' | 'mcp' | 'agent' | 'manual';
 
@@ -163,11 +165,21 @@ export interface ModuleHistoryRecord {
   }>;
 }
 
+export interface CilIndexProjectionRef {
+  path: string;
+  updated_at: string;
+}
+
 export interface CognitiveEventIndex {
   schema: typeof CIL_INDEX_SCHEMA;
   updated_at: string;
   event_ids: string[];
   adr_ids: string[];
+  /** Derived projection pointers (read-only overlays). */
+  projections?: {
+    lifecycle?: CilIndexProjectionRef & { score?: number; review_count?: number };
+    cognitive_health?: CilIndexProjectionRef & { score?: number };
+  };
 }
 
 export type HistoryRange = 'today' | 'yesterday' | 'last_7_days' | 'last_30_days' | 'all';

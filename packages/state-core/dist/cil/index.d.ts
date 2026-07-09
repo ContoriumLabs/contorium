@@ -29,4 +29,5 @@ export { resolveDecisionByTopic, applyImplementedStatus } from './decisionLifecy
 export { PIK_SCHEMA, DEFAULT_PIK, ensureProjectIntentKernel, generateProjectIntentKernel, readProjectIntentKernel, writeProjectIntentKernel, detectProjectDrift, type ProjectIntentKernel, type PikGoal, type DriftReport, } from './pik/index.js';
 export { isDirectionQuery, isDriftQuery, isStoryIdentityQuery, extractWhatIsEntityTopic, fuseSemanticContext, type FusedSemanticContext } from './semantic/index.js';
 export { prepareAskV2Context, buildDirectionKernelOutput, appendAlignmentNote, type AskV2Context, } from './askV2.js';
+export { persistKnowledgeLifecycle, readKnowledgeLifecycle, readReviewQueueArtifact, computeKnowledgeLifecycle, enrichDecisionAskAnswer, formatReviewQueue, formatDecisionLifecycleAnswer, findDecisionLifecycle, buildReviewQueue, lifecycleRoot, lifecycleIndexPath, KNOWLEDGE_LIFECYCLE_SCHEMA, type KnowledgeLifecycleIndex, type KnowledgeHealthReport, type DecisionLifecycleRecord, type ReviewQueueItem, type ReviewQueueArtifact, } from '../lifecycle/index.js';
 //# sourceMappingURL=index.d.ts.map

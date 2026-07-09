@@ -39,6 +39,7 @@
 
 | Document | Topic |
 |----------|-------|
+| [LIFECYCLE_V1.md](./LIFECYCLE_V1.md) | **Knowledge Lifecycle** — decision trust, validity states, review queue (IDE / CLI / MCP) |
 | [CONTORIUM_LANGUAGE_SPEC.md](./CONTORIUM_LANGUAGE_SPEC.md) | Public API vocabulary — **inspect / transfer / capture** |
 | [COGNITIVE_DIMENSIONS.md](./COGNITIVE_DIMENSIONS.md) | STATE · INTENT · DECISION · WHY + TIMELINE · IMPACT · CONFIDENCE · PROVENANCE · EVOLUTION |
 

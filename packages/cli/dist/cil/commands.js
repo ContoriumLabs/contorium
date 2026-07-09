@@ -1,4 +1,4 @@
-import { askProject, buildProjectJourney, exploreHistory, exploreImpact, exploreModuleHistoryFeed, getModuleHistory, runCognitiveKernel, setGitSubprocessAllowed, syncCognitiveInteractionLayer, syncWorkspaceState, } from '@contora/state-core';
+import { askProject, buildProjectJourney, exploreHistory, exploreImpact, exploreModuleHistoryFeed, getModuleHistory, runCognitiveKernel, readAllAdrRecords, readDecisionLifecycleMeta, writeDecisionLifecycleMeta, persistKnowledgeLifecycle, setGitSubprocessAllowed, syncCognitiveInteractionLayer, syncWorkspaceState, } from '@contora/state-core';
 export const CIL_USAGE = `Contorium CIL v3 — Cognitive Interaction Layer
 
 User-facing cognition over AI PIL storage. All requests route through Cognitive Kernel.
@@ -10,6 +10,11 @@ User-facing cognition over AI PIL storage. All requests route through Cognitive 
   contorium history <module> [path]
   contorium decisions [path] [--json]
   contorium health [path] [--json]
+  contorium review [path] [--json]     Knowledge review queue (Lifecycle)
+  contorium lifecycle [path] [--json]  Knowledge Health + decision trust
+  contorium lifecycle owner <decision-id> --owner <name>
+  contorium lifecycle verify <decision-id> [--type manual|automatic|llm_assisted] [--by <name>]
+  contorium lifecycle expire <decision-id> --days <n>
   contorium entity <name> [path] [--json]
   contorium essence [path] [--copy] [--json]
   contorium replay [path] [--json]
@@ -32,6 +37,10 @@ function flagValue(name, fallback) {
 function hasFlag(name) {
     return process.argv.includes(name);
 }
+function argAfter(name) {
+    const i = process.argv.indexOf(name);
+    return i >= 0 ? process.argv[i + 1] : undefined;
+}
 async function ensureCil(root) {
     setGitSubprocessAllowed(true);
     await syncWorkspaceState(root, 'cli', { refreshGit: true }).catch(() => undefined);
@@ -44,6 +53,42 @@ async function printLines(lines) {
     for (const line of lines) {
         console.log(line);
     }
+}
+function lifecycleSubcommand() {
+    const idx = process.argv.indexOf('lifecycle');
+    const sub = idx >= 0 ? process.argv[idx + 1] : undefined;
+    if (sub === 'owner' || sub === 'verify' || sub === 'expire') {
+        return { sub, decisionId: process.argv[idx + 2] };
+    }
+    return {};
+}
+async function ensureDecisionExists(root, decisionId) {
+    const adrs = await readAllAdrRecords(root);
+    if (!adrs.some((a) => a.id === decisionId)) {
+        console.error(`Unknown decision id: ${decisionId}`);
+        if (adrs.length) {
+            console.error(`Known decisions: ${adrs.map((a) => a.id).join(', ')}`);
+        }
+        process.exit(1);
+    }
+}
+function parseVerificationType(raw) {
+    if (raw === 'manual' || raw === 'automatic' || raw === 'llm_assisted') {
+        return raw;
+    }
+    return 'manual';
+}
+async function updateLifecycleMeta(root, decisionId, patch) {
+    await ensureDecisionExists(root, decisionId);
+    const existing = (await readDecisionLifecycleMeta(root, decisionId)) ?? {};
+    const next = { ...existing, ...patch };
+    if (patch.owner?.trim() && existing.owner?.trim() && patch.owner.trim() !== existing.owner.trim()) {
+        next.previous_owner = existing.owner;
+        next.owner_changed_at = new Date().toISOString();
+    }
+    await writeDecisionLifecycleMeta(root, decisionId, next);
+    await persistKnowledgeLifecycle(root);
+    return next;
 }
 export async function cmdCil(root, sub) {
     switch (sub) {
@@ -175,6 +220,75 @@ export async function cmdCil(root, sub) {
             const health = out.result;
             if (health.formatted) {
                 await printLines(health.formatted);
+            }
+            if (hasFlag('--json')) {
+                await printJson(out.result);
+            }
+            return;
+        }
+        case 'review': {
+            await ensureCil(root);
+            const out = await runCognitiveKernel(root, { mode: 'review' });
+            const result = out.result;
+            if (result.answer) {
+                console.log(result.answer);
+            }
+            else if (result.formatted) {
+                await printLines(result.formatted);
+            }
+            if (hasFlag('--json')) {
+                await printJson(out.result);
+            }
+            return;
+        }
+        case 'lifecycle': {
+            const lifecycleEdit = lifecycleSubcommand();
+            if (lifecycleEdit.sub) {
+                const decisionId = lifecycleEdit.decisionId;
+                if (!decisionId || decisionId.startsWith('--')) {
+                    console.error(`Usage: contorium lifecycle ${lifecycleEdit.sub} <decision-id> ...`);
+                    process.exit(1);
+                }
+                if (lifecycleEdit.sub === 'owner') {
+                    const owner = argAfter('--owner');
+                    if (!owner) {
+                        console.error('Usage: contorium lifecycle owner <decision-id> --owner <name>');
+                        process.exit(1);
+                    }
+                    const meta = await updateLifecycleMeta(root, decisionId, { owner });
+                    await printJson({ workspaceRoot: root, decision_id: decisionId, meta });
+                    return;
+                }
+                if (lifecycleEdit.sub === 'verify') {
+                    const now = new Date().toISOString();
+                    const meta = await updateLifecycleMeta(root, decisionId, {
+                        verified_at: now,
+                        verified_by: argAfter('--by') ?? 'cli',
+                        verification_type: parseVerificationType(argAfter('--type')),
+                    });
+                    await printJson({ workspaceRoot: root, decision_id: decisionId, meta });
+                    return;
+                }
+                if (lifecycleEdit.sub === 'expire') {
+                    const rawDays = argAfter('--days');
+                    const days = Number(rawDays);
+                    if (!Number.isFinite(days) || days <= 0) {
+                        console.error('Usage: contorium lifecycle expire <decision-id> --days <positive-number>');
+                        process.exit(1);
+                    }
+                    const meta = await updateLifecycleMeta(root, decisionId, { expire_after_days: Math.round(days) });
+                    await printJson({ workspaceRoot: root, decision_id: decisionId, meta });
+                    return;
+                }
+            }
+            await ensureCil(root);
+            const out = await runCognitiveKernel(root, { mode: 'lifecycle' });
+            const result = out.result;
+            if (result.answer) {
+                console.log(result.answer);
+            }
+            else if (result.formatted) {
+                await printLines(result.formatted);
             }
             if (hasFlag('--json')) {
                 await printJson(out.result);

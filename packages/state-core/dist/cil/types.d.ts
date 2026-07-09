@@ -11,7 +11,7 @@ export declare const KNOWLEDGE_ENTITY_SCHEMA: "knowledge_entity.v1";
 export declare const COGNITIVE_HEALTH_SCHEMA: "cognitive_health.v1";
 /** Final CIL intent taxonomy (Query Router). */
 export type CilIntent = 'action' | 'decision' | 'direction' | 'history' | 'state' | 'story' | 'debug' | 'time_travel' | 'entity';
-export type KernelMode = 'ask' | 'next' | 'story' | 'sync' | 'history' | 'decisions' | 'snapshot' | 'health' | 'entity' | 'essence' | 'replay' | 'dna' | 'questions';
+export type KernelMode = 'ask' | 'next' | 'story' | 'sync' | 'history' | 'decisions' | 'snapshot' | 'health' | 'entity' | 'essence' | 'replay' | 'dna' | 'questions' | 'lifecycle' | 'review';
 export type CognitiveEventSource = 'git' | 'ide' | 'cli' | 'mcp' | 'agent' | 'manual';
 export type FreshnessLabel = 'fresh' | 'verified' | 'stale' | 'unknown';
 export type AdrStatus = 'proposed' | 'accepted' | 'implemented' | 'deprecated' | 'superseded' | 'rejected';
@@ -123,11 +123,25 @@ export interface ModuleHistoryRecord {
         event_id: string;
     }>;
 }
+export interface CilIndexProjectionRef {
+    path: string;
+    updated_at: string;
+}
 export interface CognitiveEventIndex {
     schema: typeof CIL_INDEX_SCHEMA;
     updated_at: string;
     event_ids: string[];
     adr_ids: string[];
+    /** Derived projection pointers (read-only overlays). */
+    projections?: {
+        lifecycle?: CilIndexProjectionRef & {
+            score?: number;
+            review_count?: number;
+        };
+        cognitive_health?: CilIndexProjectionRef & {
+            score?: number;
+        };
+    };
 }
 export type HistoryRange = 'today' | 'yesterday' | 'last_7_days' | 'last_30_days' | 'all';
 export interface HistoryExplorerResult {

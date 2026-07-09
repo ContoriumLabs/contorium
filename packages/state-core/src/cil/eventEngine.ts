@@ -16,6 +16,7 @@ import { riskFromReversibility } from './confidenceLabels.js';
 import { linkEventVersions } from './snapshotEngine.js';
 import { applyImplementedStatus } from './decisionLifecycle.js';
 import { coerceTimestampToIso, isoDatePrefix } from './timeCoerce.js';
+import { filterUserFacingLines, filterUserFacingPaths } from './pathFilters.js';
 
 function sourceFromWriter(writer: AdapterKind): CognitiveEventSource {
   if (writer === 'ide') {
@@ -89,10 +90,10 @@ export async function syncCognitiveEvents(
       timestamp: ts,
       title: node.title,
       summary: node.selected,
-      files: node.impact_scope ?? [],
+      files: filterUserFacingPaths(node.impact_scope ?? []),
       decision: node.selected,
       why: node.reason,
-      impact: node.impact_scope ?? [],
+      impact: filterUserFacingLines(node.impact_scope ?? []),
       linked_decision_id: node.decision_id,
       linked_intent: node.linked_intent,
       freshness: freshnessFromAge(ts),
@@ -114,10 +115,10 @@ export async function syncCognitiveEvents(
       timestamp: ts,
       title: entry.selected,
       summary: entry.reason,
-      files: entry.impact,
+      files: filterUserFacingPaths(entry.impact),
       decision: entry.selected,
       why: entry.reason,
-      impact: entry.impact,
+      impact: filterUserFacingLines(entry.impact),
       linked_decision_id: entry.decision_id,
       linked_intent: entry.intent_id,
       freshness: freshnessFromAge(ts),
@@ -127,22 +128,29 @@ export async function syncCognitiveEvents(
   }
 
   if (change?.changed_files?.length) {
-    const ts = coerceTimestampToIso(change.generatedAt ?? Date.now());
-    const id = eventIdFromTimestamp(ts, 'workspace_change');
-    if (!seen.has(id)) {
-      seen.add(id);
-      events.push({
-        schema: COGNITIVE_EVENT_SCHEMA,
-        id,
-        timestamp: ts,
-        title: `Modified ${change.changed_files.length} file(s)`,
-        summary: `${change.key_changes?.length ?? 0} key symbol change(s)`,
-        files: change.changed_files.slice(0, 32),
-        impact: change.changed_files.slice(0, 8),
-        freshness: 'fresh',
-        source: mapWriterSources(writer),
-        provenance: ['git', 'scan'],
-      });
+    const userFiles = filterUserFacingPaths(change.changed_files);
+    if (userFiles.length) {
+      const ts = coerceTimestampToIso(change.generatedAt ?? Date.now());
+      const id = eventIdFromTimestamp(ts, 'workspace_change');
+      if (!seen.has(id)) {
+        seen.add(id);
+        events.push({
+          schema: COGNITIVE_EVENT_SCHEMA,
+          id,
+          timestamp: ts,
+          title: `Modified ${userFiles.length} file(s)`,
+          summary: `${change.key_changes?.length ?? 0} key symbol change(s)`,
+          files: userFiles.slice(0, 32),
+          impact: filterUserFacingLines(
+            (change.key_changes ?? [])
+              .map((k) => k.symbol.split('::')[0] ?? k.symbol)
+              .filter((p, i, arr) => arr.indexOf(p) === i),
+          ).slice(0, 8),
+          freshness: 'fresh',
+          source: mapWriterSources(writer),
+          provenance: ['git', 'scan'],
+        });
+      }
     }
   }
 

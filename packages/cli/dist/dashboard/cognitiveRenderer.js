@@ -4,6 +4,7 @@ import { liveModuleMarker, liveModuleTitle, monitoringBadge } from './statusAnim
 import { renderKeyHintFooter } from './keyHints.js';
 import { renderHistoryStreams } from './historyPanel.js';
 import { renderLlmConfigStreams } from './aiConfigPanel.js';
+import { renderKnowledgeGovernanceLines, renderLayeredHealthLines, knowledgeLifecycleSummary, } from './lifecyclePanel.js';
 import { padVisible, projectLabel, projectMetrics, truncate, } from './uiHelpers.js';
 export const COGNITIVE_DASHBOARD_TITLE = 'CONTORIUM • Cognitive State';
 function colors(useColor) {
@@ -64,11 +65,13 @@ export function renderCognitiveCore(state, ctx) {
     const focus = state.status.currentTask?.trim() || '(idle)';
     const conf = confidenceScore(state);
     const stage = stageLabel(state);
+    const lifecycleHint = knowledgeLifecycleSummary(state.knowledgeLifecycle);
     const title = `${c.bold(COGNITIVE_DASHBOARD_TITLE)}${monitoringBadge(tick, ctx.live === true, c)}`;
     return [
         truncate(title, w),
         truncate(`${c.dim('Project:')} ${project}  ${c.dim('|')}  ${c.dim('Agent:')} ${agent}  ${c.dim('|')}  ${c.dim('Stage:')} ${stage}`, w),
         truncate(`${c.dim('Focus:')} ${focus}  ${c.dim('|')}  ${c.dim('Confidence:')} ${conf}`, w),
+        truncate(`${c.dim('Lifecycle:')} ${lifecycleHint}`, w),
     ];
 }
 function buildDimensions(state, gov, c, cellW) {
@@ -102,6 +105,10 @@ function buildDimensions(state, gov, c, cellW) {
             ? truncate(`${gov.review.risk} · ${gov.review.change_type}`, cellW - 2)
             : c.dim('run: contorium decision derive'),
     ];
+    const lc = state.knowledgeLifecycle;
+    if (lc?.health) {
+        decisionLines.push(truncate(`knowledge ${lc.health.score}% · review ${lc.review_queue.length}`, cellW - 2));
+    }
     const whyLines = [
         truncate(why, cellW - 2),
         ...(gov?.review?.reason_chain?.slice(1, 3).map((l) => truncate(l, cellW - 2)) ?? []),
@@ -170,6 +177,14 @@ function healthStreamLines(state, gov, c, width) {
     const stability = m.velocity === 'HIGH' ? 'low' : m.velocity === 'MEDIUM' ? 'medium' : 'high';
     const drift = m.fileCount >= 5 ? 'medium' : 'low';
     const pil = state.intelligenceHealth?.metrics;
+    const layered = renderLayeredHealthLines(state, width);
+    if (layered.length && !layered[0].startsWith('(run contorium')) {
+        return [
+            ...layered.map((l) => truncate(l, width)),
+            truncate(`Risk: ${risk}  |  Confidence: ${conf}`, width),
+            truncate(`Stability: ${stability}  |  Drift: ${drift}`, width),
+        ];
+    }
     return [
         truncate(`Risk: ${risk}  |  Confidence: ${conf}`, width),
         truncate(`Stability: ${stability}  |  Drift: ${drift}`, width),
@@ -210,7 +225,8 @@ export function renderCognitiveStreams(state, gov, ctx) {
     const changeLive = ctx.live === true ||
         state.recentEvents.length > 0 ||
         (state.change?.changed_files?.length ?? 0) > 0;
-    const healthLive = ctx.live === true || Boolean(state.intelligenceHealth?.metrics);
+    const healthLive = ctx.live === true ||
+        Boolean(state.intelligenceHealth?.metrics || state.knowledgeLifecycle?.health);
     const evolutionLive = ctx.live === true ||
         Boolean(state.evolutionGraph?.chains.length || state.evolutionTimeline?.events.length);
     return [
@@ -234,12 +250,13 @@ export function renderGovernanceOverlayStreams(state, gov, ctx) {
             truncate(`Risk files: ${scope.risk_files.slice(0, 2).join(', ') || '—'}`, w - 2),
         ]
         : [c.dim('(scope pending)')];
-    const govLive = ctx.live === true || Boolean(gov?.review);
+    const govLive = ctx.live === true || Boolean(gov?.review || state.knowledgeLifecycle?.review_queue.length);
     return [
         liveModuleTitle('Governance Overlay', tick, govLive, c, w),
         truncate('─'.repeat(Math.max(16, w - 4)), w),
         ...streamBlock('Policy Snapshot', scopeLines, c, w, tick, Boolean(scope)),
         ...streamBlock('Violations & Decision', raw, c, w, tick, govLive),
+        ...streamBlock('Knowledge Governance', renderKnowledgeGovernanceLines(state, ctx.useColor, w - 2), c, w, tick, Boolean(state.knowledgeLifecycle?.health)),
     ];
 }
 /** Debug trace lens — decision provenance + raw trace. */

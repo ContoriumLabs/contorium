@@ -5,6 +5,7 @@ exports.gitDiffChangedFiles = gitDiffChangedFiles;
 exports.resolveChangedFiles = resolveChangedFiles;
 const runGit_js_1 = require("../scanner/runGit.js");
 const extractor_js_1 = require("./extractor.js");
+const pathFilters_js_1 = require("../cil/pathFilters.js");
 function norm(p) {
     return p.replace(/\\/g, '/');
 }
@@ -13,7 +14,7 @@ function uniqueTrackableFiles(paths) {
     const seen = new Set();
     for (const p of paths) {
         const n = norm(p);
-        if (!n || seen.has(n) || !(0, extractor_js_1.isTrackableFile)(n)) {
+        if (!n || seen.has(n) || !(0, extractor_js_1.isTrackableFile)(n) || (0, pathFilters_js_1.isContoraInternalPath)(n)) {
             continue;
         }
         seen.add(n);

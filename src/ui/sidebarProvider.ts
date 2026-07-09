@@ -25,7 +25,7 @@ import {
   type GovernanceOverviewOverlay,
 } from './sidebarGovernancePanel';
 import type { SidebarOverlay } from './sidebarCilPanel';
-import { runCilDecisionsPanel, runCilHistoryPanel, runCilHealthPanel, runCilDnaPanel, runCilReplayPanel, runCilImpactPanel } from '../cil/ideCilPanel';
+import { runCilDecisionsPanel, runCilHistoryPanel, runCilHealthPanel, runCilDnaPanel, runCilReplayPanel, runCilImpactPanel, runCilReviewPanel, runCilLifecyclePanel, runCilLifecycleOwnerPanel, runCilLifecycleVerifyPanel } from '../cil/ideCilPanel';
 import { runIdeTransfer } from '../cil/ideTransfer';
 import { runAskContoriumWithQuery } from '../cil/askContorium';
 import {
@@ -73,6 +73,10 @@ type WebviewToExt =
   | { type: 'cilHistory' }
   | { type: 'cilDecisions' }
   | { type: 'cilHealth' }
+  | { type: 'cilReview' }
+  | { type: 'cilLifecycle' }
+  | { type: 'cilLifecycleOwner' }
+  | { type: 'cilLifecycleVerify' }
   | { type: 'cilDna' }
   | { type: 'cilReplay' }
   | { type: 'cilImpact' }
@@ -127,6 +131,8 @@ const EMPTY_V22_PLACEHOLDER: SidebarV22View = {
     confidenceIndex: null,
     timelineSummary: '—',
     impactRadius: null,
+    knowledgeHealthScore: null,
+    reviewQueueCount: null,
     empty: true,
   },
   decision: {
@@ -191,12 +197,15 @@ const EMPTY_CONFLICTS: SidebarConflictsPanel = {
   empty: true,
 };
 
+const PANEL_LOAD_TIMEOUT_MS = 12_000;
+const WEBVIEW_READY_FALLBACK_MS = [300, 1_000, 2_500] as const;
+
 export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'contora.sidebar';
   /** Bust on layout changes so Reload Window picks up sidebar HTML. */
   private static htmlTemplateCache: string | undefined;
   private static htmlTemplateCachedVersion = 0;
-  private static htmlTemplateVersion = 16;
+  private static htmlTemplateVersion = 17;
 
   private view?: vscode.WebviewView;
   private folder: vscode.WorkspaceFolder | undefined;
@@ -205,6 +214,14 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   private pushStateSeq = 0;
   private pushStateInFlight = false;
   private pushStateQueued = false;
+  /** Skip heavy panel IO — activity-only sidebar update. */
+  private lightRefreshOnly = false;
+  /** Bumps when a new refresh supersedes in-flight panel loading. */
+  private panelLoadGeneration = 0;
+  /** Last fully merged state for light refresh merges. */
+  private lastMergedCore: Record<string, unknown> | null = null;
+  private lastByok: SidebarByokPanelState | null = null;
+  private lastCilAi: SidebarCilAiPanelState | null = null;
   /** Webview posted `ready` — listener is registered. */
   private webviewScriptReady = false;
   /** Refresh requested before webview script was ready. */
@@ -403,6 +420,28 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         }
         return;
       }
+      if (msg.type === 'cilReview') {
+        const overlay = await runCilReviewPanel();
+        if (overlay) {
+          this.postOverlay(overlay);
+        }
+        return;
+      }
+      if (msg.type === 'cilLifecycle') {
+        const overlay = await runCilLifecyclePanel();
+        if (overlay) {
+          this.postOverlay(overlay);
+        }
+        return;
+      }
+      if (msg.type === 'cilLifecycleOwner') {
+        await runCilLifecycleOwnerPanel();
+        return;
+      }
+      if (msg.type === 'cilLifecycleVerify') {
+        await runCilLifecycleVerifyPanel();
+        return;
+      }
       if (msg.type === 'cilDna') {
         const overlay = await runCilDnaPanel();
         if (overlay) {
@@ -494,22 +533,33 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    try {
-      this.webviewScriptReady = false;
-      this.webviewBaseHydrated = false;
-      webviewView.webview.html = this.getHtml(webviewView.webview);
-      // Recovery: if `ready` is lost (webview race), still hydrate after a short wait.
-      if (this.webviewReadyFallbackTimer !== undefined) {
-        clearTimeout(this.webviewReadyFallbackTimer);
-      }
-      this.webviewReadyFallbackTimer = setTimeout(() => {
-        this.webviewReadyFallbackTimer = undefined;
+    const armReadyFallback = (attempt: number): void => {
+      if (attempt >= WEBVIEW_READY_FALLBACK_MS.length) {
         if (!this.webviewScriptReady && this.view) {
+          console.warn(`[${PRODUCT_DISPLAY_NAME}] sidebar webview ready fallback (forced)`);
           this.webviewScriptReady = true;
           this.pendingStatePush = false;
           void this.pushStateToWebview();
         }
-      }, 200);
+        return;
+      }
+      this.webviewReadyFallbackTimer = setTimeout(() => {
+        this.webviewReadyFallbackTimer = undefined;
+        if (this.webviewScriptReady || !this.view) {
+          return;
+        }
+        armReadyFallback(attempt + 1);
+      }, WEBVIEW_READY_FALLBACK_MS[attempt]);
+    };
+
+    try {
+      this.webviewScriptReady = false;
+      this.webviewBaseHydrated = false;
+      webviewView.webview.html = this.getHtml(webviewView.webview);
+      if (this.webviewReadyFallbackTimer !== undefined) {
+        clearTimeout(this.webviewReadyFallbackTimer);
+      }
+      armReadyFallback(0);
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar HTML failed:`, err);
       webviewView.webview.html = this.getFallbackHtml(
@@ -538,6 +588,16 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       this.pendingStatePush = true;
       return;
     }
+    await this.pushStateToWebview();
+  }
+
+  /** Activity/trace-only refresh — avoids re-reading governance + PIL panels. */
+  async refreshLight(): Promise<void> {
+    if (!this.view || !this.webviewScriptReady) {
+      this.pendingStatePush = true;
+      return;
+    }
+    this.lightRefreshOnly = true;
     await this.pushStateToWebview();
   }
 
@@ -727,7 +787,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       ...buildSidebarWebviewState(cached, this.events, ver),
       ...this.emptyCognitionPlaceholders(),
       dataLoading: true,
-      heavyLoading: true,
+      heavyLoading: false,
+      panelsLoading: true,
     };
     this.postWebviewState(seq, shellState, byokDefault, cilAiDefault, true);
   }
@@ -878,6 +939,199 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     return vscode.workspace.asRelativePath(doc.uri, false).replace(/\\/g, '/');
   }
 
+  private governanceStatusFallback(): Record<string, unknown> {
+    return {
+      active: false,
+      constitutionLoaded: false,
+      truthLoaded: false,
+      identityLoaded: false,
+      protectedPathCount: 0,
+      forbiddenRuleCount: 0,
+      protectedPaths: [],
+      forbiddenActions: [],
+      projectDirection: '',
+      review: null,
+      reviewFile: '—',
+      reviewRisk: '—',
+      reviewChangeType: '—',
+      reviewSeverity: '—',
+      reviewImpact: '—',
+      reviewConfidence: '—',
+      reviewProtected: '—',
+      reviewTruthImpact: '—',
+      reviewRecommendation: '—',
+      reviewReasonChain: [],
+      reviewSource: '—',
+      reviewTimestamp: '—',
+      reviewScopePreference: 'Auto (merge all)',
+      reviewScopeValue: 'auto',
+      reviewWhyChain: [],
+      injectionRules: [],
+      injectionTokenEstimate: 0,
+      injectPreview: 'Governance not loaded',
+    };
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((resolve) => {
+          timer = setTimeout(() => resolve(fallback), ms);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  private async loadPanelsInBackground(
+    seq: number,
+    panelGen: number,
+    folder: vscode.WorkspaceFolder,
+    state: import('../types/state').ProjectState,
+    fastCore: Record<string, unknown>,
+    byokDefault: SidebarByokPanelState,
+    cilAiDefault: SidebarCilAiPanelState,
+  ): Promise<void> {
+    const settledCore = await this.withTimeout(
+      Promise.allSettled([
+        this.loadByokPanelState(),
+        this.loadCilAiPanelState({ skipSync: true }),
+        buildSidebarProjectStatePanel(folder),
+        buildSidebarGraphPanel(folder),
+        buildSidebarConflictsPanel(folder),
+        this.readAiIntentForFolder(folder, state),
+        buildSidebarGovernanceStatus(
+          folder.uri.fsPath,
+          this.activeRelativeFile(),
+          readGovernanceReviewScope(),
+        ),
+      ]),
+      PANEL_LOAD_TIMEOUT_MS,
+      [] as PromiseSettledResult<unknown>[],
+    );
+
+    if (
+      panelGen !== this.panelLoadGeneration ||
+      seq !== this.pushStateSeq ||
+      !this.view
+    ) {
+      return;
+    }
+
+    const pick = <T>(i: number, fallback: T): T =>
+      settledCore[i]?.status === 'fulfilled'
+        ? (settledCore[i] as PromiseFulfilledResult<T>).value
+        : fallback;
+
+    const byok = pick(0, byokDefault);
+    const cilAi = pick(1, cilAiDefault);
+    const projectState = pick(2, { ...EMPTY_PROJECT_STATE });
+    const intentGraph = pick(3, { ...EMPTY_INTENT_GRAPH });
+    const stateConflicts = pick(4, { ...EMPTY_CONFLICTS });
+    const aiIntent = pick(5, { goals: [] } as SidebarAiIntentPanel);
+    const governanceStatus = pick(6, this.governanceStatusFallback());
+
+    for (const result of settledCore) {
+      if (result.status === 'rejected') {
+        console.warn(`[${PRODUCT_DISPLAY_NAME}] sidebar panel load:`, result.reason);
+      }
+    }
+
+    const mergedCore: Record<string, unknown> = {
+      ...fastCore,
+      projectState,
+      intentGraph,
+      stateConflicts,
+      aiIntent,
+      governanceStatus,
+      dataLoading: false,
+      heavyLoading: false,
+      panelsLoading: this.view.visible,
+    };
+
+    this.lastMergedCore = mergedCore;
+    this.lastByok = byok;
+    this.lastCilAi = cilAi;
+    this.postWebviewState(seq, mergedCore, byok, cilAi, false);
+
+    void syncCilLlmConfigFromIde(folder.uri.fsPath).catch(() => undefined);
+
+    if (!this.view.visible) {
+      this.postWebviewState(
+        seq,
+        { ...mergedCore, panelsLoading: false },
+        byok,
+        cilAi,
+        false,
+      );
+      return;
+    }
+
+    await this.yieldToUi(8);
+    if (panelGen !== this.panelLoadGeneration || seq !== this.pushStateSeq || !this.view) {
+      return;
+    }
+
+    try {
+      const [{ buildSidebarUnderstandingPanel }, v22Mod] = await Promise.all([
+        import('../cognition/sidebarHandoffPanel'),
+        import('./sidebarV22Panels'),
+      ]);
+      const understandingPanel = await this.withTimeout(
+        buildSidebarUnderstandingPanel(folder).catch(() => ({ ...EMPTY_UNDERSTANDING })),
+        PANEL_LOAD_TIMEOUT_MS,
+        { ...EMPTY_UNDERSTANDING },
+      );
+      if (panelGen !== this.panelLoadGeneration || seq !== this.pushStateSeq || !this.view) {
+        return;
+      }
+
+      const v22View = await this.withTimeout(
+        v22Mod
+          .buildSidebarV22View(
+            folder,
+            state,
+            governanceStatus,
+            understandingPanel,
+            projectState,
+            intentGraph,
+            this.events,
+          )
+          .catch(() => v22Mod.EMPTY_V22),
+        PANEL_LOAD_TIMEOUT_MS,
+        v22Mod.EMPTY_V22,
+      );
+
+      if (panelGen !== this.panelLoadGeneration || seq !== this.pushStateSeq || !this.view) {
+        return;
+      }
+
+      const fullCore = {
+        ...mergedCore,
+        understandingPanel,
+        v22View,
+        panelsLoading: false,
+        heavyLoading: false,
+      };
+      this.lastMergedCore = fullCore;
+      this.postWebviewState(seq, fullCore, byok, cilAi, false);
+    } catch (err) {
+      console.warn(`[${PRODUCT_DISPLAY_NAME}] sidebar heavy panel load:`, err);
+      this.postWebviewState(
+        seq,
+        { ...mergedCore, panelsLoading: false, heavyLoading: false },
+        byok,
+        cilAi,
+        false,
+      );
+    }
+  }
+
   private async pushStateToWebview(): Promise<void> {
     if (!this.view || !this.webviewScriptReady) {
       this.pendingStatePush = true;
@@ -889,9 +1143,41 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
     this.pushStateInFlight = true;
     const seq = ++this.pushStateSeq;
+    const panelGen = ++this.panelLoadGeneration;
     try {
       const folder = this.folder ?? this.stateManager.getPrimaryFolder();
       const ver = String((this.ctx.extension.packageJSON as { version?: string }).version ?? '');
+
+      if (this.lightRefreshOnly && folder) {
+        this.lightRefreshOnly = false;
+        const cached =
+          this.stateManager.getCached(folder) ??
+          (await this.stateManager.loadResilient(folder, 2_000));
+        const base = buildSidebarWebviewState(cached, this.events, ver);
+        const merged = this.lastMergedCore
+          ? {
+              ...this.lastMergedCore,
+              ...base,
+              dataLoading: false,
+              heavyLoading: false,
+              panelsLoading: false,
+            }
+          : {
+              ...base,
+              ...this.emptyCognitionPlaceholders(),
+              dataLoading: false,
+              heavyLoading: false,
+              panelsLoading: true,
+            };
+        this.postWebviewState(
+          seq,
+          merged,
+          this.lastByok ?? this.defaultByokPanelState(),
+          this.lastCilAi ?? this.defaultCilAiPanelState(),
+          false,
+        );
+        return;
+      }
 
       // Phase 0 — sync UI shell (layout + cache), then yield so webview can paint.
       this.pushInstantShell(seq, folder, ver);
@@ -908,6 +1194,11 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       const byokDefault = this.defaultByokPanelState();
       const cilAiDefault = this.defaultCilAiPanelState();
       const placeholders = this.emptyCognitionPlaceholders();
+      const interactiveFlags = {
+        dataLoading: false,
+        heavyLoading: false,
+        panelsLoading: true,
+      };
 
       // Phase 1a — paint from memory cache first (activate pre-warm), then reconcile disk.
       const cachedState = this.stateManager.getCached(folder);
@@ -915,7 +1206,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         const cachedBase = buildSidebarWebviewState(cachedState, this.events, ver);
         this.postWebviewState(
           seq,
-          { ...cachedBase, ...placeholders, dataLoading: false, heavyLoading: true },
+          { ...cachedBase, ...placeholders, ...interactiveFlags },
           byokDefault,
           cilAiDefault,
           false,
@@ -931,158 +1222,34 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
 
-      if (!cachedState) {
-        const base = buildSidebarWebviewState(state, this.events, ver);
-        this.postWebviewState(
-          seq,
-          { ...base, ...placeholders, dataLoading: false, heavyLoading: true },
-          byokDefault,
-          cilAiDefault,
-          false,
-        );
-        await this.yieldToUi(1);
-        if (seq !== this.pushStateSeq || !this.view) {
-          return;
-        }
-      }
-
       const base = buildSidebarWebviewState(state, this.events, ver);
       const fastCore: Record<string, unknown> = {
         ...base,
         ...placeholders,
-        dataLoading: false,
-        heavyLoading: true,
+        ...interactiveFlags,
       };
+      this.postWebviewState(seq, fastCore, byokDefault, cilAiDefault, false);
 
-      // Phase 1b — cognition panels + BYOK/CIL AI (SecretStorage + .contora reads).
-      const settledCore = await Promise.allSettled([
-        this.loadByokPanelState(),
-        this.loadCilAiPanelState({ skipSync: true }),
-        buildSidebarProjectStatePanel(folder),
-        buildSidebarGraphPanel(folder),
-        buildSidebarConflictsPanel(folder),
-        this.readAiIntentForFolder(folder, state),
-        buildSidebarGovernanceStatus(
-          folder.uri.fsPath,
-          this.activeRelativeFile(),
-          readGovernanceReviewScope(),
-        ),
-      ]);
-      if (seq !== this.pushStateSeq || !this.view) {
-        return;
-      }
-
-      const pick = <T>(i: number, fallback: T): T =>
-        settledCore[i]?.status === 'fulfilled'
-          ? (settledCore[i] as PromiseFulfilledResult<T>).value
-          : fallback;
-
-      const byok = pick(0, byokDefault);
-      const cilAi = pick(1, cilAiDefault);
-      const projectState = pick(2, { ...EMPTY_PROJECT_STATE });
-      const intentGraph = pick(3, { ...EMPTY_INTENT_GRAPH });
-      const stateConflicts = pick(4, { ...EMPTY_CONFLICTS });
-      const aiIntent = pick(5, { goals: [] } as SidebarAiIntentPanel);
-      const governanceStatus = pick(6, {
-        active: false,
-        constitutionLoaded: false,
-        truthLoaded: false,
-        identityLoaded: false,
-        protectedPathCount: 0,
-        forbiddenRuleCount: 0,
-        protectedPaths: [],
-        forbiddenActions: [],
-        projectDirection: '',
-        review: null,
-        reviewFile: '—',
-        reviewRisk: '—',
-        reviewChangeType: '—',
-        reviewSeverity: '—',
-        reviewImpact: '—',
-        reviewConfidence: '—',
-        reviewProtected: '—',
-        reviewTruthImpact: '—',
-        reviewRecommendation: '—',
-        reviewReasonChain: [],
-        reviewSource: '—',
-        reviewTimestamp: '—',
-        reviewScopePreference: 'Auto (merge all)',
-        reviewScopeValue: 'auto',
-        reviewWhyChain: [],
-        injectionRules: [],
-        injectionTokenEstimate: 0,
-        injectPreview: 'Governance not loaded',
-      });
-
-      for (const result of settledCore) {
-        if (result.status === 'rejected') {
-          console.warn(`[${PRODUCT_DISPLAY_NAME}] sidebar panel load:`, result.reason);
-        }
-      }
-
-      const mergedCore: Record<string, unknown> = {
-        ...fastCore,
-        projectState,
-        intentGraph,
-        stateConflicts,
-        aiIntent,
-        governanceStatus,
-        heavyLoading: true,
-      };
-      this.postWebviewState(seq, mergedCore, byok, cilAi, false);
-
-      // Background: sync LLM config file without blocking UI.
-      void syncCilLlmConfigFromIde(folder.uri.fsPath).catch(() => undefined);
-
-      // Phase 2 — heavy PIL readers; defer when sidebar is hidden.
       if (!this.view.visible) {
-        return;
-      }
-
-      await this.yieldToUi(8);
-      if (seq !== this.pushStateSeq || !this.view) {
-        return;
-      }
-
-      try {
-        const [{ buildSidebarUnderstandingPanel }, v22Mod] = await Promise.all([
-          import('../cognition/sidebarHandoffPanel'),
-          import('./sidebarV22Panels'),
-        ]);
-        const understandingPanel = await buildSidebarUnderstandingPanel(folder).catch(
-          () => ({ ...EMPTY_UNDERSTANDING }),
-        );
-        if (seq !== this.pushStateSeq || !this.view) {
-          return;
-        }
-
-        const v22View = await v22Mod
-          .buildSidebarV22View(
-            folder,
-            state,
-            governanceStatus,
-            understandingPanel,
-            projectState,
-            intentGraph,
-            this.events,
-          )
-          .catch(() => v22Mod.EMPTY_V22);
-
-        if (seq !== this.pushStateSeq || !this.view) {
-          return;
-        }
-
         this.postWebviewState(
           seq,
-          { ...mergedCore, understandingPanel, v22View, heavyLoading: false },
-          byok,
-          cilAi,
+          { ...fastCore, panelsLoading: false },
+          byokDefault,
+          cilAiDefault,
           false,
         );
-      } catch (err) {
-        console.warn(`[${PRODUCT_DISPLAY_NAME}] sidebar heavy panel load:`, err);
-        this.postWebviewState(seq, { ...mergedCore, heavyLoading: false }, byok, cilAi, false);
+        return;
       }
+
+      void this.loadPanelsInBackground(
+        seq,
+        panelGen,
+        folder,
+        state,
+        fastCore,
+        byokDefault,
+        cilAiDefault,
+      );
     } catch (err) {
       console.error(`[${PRODUCT_DISPLAY_NAME}] sidebar state push failed:`, err);
       try {
@@ -3192,6 +3359,24 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       opacity: 0.72;
       letter-spacing: 0.02em;
     }
+    .cr-ask-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .cr-ask-chip {
+      margin: 0;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--vscode-button-border, transparent);
+      background: var(--vscode-badge-background, rgba(127,127,127,0.18));
+      color: var(--vscode-badge-foreground, inherit);
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .cr-ask-chip:hover {
+      background: var(--vscode-list-hoverBackground);
+    }
     .cr-more-section { margin-bottom: 14px; }
     .cr-more-section:last-child { margin-bottom: 0; }
     .cr-more-section-k {
@@ -3325,7 +3510,12 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       <div class="cr-module-card cr-module-card--ask">
         <form id="homeAskForm" class="cr-ask-form" aria-label="Ask your project">
           <input type="text" id="homeAskInput" class="cr-ask-input" maxlength="240" placeholder="Ask your project…" aria-label="Ask your project" autocomplete="off" />
-          <p class="cr-ask-hint">What happened · Why · Next · Story · Health · MCP · Timeline · Press Enter</p>
+          <p class="cr-ask-hint">What happened · Why · Next · Story · Health · Review · Knowledge health · MCP · Timeline</p>
+          <div class="cr-ask-chips" aria-label="Suggested questions">
+            <button type="button" class="cr-ask-chip" data-ask="What needs review?">Review</button>
+            <button type="button" class="cr-ask-chip" data-ask="Is the project knowledge healthy?">Knowledge health</button>
+            <button type="button" class="cr-ask-chip" data-ask="Is the project healthy?">Health</button>
+          </div>
           <button type="submit" class="cr-primary" id="btnHomeAsk" title="Ask about project history, decisions, or next steps">Ask</button>
         </form>
       </div>
@@ -3367,6 +3557,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
             <li><button type="button" class="cr-more-item" data-action="cilDna">DNA</button></li>
             <li><button type="button" class="cr-more-item" data-action="cilReplay">Replay</button></li>
             <li><button type="button" class="cr-more-item" data-action="cilHealth">Health</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilReview">Review Queue</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilLifecycle">Knowledge Health</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilLifecycleOwner">Set Owner</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilLifecycleVerify">Verify Decision</button></li>
           </ul>
         </div>
         <div class="cr-more-section">
@@ -3417,6 +3611,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       </div>
         <div class="cr-module-card-body cr-v22-fields">
           <div class="cr-v22-row"><span class="cr-psb-k">Health score</span><p id="v22HealthScore" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Knowledge health</span><p id="v22KnowledgeHealth" class="cr-graph-line">—</p></div>
+          <div class="cr-v22-row"><span class="cr-psb-k">Review queue</span><p id="v22ReviewQueue" class="cr-graph-line">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Knowledge coverage</span><p id="v22Coverage" class="cr-graph-line">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Confidence index</span><p id="v22ConfIndex" class="cr-graph-line">—</p></div>
           <div class="cr-v22-row"><span class="cr-psb-k">Timeline summary</span><p id="v22Timeline" class="cr-graph-muted">—</p></div>
@@ -3844,6 +4040,14 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         }
       });
     }
+    document.querySelectorAll('[data-ask]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const q = btn.getAttribute('data-ask');
+        if (!q) return;
+        if (homeAskInput) homeAskInput.value = q;
+        vscode.postMessage({ type: 'askHome', query: q });
+      });
+    });
     document.querySelectorAll('[data-transfer]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const mode = btn.getAttribute('data-transfer');
@@ -4141,6 +4345,20 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       setTextIfChanged(
         'v22HealthScore',
         intel.healthScore != null ? Math.round(intel.healthScore * 100) + '% · ' + (intel.healthCategory || '') : 'Run sync to derive',
+        { ellipsize: false },
+      );
+      setTextIfChanged(
+        'v22KnowledgeHealth',
+        intel.knowledgeHealthScore != null ? intel.knowledgeHealthScore + '%' : 'Run sync for lifecycle',
+        { ellipsize: false },
+      );
+      setTextIfChanged(
+        'v22ReviewQueue',
+        intel.reviewQueueCount != null
+          ? intel.reviewQueueCount > 0
+            ? intel.reviewQueueCount + ' decision(s) need review'
+            : 'Review queue clear'
+          : '—',
         { ellipsize: false },
       );
       setTextIfChanged(
@@ -5691,17 +5909,13 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const bootBarText = document.getElementById('crBootBarText');
     function setBootLoading(state) {
       if (!bootBarEl) return;
-      const active = !state || state.dataLoading === true || state.heavyLoading === true;
-      bootBarEl.hidden = !active;
-      if (bootBarText && state) {
-        if (state.dataLoading === true) {
-          bootBarText.textContent = 'Loading workspace data…';
-        } else if (state.heavyLoading === true) {
-          bootBarText.textContent = 'Loading intelligence panels…';
-        }
+      const blocking = !state || state.dataLoading === true;
+      bootBarEl.hidden = !blocking;
+      if (bootBarText && state && state.dataLoading === true) {
+        bootBarText.textContent = 'Loading workspace data…';
       }
     }
-    setBootLoading({ dataLoading: true, heavyLoading: true });
+    setBootLoading({ dataLoading: true, heavyLoading: false, panelsLoading: true });
 
     window.addEventListener('message', (event) => {
       const msg = event.data;

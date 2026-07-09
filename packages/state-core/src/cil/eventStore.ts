@@ -139,12 +139,14 @@ export async function persistCilIndex(
   workspaceRoot: string,
   eventIds: string[],
   adrIds: string[],
+  projections?: CognitiveEventIndex['projections'],
 ): Promise<CognitiveEventIndex> {
   const index: CognitiveEventIndex = {
     schema: CIL_INDEX_SCHEMA,
     updated_at: new Date().toISOString(),
     event_ids: [...new Set(eventIds)],
     adr_ids: [...new Set(adrIds)],
+    ...(projections ? { projections } : {}),
   };
   await writeJson(cilIndexPath(workspaceRoot), index);
   return index;

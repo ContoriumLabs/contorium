@@ -163,3 +163,23 @@ export {
   appendAlignmentNote,
   type AskV2Context,
 } from './askV2.js';
+
+export {
+  persistKnowledgeLifecycle,
+  readKnowledgeLifecycle,
+  readReviewQueueArtifact,
+  computeKnowledgeLifecycle,
+  enrichDecisionAskAnswer,
+  formatReviewQueue,
+  formatDecisionLifecycleAnswer,
+  findDecisionLifecycle,
+  buildReviewQueue,
+  lifecycleRoot,
+  lifecycleIndexPath,
+  KNOWLEDGE_LIFECYCLE_SCHEMA,
+  type KnowledgeLifecycleIndex,
+  type KnowledgeHealthReport,
+  type DecisionLifecycleRecord,
+  type ReviewQueueItem,
+  type ReviewQueueArtifact,
+} from '../lifecycle/index.js';

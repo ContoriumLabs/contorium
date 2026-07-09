@@ -47,6 +47,7 @@ Legacy aliases: `snapshot copy` → `transfer context` · `export intelligence` 
 | **Verify** | `npx contorium status .` or `npx contorium --help` |
 | **Init** | `npx contorium init [path]` |
 | **Refresh** | `npx contorium sync [path]` |
+| **Knowledge Lifecycle** | `contorium lifecycle` · `contorium review` · `contorium lifecycle owner\|verify <id>` |
 | **Bootstrap** | `npx contorium bootstrap [path] [--source ide\|mcp\|cli]` |
 | **Dashboard** | Automatic after bootstrap — Cognitive State TUI (see [DASHBOARD.md](./DASHBOARD.md)) |
 | **Decision derive** | `npx contorium decision derive [path]` |

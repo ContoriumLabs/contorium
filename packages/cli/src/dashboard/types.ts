@@ -4,6 +4,7 @@ import type {
   HandoffArtifact,
   HandoffInjectionState,
   ImpactGraphArtifact,
+  KnowledgeLifecycleIndex,
   ProjectEvolutionTimeline,
   ProjectGraph,
   ProjectIntelligenceHealth,
@@ -59,6 +60,10 @@ export interface DashboardState {
   evolutionGraph?: EvolutionGraphArtifact;
   provenanceChain?: ProvenanceChainArtifact;
   impactGraph?: ImpactGraphArtifact;
+  /** v3.2 — Knowledge Lifecycle (.contora/lifecycle/) */
+  knowledgeLifecycle?: KnowledgeLifecycleIndex;
+  /** Cognitive health artifact for layered health display */
+  cognitiveHealthScore?: number;
 }
 
 export interface AttachOptions {

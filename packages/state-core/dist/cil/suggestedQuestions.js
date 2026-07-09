@@ -41,6 +41,9 @@ async function buildSuggestedQuestions(workspaceRoot) {
     if (health && health.score < 85) {
         questions.push('Is the project healthy?');
     }
+    if (health && health.score < 85) {
+        questions.push('What needs review?');
+    }
     const recentFile = events.find((e) => e.files.length)?.files[0];
     if (recentFile) {
         const mod = recentFile.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? '';

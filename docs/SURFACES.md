@@ -31,7 +31,8 @@
 |--------|-----|-----|-----|
 | **Ask** | Home · Ask Contorium | `contorium ask` · `ask --suggest` | `ask_project` |
 | **History** | Explore → History | `contorium history` | `get_project_history` |
-| **Decisions** | Explore → Decisions | `contorium decisions` | `get_decisions` |
+| **Decisions** | Explore → Decisions (validity overlay) | `contorium decisions` | `get_decisions` |
+| **Review / Lifecycle** | Explore → Review Queue · Knowledge Health | `contorium review` · `contorium lifecycle` | `get_review_queue` · `get_knowledge_health` |
 | **Next** | Home · Suggested actions | `contorium next` | `get_next_actions` |
 | **Transfer** | Home · Transfer ▼ | `contorium transfer --mode=…` | `transfer_project` |
 
@@ -43,6 +44,7 @@
 |--------|-----|-----|
 | Impact | `contorium impact <mod>` | `get_blast_radius` |
 | Health | `contorium health` | `get_cognitive_health` |
+| Knowledge Lifecycle | `contorium lifecycle` · `contorium review` | `get_knowledge_health` · `get_review_queue` |
 | DNA | `contorium dna` | `get_project_dna` |
 | Replay | `contorium replay` | `get_handoff_replay` |
 | Entity | `contorium entity mcp` | `get_entity_knowledge` |

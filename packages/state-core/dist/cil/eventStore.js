@@ -152,12 +152,13 @@ async function readAllAdrRecords(workspaceRoot) {
         return [];
     }
 }
-async function persistCilIndex(workspaceRoot, eventIds, adrIds) {
+async function persistCilIndex(workspaceRoot, eventIds, adrIds, projections) {
     const index = {
         schema: types_js_1.CIL_INDEX_SCHEMA,
         updated_at: new Date().toISOString(),
         event_ids: [...new Set(eventIds)],
         adr_ids: [...new Set(adrIds)],
+        ...(projections ? { projections } : {}),
     };
     await writeJson((0, paths_js_1.cilIndexPath)(workspaceRoot), index);
     return index;

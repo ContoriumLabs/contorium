@@ -46,6 +46,12 @@ function routeQuery(question) {
     if ((0, directionQuery_js_1.isDirectionQuery)(question) || (0, directionQuery_js_1.isDriftQuery)(question)) {
         return { intent: 'direction', raw };
     }
+    if (/review queue|needs review|stale decisions?|unverified decisions?|what needs review|decisions need review/.test(q)) {
+        return { intent: 'state', topic: 'review', raw };
+    }
+    if (/knowledge health|lifecycle health|decision health|trust score|knowledge governance/.test(q)) {
+        return { intent: 'state', topic: 'knowledge_health', raw };
+    }
     if (/healthy|health status|project health|is (the |this )?project (ok|well|healthy)|cognitive health|health score/.test(q)) {
         return { intent: 'state', topic: 'health', raw };
     }

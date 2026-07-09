@@ -14,6 +14,7 @@ const confidenceLabels_js_2 = require("./confidenceLabels.js");
 const snapshotEngine_js_1 = require("./snapshotEngine.js");
 const decisionLifecycle_js_1 = require("./decisionLifecycle.js");
 const timeCoerce_js_1 = require("./timeCoerce.js");
+const pathFilters_js_1 = require("./pathFilters.js");
 function sourceFromWriter(writer) {
     if (writer === 'ide') {
         return 'ide';
@@ -77,10 +78,10 @@ async function syncCognitiveEvents(workspaceRoot, writer = 'cli') {
             timestamp: ts,
             title: node.title,
             summary: node.selected,
-            files: node.impact_scope ?? [],
+            files: (0, pathFilters_js_1.filterUserFacingPaths)(node.impact_scope ?? []),
             decision: node.selected,
             why: node.reason,
-            impact: node.impact_scope ?? [],
+            impact: (0, pathFilters_js_1.filterUserFacingLines)(node.impact_scope ?? []),
             linked_decision_id: node.decision_id,
             linked_intent: node.linked_intent,
             freshness: (0, confidenceLabels_js_1.freshnessFromAge)(ts),
@@ -101,10 +102,10 @@ async function syncCognitiveEvents(workspaceRoot, writer = 'cli') {
             timestamp: ts,
             title: entry.selected,
             summary: entry.reason,
-            files: entry.impact,
+            files: (0, pathFilters_js_1.filterUserFacingPaths)(entry.impact),
             decision: entry.selected,
             why: entry.reason,
-            impact: entry.impact,
+            impact: (0, pathFilters_js_1.filterUserFacingLines)(entry.impact),
             linked_decision_id: entry.decision_id,
             linked_intent: entry.intent_id,
             freshness: (0, confidenceLabels_js_1.freshnessFromAge)(ts),
@@ -113,22 +114,27 @@ async function syncCognitiveEvents(workspaceRoot, writer = 'cli') {
         });
     }
     if (change?.changed_files?.length) {
-        const ts = (0, timeCoerce_js_1.coerceTimestampToIso)(change.generatedAt ?? Date.now());
-        const id = eventIdFromTimestamp(ts, 'workspace_change');
-        if (!seen.has(id)) {
-            seen.add(id);
-            events.push({
-                schema: types_js_1.COGNITIVE_EVENT_SCHEMA,
-                id,
-                timestamp: ts,
-                title: `Modified ${change.changed_files.length} file(s)`,
-                summary: `${change.key_changes?.length ?? 0} key symbol change(s)`,
-                files: change.changed_files.slice(0, 32),
-                impact: change.changed_files.slice(0, 8),
-                freshness: 'fresh',
-                source: mapWriterSources(writer),
-                provenance: ['git', 'scan'],
-            });
+        const userFiles = (0, pathFilters_js_1.filterUserFacingPaths)(change.changed_files);
+        if (userFiles.length) {
+            const ts = (0, timeCoerce_js_1.coerceTimestampToIso)(change.generatedAt ?? Date.now());
+            const id = eventIdFromTimestamp(ts, 'workspace_change');
+            if (!seen.has(id)) {
+                seen.add(id);
+                events.push({
+                    schema: types_js_1.COGNITIVE_EVENT_SCHEMA,
+                    id,
+                    timestamp: ts,
+                    title: `Modified ${userFiles.length} file(s)`,
+                    summary: `${change.key_changes?.length ?? 0} key symbol change(s)`,
+                    files: userFiles.slice(0, 32),
+                    impact: (0, pathFilters_js_1.filterUserFacingLines)((change.key_changes ?? [])
+                        .map((k) => k.symbol.split('::')[0] ?? k.symbol)
+                        .filter((p, i, arr) => arr.indexOf(p) === i)).slice(0, 8),
+                    freshness: 'fresh',
+                    source: mapWriterSources(writer),
+                    provenance: ['git', 'scan'],
+                });
+            }
         }
     }
     const focus = state?.currentTask?.trim();

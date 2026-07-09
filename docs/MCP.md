@@ -23,12 +23,15 @@ CLI mirror: `contorium inspect …` · `contorium transfer …` · `contorium ca
 Natural-language and narrative queries route through **Cognitive Kernel**:
 
 ```text
-ask_project · get_next_actions · get_cognitive_health · get_entity_knowledge
+ask_project · get_next_actions · get_cognitive_health · get_knowledge_health · get_review_queue
+set_decision_lifecycle_meta · get_entity_knowledge
 get_project_essence · get_handoff_replay · get_snapshot · get_decision_graph
 get_project_history · transfer_story · transfer_project · get_suggested_questions
 ```
 
-CLI mirror: `contorium ask` · `contorium health` · `contorium transfer --mode=…`
+**Decision validity (Lifecycle v2):** `get_knowledge_health` and `get_review_queue` expose trust scores and invalidation triggers. `ask_project` attaches a validity overlay on decision answers. `set_decision_lifecycle_meta` records owner and verification (owner changes feed `OWNER_CHANGE` signals).
+
+CLI mirror: `contorium ask` · `contorium lifecycle` · `contorium review` · `contorium health`
 
 See [CIL_V3.md](./CIL_V3.md) · [SURFACES.md](./SURFACES.md).
 

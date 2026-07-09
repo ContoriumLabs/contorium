@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { askProject, buildProjectJourney, exploreHistory, getBlastRadius, getModuleHistory, readDecisionGraph, getRecentEvents, runCognitiveKernel, syncCognitiveInteractionLayer, queryTimeTravel, } from '@contora/state-core';
+import { askProject, buildProjectJourney, exploreHistory, getBlastRadius, getModuleHistory, readDecisionGraph, getRecentEvents, runCognitiveKernel, syncCognitiveInteractionLayer, queryTimeTravel, readKnowledgeLifecycle, readDecisionLifecycleMeta, writeDecisionLifecycleMeta, persistKnowledgeLifecycle, } from '@contora/state-core';
 function textResult(data) {
     return {
         content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
@@ -219,5 +219,67 @@ export function registerCilRuntimeTools(server, resolveRoot) {
         await syncCognitiveInteractionLayer(root, 'mcp').catch(() => undefined);
         const out = await runCognitiveKernel(root, { mode: 'questions' });
         return textResult(out.result);
+    });
+    server.registerTool('get_knowledge_health', {
+        description: '[CIL · Lifecycle] Knowledge Health score, freshness dimensions, and decision trust (.contora/lifecycle/).',
+        inputSchema: workspaceRootSchema,
+    }, async ({ workspaceRoot: override }) => {
+        const root = override ?? (await resolveRoot());
+        await syncCognitiveInteractionLayer(root, 'mcp').catch(() => undefined);
+        const out = await runCognitiveKernel(root, { mode: 'lifecycle' });
+        return textResult(out.result);
+    });
+    server.registerTool('get_review_queue', {
+        description: '[CIL · Lifecycle] Decisions needing review — stale, expired, conflict, missing owner, invalidation triggers.',
+        inputSchema: workspaceRootSchema,
+    }, async ({ workspaceRoot: override }) => {
+        const root = override ?? (await resolveRoot());
+        await syncCognitiveInteractionLayer(root, 'mcp').catch(() => undefined);
+        const out = await runCognitiveKernel(root, { mode: 'review' });
+        return textResult(out.result);
+    });
+    const lifecycleMetaSchema = workspaceRootSchema.extend({
+        decision_id: z.string().describe('ADR / decision id'),
+        owner: z.string().optional().describe('Assign decision owner'),
+        verified: z.boolean().optional().describe('Mark decision verified now'),
+        verified_by: z.string().optional(),
+        verification_type: z
+            .enum(['manual', 'automatic', 'llm_assisted'])
+            .optional()
+            .describe('Verification method'),
+        expire_after_days: z.number().optional().describe('Days until review required'),
+    });
+    server.registerTool('set_decision_lifecycle_meta', {
+        description: '[CIL · Lifecycle] Update decision owner, verification, or expiry — persists to .contora/lifecycle/decisions/.',
+        inputSchema: lifecycleMetaSchema,
+    }, async ({ decision_id, owner, verified, verified_by, verification_type, expire_after_days, workspaceRoot: override, }) => {
+        const root = override ?? (await resolveRoot());
+        await syncCognitiveInteractionLayer(root, 'mcp').catch(() => undefined);
+        const existing = (await readDecisionLifecycleMeta(root, decision_id)) ?? {};
+        const patch = { ...existing };
+        if (owner) {
+            const nextOwner = owner.trim();
+            if (existing.owner?.trim() && existing.owner.trim() !== nextOwner) {
+                patch.previous_owner = existing.owner;
+                patch.owner_changed_at = new Date().toISOString();
+            }
+            patch.owner = nextOwner;
+        }
+        if (verified) {
+            patch.verified_at = new Date().toISOString();
+            patch.verified_by = verified_by ?? 'mcp';
+            patch.verification_type = verification_type ?? 'manual';
+        }
+        else if (verification_type) {
+            patch.verification_type = verification_type;
+        }
+        if (expire_after_days != null && Number.isFinite(expire_after_days)) {
+            patch.expire_after_days = Math.round(expire_after_days);
+        }
+        await writeDecisionLifecycleMeta(root, decision_id, patch);
+        await persistKnowledgeLifecycle(root);
+        const index = await readKnowledgeLifecycle(root);
+        const record = index?.decisions.find((d) => d.decision_id === decision_id);
+        return textResult({ decision_id, meta: patch, record });
     });
 }

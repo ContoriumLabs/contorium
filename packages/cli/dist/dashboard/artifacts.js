@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { readChangeArtifact, readHandoffArtifact, readHandoffInjectionState, readKnowledgeSnapshot, readProjectGraph, readProjectTimeline, readUnderstandingGraph, readWorkspaceStatus, readProjectEvolutionTimeline, readEvolutionGraph, readProvenanceChain, readImpactGraph, readProjectIntelligenceHealth, } from '@contora/state-core';
+import { readChangeArtifact, readHandoffArtifact, readHandoffInjectionState, readKnowledgeSnapshot, readProjectGraph, readProjectTimeline, readUnderstandingGraph, readWorkspaceStatus, readProjectEvolutionTimeline, readEvolutionGraph, readProvenanceChain, readImpactGraph, readProjectIntelligenceHealth, readKnowledgeLifecycle, readCognitiveHealthReport, } from '@contora/state-core';
 import { GOVERNANCE_ARTIFACT_FILES } from '@contora/state-core';
 import { loadGovernanceSnapshot } from './governanceDashboard.js';
 const ARTIFACT_FILES = [
@@ -25,6 +25,10 @@ const ARTIFACT_FILES = [
     'provenance/provenance_chain.json',
     'evolution/evolution_graph.json',
     'decision/decision_log.json',
+    'lifecycle/decisions/',
+    'lifecycle/index.json',
+    'lifecycle/review-queue.json',
+    'cognitive/health.json',
     'intelligence/health.json',
     'intelligence/repository_state.json',
 ];
@@ -94,7 +98,7 @@ async function readRecentEvents(workspaceRoot, limit = 8) {
         .slice(0, limit);
 }
 export async function loadDashboardState(workspaceRoot) {
-    const [status, change, handoff, understandingGraph, graph, snapshot, timeline, recentEvents, handoffInjection, governance, intelligenceHealth, evolutionTimeline, evolutionGraph, provenanceChain, impactGraph,] = await Promise.all([
+    const [status, change, handoff, understandingGraph, graph, snapshot, timeline, recentEvents, handoffInjection, governance, intelligenceHealth, evolutionTimeline, evolutionGraph, provenanceChain, impactGraph, knowledgeLifecycle, cognitiveHealth,] = await Promise.all([
         readWorkspaceStatus(workspaceRoot),
         readChangeArtifact(workspaceRoot),
         readHandoffArtifact(workspaceRoot),
@@ -110,6 +114,8 @@ export async function loadDashboardState(workspaceRoot) {
         readEvolutionGraph(workspaceRoot),
         readProvenanceChain(workspaceRoot),
         readImpactGraph(workspaceRoot),
+        readKnowledgeLifecycle(workspaceRoot),
+        readCognitiveHealthReport(workspaceRoot).catch(() => null),
     ]);
     return {
         workspaceRoot,
@@ -137,5 +143,7 @@ export async function loadDashboardState(workspaceRoot) {
         evolutionGraph: evolutionGraph ?? undefined,
         provenanceChain: provenanceChain ?? undefined,
         impactGraph: impactGraph ?? undefined,
+        knowledgeLifecycle: knowledgeLifecycle ?? undefined,
+        cognitiveHealthScore: cognitiveHealth?.score,
     };
 }

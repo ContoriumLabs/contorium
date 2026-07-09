@@ -49,8 +49,10 @@ Answers **how users and agents ask and explore**. Routes through **Cognitive Ker
 | State on a past date? | Time Travel (Snapshot) |
 | Everything about X? | Knowledge Graph / Entity |
 | Is cognition healthy? | Cognitive Health |
+| Is knowledge still valid? | Knowledge Lifecycle + Review Queue |
+| What needs review? | Review Queue (invalidation triggers) |
 
-CLI: `contorium ask` · MCP: `ask_project` · IDE: **Ask Contorium** / Cortex panels
+CLI: `contorium ask` · `contorium lifecycle` · `contorium review` · MCP: `ask_project` · `get_knowledge_health` · `get_review_queue` · IDE: **Ask Contorium** / Explore panels
 
 ### AI Layer — explanation (optional, default off)
 

@@ -11,6 +11,7 @@ import {
   readProjectEvolutionTimeline,
   readProjectIntelligenceHealth,
   readProvenanceChain,
+  readKnowledgeLifecycle,
 } from '@contora/state-core';
 import type { SidebarGovernanceStatus } from './sidebarGovernancePanel';
 import type { SidebarIntentGraphPanel } from '../cognition/sidebarGraphPanel';
@@ -38,6 +39,9 @@ export interface SidebarV22View {
     confidenceIndex: number | null;
     timelineSummary: string;
     impactRadius: number | null;
+    /** v3.2 Knowledge Lifecycle score (0–100). */
+    knowledgeHealthScore: number | null;
+    reviewQueueCount: number | null;
     empty: boolean;
   };
   /** Decision intelligence — record-only links, no governance/reasoning UI. */
@@ -87,6 +91,8 @@ const EMPTY_V22: SidebarV22View = {
     confidenceIndex: null,
     timelineSummary: '—',
     impactRadius: null,
+    knowledgeHealthScore: null,
+    reviewQueueCount: null,
     empty: true,
   },
   decision: {
@@ -152,7 +158,7 @@ export async function buildSidebarV22View(
 ): Promise<SidebarV22View> {
   const root = folder.uri.fsPath;
 
-  const [health, confidence, timeline, impact, provenance, evolution, decisionGraph, intentVNext, decisionLog] =
+  const [health, confidence, timeline, impact, provenance, evolution, decisionGraph, intentVNext, decisionLog, knowledgeLifecycle] =
     await Promise.all([
       readProjectIntelligenceHealth(root),
       readConfidenceIndex(root),
@@ -163,6 +169,7 @@ export async function buildSidebarV22View(
       readDecisionProvenanceGraph(root),
       readIntentGraphVNext(root),
       readDecisionLog(root),
+      readKnowledgeLifecycle(root).catch(() => null),
     ]);
 
   const handoff = understanding?.handoff;
@@ -248,7 +255,9 @@ export async function buildSidebarV22View(
       confidenceIndex: projectConf?.confidence_score ?? null,
       timelineSummary,
       impactRadius: radius,
-      empty: !health?.metrics,
+      knowledgeHealthScore: knowledgeLifecycle?.health.score ?? null,
+      reviewQueueCount: knowledgeLifecycle?.review_queue.length ?? null,
+      empty: !health?.metrics && !knowledgeLifecycle?.health,
     },
     decision: {
       decisionSnapshot: latestDecision?.selected ?? '—',

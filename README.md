@@ -63,7 +63,47 @@ Response
 | What is this project? | Story / Essence |
 | What was state at a time? | Time Travel (Snapshot) |
 | What is MCP? | Knowledge Graph |
-| Is the project healthy? | Cognitive Health |
+| Is the project healthy? | Cognitive Health + Knowledge Lifecycle |
+| What needs review? | Review Queue (Lifecycle) |
+| Is this decision still valid? | Decision Center + Lifecycle trust |
+
+### Knowledge Lifecycle (v3.2 — Validity-Aware)
+
+Living Project Intelligence tracks **whether decisions are still trustworthy** — not only when they were recorded, but **why they may have decayed**.
+
+```text
+ADR + Events → Lifecycle Engine → Knowledge Health + Review Queue
+                      ↓
+         Validity state + decay signals (v2)
+                      ↓
+              Ask / IDE / Dashboard / MCP
+```
+
+**Core ideas:**
+
+| Concept | What it means |
+| --- | --- |
+| **Validity state** | `VALID` · `DECAYING` · `NEEDS_REVALIDATION` · `INVALIDATED` |
+| **Decay triggers** | Code/architecture drift, dependency change, owner change, assumption failure, superseded ADR |
+| **Review queue** | Stale, expired, conflict, missing owner, and **invalidation triggers** |
+| **Ask overlay** | Decision answers show validity, why, suggested action, and adjusted confidence |
+
+Artifacts: `.contora/lifecycle/` — see [docs/LIFECYCLE_V1.md](docs/LIFECYCLE_V1.md).
+
+```bash
+contorium lifecycle
+contorium review
+contorium lifecycle owner adr-001 --owner platform-team
+contorium lifecycle verify adr-001 --type manual
+```
+
+Ask examples:
+
+```bash
+contorium ask "Why was MCP added?"
+contorium ask "What needs review?"
+contorium ask "Is this decision still valid?"
+```
 
 ### Example Commands
 
@@ -77,6 +117,8 @@ Other tools:
 
 ```bash
 contorium health
+contorium lifecycle
+contorium review
 contorium entity mcp
 contorium dna --copy
 contorium questions

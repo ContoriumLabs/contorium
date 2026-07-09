@@ -183,10 +183,26 @@ get_next_actions
 get_project_history
 get_decision_graph
 get_cognitive_health
+get_knowledge_health
+get_review_queue
+set_decision_lifecycle_meta
 get_project_essence
 get_snapshot
 get_entity_knowledge
 ```
+
+### Decision validity (Knowledge Lifecycle v2)
+
+Same lifecycle engine as CLI and IDE — not a separate store.
+
+| Tool | Purpose |
+| --- | --- |
+| `get_knowledge_health` | Project knowledge health + per-decision trust |
+| `get_review_queue` | Stale, expired, conflict, and **invalidation triggers** |
+| `set_decision_lifecycle_meta` | Set owner, verification, expiry (tracks owner changes) |
+| `ask_project` | Decision questions include **validity**, **why**, and **suggested action** |
+
+CLI equivalents: `contorium lifecycle` · `contorium review` · `contorium lifecycle owner|verify`
 
 > MCP = access layer  
 > CIL = cognition layer
@@ -357,6 +373,7 @@ Deprecated but supported:
 - PIL Guide: [https://github.com/ContoriumLabs/contorium/blob/main/docs/PIL_RUNTIME.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/PIL_RUNTIME.md)
 - AI Layer: [https://github.com/ContoriumLabs/contorium/blob/main/docs/AI_LAYER.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/AI_LAYER.md)
 - MCP Docs: [https://github.com/ContoriumLabs/contorium/blob/main/docs/MCP.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/MCP.md)
+- Knowledge Lifecycle: [https://github.com/ContoriumLabs/contorium/blob/main/docs/LIFECYCLE_V1.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/LIFECYCLE_V1.md)
 - Install Guide: [https://github.com/ContoriumLabs/contorium/blob/main/docs/INSTALL.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/INSTALL.md)
 
 ---

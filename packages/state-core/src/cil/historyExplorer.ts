@@ -3,6 +3,7 @@ import { freshnessLabelText } from './confidenceLabels.js';
 import { readAllCognitiveEvents } from './eventStore.js';
 import type { CognitiveEvent } from './types.js';
 import { exploreModuleHistory, filterEventsByModule } from './moduleHistory.js';
+import { sanitizeCognitiveEventForDisplay } from './pathFilters.js';
 
 function rangeBounds(range: HistoryRange, now = Date.now()): { from: number; to: number } {
   const to = now;
@@ -23,32 +24,33 @@ function rangeBounds(range: HistoryRange, now = Date.now()): { from: number; to:
 }
 
 function formatEventBlock(evt: CognitiveEvent): string[] {
-  const date = evt.timestamp.slice(0, 10);
+  const event = sanitizeCognitiveEventForDisplay(evt);
+  const date = event.timestamp.slice(0, 10);
   const lines = [
     date,
     '',
-    evt.title,
+    event.title,
     '',
   ];
-  if (evt.version) {
-    lines.push(`Version: ${evt.version}`, '');
+  if (event.version) {
+    lines.push(`Version: ${event.version}`, '');
   }
-  if (evt.why) {
-    lines.push('WHY', evt.why, '');
+  if (event.why) {
+    lines.push('WHY', event.why, '');
   }
-  if (evt.decision) {
-    lines.push('DECISION', evt.decision, '');
+  if (event.decision) {
+    lines.push('DECISION', event.decision, '');
   }
-  if (evt.impact.length) {
-    lines.push('IMPACT', ...evt.impact, '');
+  if (event.impact.length) {
+    lines.push('IMPACT', ...event.impact, '');
   }
-  if (evt.files.length) {
-    lines.push('FILES', ...evt.files.slice(0, 8).map((f) => `  ${f}`), '');
+  if (event.files.length) {
+    lines.push('FILES', ...event.files.slice(0, 8).map((f) => `  ${f}`), '');
   }
-  if (evt.provenance?.length) {
-    lines.push('SOURCE', ...evt.provenance.map((p) => `  ${p}`), '');
+  if (event.provenance?.length) {
+    lines.push('SOURCE', ...event.provenance.map((p) => `  ${p}`), '');
   }
-  lines.push(`Freshness: ${freshnessLabelText(evt.freshness)}`, '');
+  lines.push(`Freshness: ${freshnessLabelText(event.freshness)}`, '');
   return lines;
 }
 
@@ -68,7 +70,7 @@ export async function exploreHistory(
     formatted.push(...formatEventBlock(evt));
   }
 
-  return { range, count: events.length, events, formatted };
+  return { range, count: events.length, events: events.map(sanitizeCognitiveEventForDisplay), formatted };
 }
 
 export async function getRecentEvents(
@@ -76,7 +78,7 @@ export async function getRecentEvents(
   limit = 10,
 ): Promise<CognitiveEvent[]> {
   const all = await readAllCognitiveEvents(workspaceRoot);
-  return all.slice(0, limit);
+  return all.slice(0, limit).map(sanitizeCognitiveEventForDisplay);
 }
 
 export async function getModuleHistory(
@@ -85,7 +87,7 @@ export async function getModuleHistory(
   limit = 20,
 ): Promise<CognitiveEvent[]> {
   const all = await readAllCognitiveEvents(workspaceRoot);
-  return filterEventsByModule(all, modulePath).slice(0, limit);
+  return filterEventsByModule(all, modulePath).slice(0, limit).map(sanitizeCognitiveEventForDisplay);
 }
 
 export async function exploreModuleHistoryFeed(

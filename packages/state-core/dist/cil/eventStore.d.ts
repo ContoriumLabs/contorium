@@ -6,5 +6,5 @@ export declare function readAllCognitiveEvents(workspaceRoot: string): Promise<C
 export declare function readAdrRecord(workspaceRoot: string, adrId: string): Promise<AdrRecord | null>;
 export declare function writeAdrRecord(workspaceRoot: string, adr: AdrRecord): Promise<void>;
 export declare function readAllAdrRecords(workspaceRoot: string): Promise<AdrRecord[]>;
-export declare function persistCilIndex(workspaceRoot: string, eventIds: string[], adrIds: string[]): Promise<CognitiveEventIndex>;
+export declare function persistCilIndex(workspaceRoot: string, eventIds: string[], adrIds: string[], projections?: CognitiveEventIndex['projections']): Promise<CognitiveEventIndex>;
 //# sourceMappingURL=eventStore.d.ts.map

@@ -71,7 +71,7 @@ Legacy tools (still available): get_project_* · get_cognitive_snapshot · get_f
 
 CIL — Cognitive Interaction Layer (v3 — Kernel First):
   ask_project · transfer_project · get_next_actions · get_project_story
-  get_decision_graph · get_snapshot · get_cognitive_health · get_entity_knowledge
+  get_decision_graph · get_snapshot · get_cognitive_health · get_knowledge_health · get_review_queue · get_entity_knowledge
   get_project_essence · get_handoff_replay · get_project_dna · get_suggested_questions
   get_snapshot (date + perspective) · get_recent_events · get_project_history
   get_decisions · get_module_history · get_blast_radius · get_project_journey

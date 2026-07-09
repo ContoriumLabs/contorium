@@ -630,6 +630,12 @@ async function main() {
         case 'health':
             await cmdCil(root, 'health');
             return;
+        case 'review':
+            await cmdCil(root, 'review');
+            return;
+        case 'lifecycle':
+            await cmdCil(root, 'lifecycle');
+            return;
         case 'entity':
             await cmdCil(root, 'entity');
             return;

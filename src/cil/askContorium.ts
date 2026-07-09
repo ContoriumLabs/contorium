@@ -29,42 +29,93 @@ function formatSemanticSection(result: AskProjectResult): string {
   return lines.join('\n');
 }
 
-function appendFormattedBlocks(lines: string[], data: Record<string, unknown> | undefined): void {
+function appendFormattedBlocks(
+  lines: string[],
+  data: Record<string, unknown> | undefined,
+  intent?: string,
+): void {
   if (!data) {
     return;
   }
   const fmt = data.formatted;
+  const answerAlreadyHasHistory =
+    intent === 'history' && lines.some((l) => l.includes('Project History') || l.includes('cognitive event'));
   if (typeof fmt === 'string' && fmt.trim()) {
-    lines.push(fmt.trim(), '');
-  } else if (Array.isArray(fmt) && fmt.length) {
-    lines.push(...fmt.map(String), '');
+    if (!answerAlreadyHasHistory) {
+      lines.push(fmt.trim(), '');
+    }
+  } else if (Array.isArray(fmt) && fmt.length && !answerAlreadyHasHistory) {
+    lines.push(
+      ...fmt
+        .map(String)
+        .filter((line) => !isContoraPathLine(line.trim())),
+      '',
+    );
   }
   const health = data.health as { formatted?: string[]; score?: number } | undefined;
   if (health?.formatted?.length) {
     lines.push('## Cognitive Health', ...health.formatted.map(String), '');
   }
+  const knowledgeHealth = data.knowledge_health as { formatted?: string[]; score?: number } | undefined;
+  if (knowledgeHealth?.formatted?.length) {
+    lines.push('## Knowledge Health (Lifecycle)', ...knowledgeHealth.formatted.map(String), '');
+  }
+  const reviewQueue = data.review_queue as Array<{ title: string; reason: string; detail: string }> | undefined;
+  if (reviewQueue?.length) {
+    lines.push(
+      '## Review Queue',
+      ...reviewQueue.slice(0, 12).map((item) => `- **${item.title}** (${item.reason}) — ${item.detail}`),
+      '',
+    );
+  }
+  const lifecycle = data.lifecycle as { confidence?: { overall?: number } } | undefined;
+  if (lifecycle && !lines.some((l) => l.includes('Knowledge trust'))) {
+    /* lifecycle block rendered via answer for decision intent */
+  }
+}
+
+function stripContoraPathsFromText(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return true;
+      }
+      if (isContoraPathLine(trimmed)) {
+        return false;
+      }
+      return true;
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
+function isContoraPathLine(line: string): boolean {
+  const t = line.replace(/^\s{2}/, '').trim();
+  return t.startsWith('.contora/') || t === '.contora';
 }
 
 function formatAskDataSources(result: AskProjectResult): string {
   const engineSources: Record<string, string> = {
     kernel: 'Cognitive Kernel (orchestrator)',
-    pik: '`.contora/intent/kernel.json` — Project Intent Kernel (direction & goals)',
+    pik: 'Project Intent Kernel (direction & goals)',
     semantic_fusion: 'PIK + state + handoff + intents + events + ADRs → alignment & drift',
     ask_v2: 'Ask v2 — direction queries prioritize PIK over event logs',
-    query_router: 'Rule router (`queryRouter`) — optional LLM intent when `contora.cilAiEnabled`',
-    event_engine: '`.contora/cognitive/events/` — synced from timeline, git changes, decisions, focus',
-    decision_engine: '`.contora/cognitive/adrs/` + decision provenance graph',
-    action_engine: 'Focus (`.contora/state.json`), handoff, intent graph, events, ADRs, impact graph',
-    state_engine: '`.contora/state.json` + `.contora/intelligence/intent-graph.json`',
+    query_router: 'Rule router — optional LLM intent when `contora.cilAiEnabled`',
+    event_engine: 'Cognitive events — synced from timeline, git changes, decisions, focus',
+    decision_engine: 'ADR records + decision provenance graph',
+    action_engine: 'Focus, handoff, intent graph, events, ADRs, impact graph',
+    state_engine: 'Workspace state + intent graph',
     narrative_layer: 'Transfer story / project narrative (rule-built)',
-    snapshot_engine: '`.contora/cognitive/snapshots/` — project snapshots & time travel',
-    cognitive_health: '`.contora/cognitive/health.json` — derived quality signals',
-    knowledge_graph: '`.contora/cognitive/knowledge/` — entity links',
-    module_projection: '`.contora/cognitive/modules/` — per-module event history',
-    handoff_replay: '`.contora/understanding/handoff.json` — replay stages',
+    snapshot_engine: 'Project snapshots & time travel',
+    lifecycle: 'Decision freshness, trust, review queue',
+    knowledge_graph: 'Entity knowledge links',
+    module_projection: 'Per-module event history',
+    handoff_replay: 'Handoff replay stages',
     journey_builder: 'Project journey stages (events + decisions)',
-    impact_engine: '`.contora/intelligence/impact-graph.json`',
-    ai_layer: 'LLM polish only (DeepSeek/OpenAI/etc. via SecretStorage) — does not invent facts',
+    impact_engine: 'Impact / blast-radius graph',
+    ai_layer: 'LLM polish only — does not invent facts',
   };
 
   const lines = ['## Data sources', ''];
@@ -79,7 +130,7 @@ function formatAskDataSources(result: AskProjectResult): string {
         continue;
       }
       seen.add(key);
-      const desc = engineSources[step.engine] ?? 'Project artifacts under `.contora/`';
+      const desc = engineSources[step.engine] ?? 'Local project intelligence store';
       lines.push(`- \`${step.engine}\` / ${step.phase} — ${desc}`);
     }
     lines.push('');
@@ -92,14 +143,13 @@ function formatAskDataSources(result: AskProjectResult): string {
     lines.push('*Primary answer is rule-based from workspace artifacts (no LLM rewrite).*', '');
   }
 
-  lines.push(
-    '**Artifact roots:** `.contora/intent/kernel.json` · `.contora/state.json` · `.contora/cognitive/` · `.contora/intelligence/` · `.contora/understanding/` · IDE session events (`.contora/events/*.jsonl`)',
-  );
+  lines.push('*Primary answer is rule-based from workspace intelligence (no LLM rewrite).*');
   return lines.join('\n');
 }
 
 function formatAskResult(result: AskProjectResult): string {
-  const lines = [`# Ask Contorium`, '', `**Question:** ${result.question}`, '', result.answer, ''];
+  const answer = stripContoraPathsFromText(result.answer);
+  const lines = [`# Ask Contorium`, '', `**Question:** ${result.question}`, '', answer, ''];
 
   const semanticBlock = formatSemanticSection(result);
   if (semanticBlock) {
@@ -136,9 +186,9 @@ function formatAskResult(result: AskProjectResult): string {
       (a) => `- ${a.task} — ${a.reason}`,
     ), '');
   }
-  appendFormattedBlocks(lines, data);
+  appendFormattedBlocks(lines, data, result.intent);
 
-  lines.push(formatAskDataSources(result));
+  lines.push(stripContoraPathsFromText(formatAskDataSources(result)));
   return lines.join('\n');
 }
 

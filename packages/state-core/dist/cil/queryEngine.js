@@ -11,6 +11,8 @@ const decisionCenter_js_1 = require("./decisionCenter.js");
 const journeyBuilder_js_1 = require("./journeyBuilder.js");
 const store_js_1 = require("../understanding/store.js");
 const askV2_js_1 = require("./askV2.js");
+const askBridge_js_1 = require("../lifecycle/askBridge.js");
+const askHints_js_1 = require("../lifecycle/askHints.js");
 function toSemanticBundle(fusion, pikSource) {
     return {
         primary_intent: fusion.primary_intent_statement,
@@ -42,6 +44,11 @@ async function askProject(workspaceRoot, question) {
     if (output.intent === 'decision') {
         const result = base.data;
         const center = await (0, decisionCenter_js_1.getDecisionCenter)(workspaceRoot);
+        const enriched = await (0, askBridge_js_1.enrichDecisionAskAnswer)(workspaceRoot, base.answer, {
+            id: result?.decision ? String(result.decision) : undefined,
+            title: typeof result?.decision === 'string' ? String(result.decision) : undefined,
+        }, question);
+        let decisionAnswer = enriched.answer;
         const llmWhy = await (0, index_js_1.generateWhyExplanation)(workspaceRoot, {
             question,
             decision: String(result?.decision ?? ''),
@@ -50,21 +57,41 @@ async function askProject(workspaceRoot, question) {
             adrs: center.decisions.slice(0, 4).map((d) => `${d.title}: ${d.reason}`),
         });
         if (llmWhy) {
+            const llmEnriched = await (0, askBridge_js_1.enrichDecisionAskAnswer)(workspaceRoot, llmWhy, {
+                id: result?.decision ? String(result.decision) : undefined,
+                title: typeof result?.decision === 'string' ? String(result.decision) : undefined,
+            }, question);
+            decisionAnswer = llmEnriched.answer;
             base = {
                 ...base,
-                answer: (0, askV2_js_1.appendAlignmentNote)(llmWhy, ctx.fusion),
-                data: { ...result, answer: llmWhy, llm_enhanced: true },
+                answer: (0, askV2_js_1.appendAlignmentNote)(decisionAnswer, ctx.fusion),
+                data: {
+                    ...result,
+                    answer: decisionAnswer,
+                    llm_enhanced: true,
+                    lifecycle: enriched.lifecycle,
+                },
                 trace: [...(base.trace ?? []), { engine: 'ai_layer', phase: 'why', at: new Date().toISOString() }],
                 semantic,
             };
             return base;
         }
+        base = {
+            ...base,
+            answer: (0, askV2_js_1.appendAlignmentNote)(decisionAnswer, ctx.fusion),
+            data: { ...result, answer: decisionAnswer, lifecycle: enriched.lifecycle },
+            semantic,
+        };
         return base;
     }
     const enhanced = await (0, index_js_1.enhanceAskAnswer)(workspaceRoot, question, base.answer, base.structured?.fact);
     if (enhanced) {
-        return { ...base, answer: (0, askV2_js_1.appendAlignmentNote)(enhanced, ctx.fusion), semantic };
+        base = { ...base, answer: (0, askV2_js_1.appendAlignmentNote)(enhanced, ctx.fusion), semantic };
     }
+    base = {
+        ...base,
+        answer: await (0, askHints_js_1.appendLifecycleTrustWarnings)(workspaceRoot, base.answer, output.intent),
+    };
     return base;
 }
 async function getProjectStory(workspaceRoot) {

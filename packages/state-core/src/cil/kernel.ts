@@ -38,6 +38,7 @@ import { queryTimeTravel } from './timeTravel.js';
 import { prepareAskV2Context, buildDirectionKernelOutput } from './askV2.js';
 import { ensureProjectIntentKernel } from './pik/generator.js';
 import { extractWhatIsEntityTopic } from './semantic/directionQuery.js';
+import { persistKnowledgeLifecycle, readKnowledgeLifecycle, formatReviewQueue, appendLifecycleTrustOverlay, formatSupersededDecisionPreamble, findDecisionLifecycle } from '../lifecycle/index.js';
 import type {
   CilIntent,
   HistoryRange,
@@ -108,15 +109,23 @@ async function dispatchAsk(
           )
         : center.decisions[0];
       if (match) {
+        trace.push(traceStep('lifecycle', 'filter'));
+        const lcIndex =
+          (await readKnowledgeLifecycle(workspaceRoot)) ??
+          (await persistKnowledgeLifecycle(workspaceRoot).catch(() => null));
+        const lcRecord = lcIndex ? findDecisionLifecycle(lcIndex, match.id) : undefined;
+        const supersededNote = lcRecord ? formatSupersededDecisionPreamble(lcRecord) : undefined;
+        const baseAnswer = `${match.title}: ${match.reason}`;
         return {
           intent: 'decision',
           result: {
-            answer: `${match.title}: ${match.reason}`,
+            answer: supersededNote ? `${supersededNote}\n\n${baseAnswer}` : baseAnswer,
             decision: match.title,
             why: match.reason,
             date: match.date,
             confidence: freshnessLabelText(match.freshness),
             graph_nodes: graph?.nodes.length ?? 0,
+            lifecycle: lcRecord,
           },
           trace,
         };
@@ -208,11 +217,65 @@ async function dispatchAsk(
       if (routed.topic === 'health') {
         trace.push(traceStep('cognitive_health', 'read'));
         const health = await persistCognitiveHealth(workspaceRoot);
+        trace.push(traceStep('lifecycle', 'knowledge_health'));
+        const lc =
+          (await readKnowledgeLifecycle(workspaceRoot)) ??
+          (await persistKnowledgeLifecycle(workspaceRoot).catch(() => null));
+        const cognitiveLines = health.formatted.slice(0, 10).join('\n');
+        const knowledgeLines = lc?.health.formatted.slice(0, 10).join('\n') ?? '';
+        const answer = [
+          `Cognitive health: ${health.score}% (${health.warnings.length} warning(s))`,
+          lc ? `Knowledge health: ${lc.health.score}% (${lc.review_queue.length} review item(s))` : '',
+          '',
+          cognitiveLines,
+          knowledgeLines ? `\n${knowledgeLines}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
         return {
           intent: 'state',
           result: {
-            answer: `Cognitive health: ${health.score}% (${health.warnings.length} warning(s))\n\n${health.formatted.slice(0, 12).join('\n')}`,
+            answer,
             health,
+            knowledge_health: lc?.health,
+            lifecycle_score: lc?.health.score,
+            review_queue: lc?.review_queue,
+            formatted: [...(health.formatted ?? []), '', ...(lc?.health.formatted ?? [])],
+          },
+          trace,
+        };
+      }
+      if (routed.topic === 'review') {
+        trace.push(traceStep('lifecycle', 'review_queue'));
+        const index =
+          (await readKnowledgeLifecycle(workspaceRoot)) ??
+          (await persistKnowledgeLifecycle(workspaceRoot));
+        const formatted = formatReviewQueue(index);
+        return {
+          intent: 'state',
+          result: {
+            answer: index.review_queue.length
+              ? `${index.review_queue.length} decision(s) need review\n\n${formatted.slice(0, 20).join('\n')}`
+              : 'Review queue clear — no stale, expired, or conflicting decisions.',
+            review_queue: index.review_queue,
+            knowledge_health: index.health,
+            formatted,
+          },
+          trace,
+        };
+      }
+      if (routed.topic === 'knowledge_health') {
+        trace.push(traceStep('lifecycle', 'knowledge_health'));
+        const index =
+          (await readKnowledgeLifecycle(workspaceRoot)) ??
+          (await persistKnowledgeLifecycle(workspaceRoot));
+        return {
+          intent: 'state',
+          result: {
+            answer: `Knowledge Health: ${index.health.score}%\n\n${index.health.formatted.join('\n')}`,
+            knowledge_health: index.health,
+            lifecycle: index,
+            formatted: index.health.formatted,
           },
           trace,
         };
@@ -359,8 +422,11 @@ export async function runCognitiveKernel(
     >);
     await syncKnowledgeGraph(workspaceRoot, events, adrs, snapshots).catch(() => undefined);
 
+    trace.push(traceStep('lifecycle', 'persist'));
+    const lifecycleIndex = await persistKnowledgeLifecycle(workspaceRoot).catch(() => null);
+
     trace.push(traceStep('cognitive_health', 'compute'));
-    await persistCognitiveHealth(workspaceRoot).catch(() => undefined);
+    const healthReport = await persistCognitiveHealth(workspaceRoot).catch(() => null);
 
     trace.push(traceStep('pik', 'ensure'));
     await ensureProjectIntentKernel(workspaceRoot).catch(() => undefined);
@@ -369,6 +435,23 @@ export async function runCognitiveKernel(
       workspaceRoot,
       events.map((e) => e.id),
       adrs.map((a) => a.id),
+      {
+        lifecycle: lifecycleIndex
+          ? {
+              path: '.contora/lifecycle/index.json',
+              updated_at: lifecycleIndex.updated_at,
+              score: lifecycleIndex.health.score,
+              review_count: lifecycleIndex.review_queue.length,
+            }
+          : undefined,
+        cognitive_health: healthReport
+          ? {
+              path: '.contora/cognitive/health.json',
+              updated_at: healthReport.updated_at,
+              score: healthReport.score,
+            }
+          : undefined,
+      },
     );
 
     return { intent: 'sync', result: { events, adrs, event_count: events.length }, trace };
@@ -399,7 +482,22 @@ export async function runCognitiveKernel(
     trace.push(traceStep('decision_engine', 'center'));
     const center = await getDecisionCenter(workspaceRoot);
     const graph = await readDecisionGraph(workspaceRoot);
-    return { intent: 'decision', result: { ...center, graph }, trace };
+    trace.push(traceStep('lifecycle', 'overlay'));
+    const lcIndex =
+      (await readKnowledgeLifecycle(workspaceRoot)) ??
+      (await persistKnowledgeLifecycle(workspaceRoot).catch(() => null));
+    const formatted = appendLifecycleTrustOverlay(center.formatted, lcIndex);
+    return {
+      intent: 'decision',
+      result: {
+        ...center,
+        graph,
+        formatted,
+        knowledge_health: lcIndex?.health,
+        review_queue: lcIndex?.review_queue,
+      },
+      trace,
+    };
   }
 
   if (input.mode === 'snapshot') {
@@ -417,7 +515,62 @@ export async function runCognitiveKernel(
   if (input.mode === 'health') {
     trace.push(traceStep('cognitive_health', 'read'));
     const health = await persistCognitiveHealth(workspaceRoot);
-    return { intent: 'state', result: health, trace };
+    trace.push(traceStep('lifecycle', 'knowledge_health'));
+    const lifecycle = await readKnowledgeLifecycle(workspaceRoot).catch(() => null);
+    if (!lifecycle) {
+      await persistKnowledgeLifecycle(workspaceRoot).catch(() => undefined);
+    }
+    const lc = lifecycle ?? (await readKnowledgeLifecycle(workspaceRoot));
+    const formatted = [
+      ...(health.formatted ?? []),
+      '',
+      ...(lc?.health.formatted ?? []),
+    ];
+    return {
+      intent: 'state',
+      result: {
+        ...health,
+        knowledge_health: lc?.health,
+        lifecycle_score: lc?.health.score,
+        formatted,
+      },
+      trace,
+    };
+  }
+
+  if (input.mode === 'lifecycle') {
+    trace.push(traceStep('lifecycle', 'compute'));
+    const index = await persistKnowledgeLifecycle(workspaceRoot);
+    return {
+      intent: 'state',
+      result: {
+        answer: `Knowledge Health: ${index.health.score}% · ${index.review_queue.length} review item(s)`,
+        lifecycle: index,
+        health: index.health,
+        formatted: index.health.formatted,
+      },
+      trace,
+    };
+  }
+
+  if (input.mode === 'review') {
+    trace.push(traceStep('lifecycle', 'review_queue'));
+    const index =
+      (await readKnowledgeLifecycle(workspaceRoot)) ??
+      (await persistKnowledgeLifecycle(workspaceRoot));
+    const formatted = formatReviewQueue(index);
+    return {
+      intent: 'state',
+      result: {
+        answer: index.review_queue.length
+          ? `${index.review_queue.length} decision(s) need review`
+          : 'Review queue clear',
+        review_queue: index.review_queue,
+        knowledge_health: index.health,
+        formatted,
+      },
+      trace,
+    };
   }
 
   if (input.mode === 'entity' && input.topic) {

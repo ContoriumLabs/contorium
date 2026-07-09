@@ -352,8 +352,7 @@ function scheduleSidebarRefreshFromEditor(sidebar: ContoraSidebarProvider): () =
     }
     timer = setTimeout(() => {
       timer = undefined;
-      // Read-only sidebar refresh — do not run governance review on every tab/focus change.
-      void sidebar.refresh();
+      void sidebar.refreshLight();
     }, 450);
   };
 }
@@ -454,10 +453,12 @@ export function activate(context: vscode.ExtensionContext): void {
     const matcherPromise = ensureIgnoreMatcher(folder);
     void mergeDiskIfEnabled(stateManager, globalEventStore);
 
-    const st0 = await loadStateWithTimeout(stateManager, folder);
+    const [st0, matcher] = await Promise.all([
+      loadStateWithTimeout(stateManager, folder),
+      matcherPromise,
+    ]);
     void sidebar.refresh();
 
-    const matcher = await matcherPromise;
     const eventCount = globalEventStore?.getAll().length ?? 0;
 
     bindIgnoreFileWatcher(folder, matcher);
