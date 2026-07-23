@@ -2,7 +2,7 @@
 
 Optional **explanation-layer** LLM integration: **facts stay rule-based; explanations may use LLM**. PIL and CIL run fully without AI when `enabled: false` (default).
 
-- [CIL Freeze](./CIL_FREEZE.md) · [Overview](./OVERVIEW.md) · [Dashboard LLM Config](./DASHBOARD.md#view-e--llm-config)
+- [Overview](./OVERVIEW.md) · [CIL](./CIL.md) · [Dashboard LLM Config](./DASHBOARD.md#view-e--llm-config)
 
 ---
 
@@ -27,7 +27,7 @@ OpenAI · Anthropic · OpenRouter · Gemini · DeepSeek · Ollama
 | eventEngine, snapshotEngine, knowledgeGraph, decisionGraph, cognitiveHealth, handoffReplay | **No** |
 | Why, Story, Essence, DNA, Ask enhance, Intent Router (hybrid) | **Optional** |
 
-Kernel fact engines must not call LLM. The AI Layer only consumes structured facts already on disk. See [CIL_FREEZE.md](./CIL_FREEZE.md).
+Kernel fact engines must not call LLM. The AI Layer only consumes structured facts already on disk. See [CIL.md](./CIL.md).
 
 ---
 

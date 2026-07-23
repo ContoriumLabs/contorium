@@ -1,6 +1,6 @@
 # Contorium — Install, Use, and Uninstall (Three Adapters)
 
-> Back to [README](../README.md) · [Documentation index](./README.md) · [PIL Runtime Guide](./PIL_RUNTIME.md) · [Project Intelligence Layer v1.1.3](./PROJECT_INTELLIGENCE_LAYER.md) · Per adapter: [IDE](./IDE_EXTENSION.md) · [MCP](./MCP.md) · [CLI](./CLI.md)
+> Back to [README](../README.md) · [Documentation index](./README.md) · [PIL Runtime Guide](./PIL_RUNTIME.md) · Per adapter: [IDE](./IDE_EXTENSION.md) · [MCP](./MCP.md) · [CLI](./CLI.md)
 
 Contorium is an **AI Project Intelligence Layer (PIL)**. IDE, MCP, and CLI are **peer PIL runtimes** sharing `@contora/state-core` and the project-local `.contora/` directory.
 
@@ -91,7 +91,7 @@ IDE events / Git scan
   → IDE sidebar / MCP tools / CLI export / Dashboard [c] copy
 ```
 
-**Decision Provenance pipeline** (see [Language Spec](./CONTORIUM_LANGUAGE_SPEC.md)):
+**Decision Provenance pipeline** (advanced — see [MCP.md](./MCP.md)):
 
 | Step | MCP tool (preferred) | IDE | CLI (preferred) |
 |------|----------------------|-----|-----------------|
@@ -110,7 +110,7 @@ IDE events / Git scan
 
 Legacy aliases (`ensure_control_ready`, `run_governance_cycle`, `contorium governance cycle`, `contorium control …`) remain supported.
 
-See [ARCHITECTURE_V3.md](./ARCHITECTURE_V3.md) for the understanding layer design.
+See [OVERVIEW.md](./OVERVIEW.md) and [PIL_RUNTIME.md](./PIL_RUNTIME.md) for the intelligence model.
 
 ---
 
@@ -433,7 +433,5 @@ After changing CLI or dashboard code: run `npm run build:cli` and **restart the 
 - [IDE Extension](./IDE_EXTENSION.md)
 - [MCP Server](./MCP.md)
 - [CLI](./CLI.md)
-- [Architecture V3.1](./ARCHITECTURE_V3.md)
-- [Engineering Closure (frozen)](./ENGINEERING_CLOSURE.md)
-- [Runtime Dashboard (CRBP)](./DASHBOARD.md)
-- [State Engine](./STATE_ENGINE.md)
+- [Runtime Dashboard](./DASHBOARD.md)
+- [Knowledge Lifecycle](./LIFECYCLE.md)

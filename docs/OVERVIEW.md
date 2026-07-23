@@ -304,4 +304,5 @@ Legacy tool and command names remain supported — see [MCP.md](./MCP.md) and [C
 | LLM explanation layer | [AI_LAYER.md](./AI_LAYER.md) |
 | Dashboard TUI | [DASHBOARD.md](./DASHBOARD.md) |
 | Operations guide | [PIL_RUNTIME.md](./PIL_RUNTIME.md) |
-| CIL spec | [CIL_V3.md](./CIL_V3.md) |
+| CIL | [CIL.md](./CIL.md) |
+| Knowledge Lifecycle | [LIFECYCLE.md](./LIFECYCLE.md) |

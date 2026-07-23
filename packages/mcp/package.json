@@ -25,7 +25,7 @@
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
   "bin": {
-    "contorium-mcp": "./bin/contorium-mcp.js"
+    "contorium-mcp": "bin/contorium-mcp.js"
   },
   "files": [
     "dist",
@@ -54,9 +54,6 @@
     "@types/node": "^20.11.0",
     "typescript": "^5.3.3"
   },
-  "bundledDependencies": [
-    "@contora/state-core"
-  ],
   "bundleDependencies": [
     "@contora/state-core"
   ]

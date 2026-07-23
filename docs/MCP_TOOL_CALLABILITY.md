@@ -1,7 +1,7 @@
 # MCP Tool Callability Report
 
 > Last verified: **2026-07-23**  
-> Workspace: `sessionrecall` (monorepo)  
+> Workspace: Contorium monorepo  
 > Harness: `scripts/verify-mcp-tools.mjs`  
 > Commands: `npm run test:mcp-tools` · `npm run test:mcp-tools:prefer`
 

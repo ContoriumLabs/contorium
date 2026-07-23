@@ -298,10 +298,7 @@ API keys use VS Code **SecretStorage**; may persist after uninstall depending on
 
 - [README](../README.md)
 - [Install / use / uninstall](./INSTALL.md)
-- [Runtime Dashboard (CRBP)](./DASHBOARD.md)
+- [Runtime Dashboard](./DASHBOARD.md)
 - [MCP](./MCP.md)
 - [CLI](./CLI.md)
-- [State Engine](./STATE_ENGINE.md)
-- [Architecture V3.1](./ARCHITECTURE_V3.md)
-- [Engineering Closure](./ENGINEERING_CLOSURE.md)
-- [Runtime package](./RUNTIME.md)
+- [Knowledge Lifecycle](./LIFECYCLE.md)

@@ -1,6 +1,6 @@
 /**
  * Cognitive Interaction Layer (CIL) v3 — user-facing cognition over AI PIL storage.
- * @see docs/CIL_V3.md
+ * @see docs/CIL.md
  */
 
 export const COGNITIVE_EVENT_SCHEMA = 'cognitive_event.v1' as const;

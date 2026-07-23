@@ -1,6 +1,6 @@
 # Cognitive Interaction Layer (CIL v3 — Frozen)
 
-> **Architecture freeze:** [CIL_FREEZE.md](./CIL_FREEZE.md) · **Full spec:** [CIL_V3.md](./CIL_V3.md)
+> See also: [LIFECYCLE.md](./LIFECYCLE.md) · [SURFACES.md](./SURFACES.md) · [MCP.md](./MCP.md)
 
 ## What CIL is
 
@@ -24,7 +24,7 @@ contorium entity mcp · essence --copy · replay
 
 ## Knowledge Lifecycle (decision validity)
 
-Tracks **trust over time** for ADRs: freshness, conflicts, ownership, verification, and **validity decay** (why a decision may no longer hold). Projection under `.contora/lifecycle/`. See [LIFECYCLE_V1.md](./LIFECYCLE_V1.md).
+Tracks **trust over time** for ADRs: freshness, conflicts, ownership, verification, and **validity decay** (why a decision may no longer hold). Projection under `.contora/lifecycle/`. See [LIFECYCLE.md](./LIFECYCLE.md).
 
 | Command / route | Purpose |
 | --- | --- |
@@ -48,5 +48,7 @@ Only `.contora/cognitive-events/` is the fact source. Snapshot, Knowledge Graph,
 | `set_decision_lifecycle_meta` | Owner, verification, expiry |
 | `get_entity_knowledge` | Knowledge Graph |
 | `get_snapshot` | Time travel (+ perspective) |
+| `ask_project` | Natural-language Q&A (preferred entry) |
+| `transfer_project` | Unified export (`mode`: context \| intelligence \| story \| essence \| handoff) |
 
-Legacy `inspect_*` = PIL storage API.
+PIL storage reads use `inspect_*` (preferred structured API). Prefer `ask_project` / `transfer_project` for agent workflows — see [MCP.md](./MCP.md).

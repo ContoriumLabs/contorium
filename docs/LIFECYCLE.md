@@ -1,6 +1,6 @@
-# Knowledge Lifecycle (LIFECYCLE)
+# Knowledge Lifecycle
 
-Contorium v3.2+ tracks whether project knowledge is still trustworthy — **how stale** it is and **why** it may no longer be authoritative.
+Contorium v3+ tracks whether project knowledge is still trustworthy — **how stale** it is and **why** it may no longer be authoritative.
 
 **Schema:** `contorium.lifecycle.v3` (read-compatible with `contorium.lifecycle.v2`)
 
@@ -107,6 +107,7 @@ Implementation: `packages/state-core/src/lifecycle/` · `cil/changeEventEngine.t
 
 ## Related
 
-- Spec notes: [优化.md](../优化.md) · [KNOWLEDGE_LIFECYCLE_OPTIMIZATION_BREAKDOWN.md](./KNOWLEDGE_LIFECYCLE_OPTIMIZATION_BREAKDOWN.md)
+- [CIL quick reference](./CIL.md)
+- [MCP tools](./MCP.md)
+- [CLI](./CLI.md)
 - Cognitive Health: complementary quality signals (shared stale threshold)
-- Governance v4: change review (orthogonal to decision lifecycle)

@@ -40,4 +40,4 @@ get_workspace_context        # state.json
 | CODE EVOLUTION | `timeline.json` |
 | INSIGHTS / NOTES / INSTRUCTION | Heuristics + user notes + AI mode |
 
-See [IDE_EXTENSION.md](../docs/IDE_EXTENSION.md) and [ARCHITECTURE_V3.md](../docs/ARCHITECTURE_V3.md).
+See [IDE_EXTENSION.md](../docs/IDE_EXTENSION.md) and [OVERVIEW.md](../docs/OVERVIEW.md).

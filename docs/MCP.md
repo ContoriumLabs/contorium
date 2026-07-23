@@ -11,7 +11,7 @@ stdio MCP server — **PIL Runtime** for Claude Code, Cursor Agent, OpenAI Codex
 | Group | Tools |
 |-------|-------|
 | **Inspect** | `inspect_state`, `inspect_intent`, `inspect_decision`, `inspect_timeline`, `inspect_graph`, `inspect_confidence`, `inspect_impact`, `inspect_evolution`, `inspect_provenance`, `inspect_health`, `inspect_why` |
-| **Transfer** | `transfer_context`, `transfer_intelligence`, `transfer_handoff` |
+| **Transfer** | `transfer_project` (`mode`: context \| intelligence \| story \| essence \| handoff); legacy: `transfer_context` / `transfer_intelligence` / `transfer_handoff` |
 | **Capture** | `capture_focus`, `capture_note`, `capture_decision` |
 
 CLI mirror: `contorium inspect …` · `contorium transfer …` · `contorium capture …`
@@ -29,11 +29,11 @@ get_project_essence · get_handoff_replay · get_snapshot · get_decision_graph
 get_project_history · transfer_story · transfer_project · get_suggested_questions
 ```
 
-**Decision validity (Lifecycle v2):** `get_knowledge_health` and `get_review_queue` expose trust scores and invalidation triggers. `ask_project` attaches a validity overlay on decision answers. `set_decision_lifecycle_meta` records owner and verification (owner changes feed `OWNER_CHANGE` signals).
+**Decision validity (Lifecycle v3):** `get_knowledge_health` and `get_review_queue` expose trust scores and invalidation triggers. `ask_project` attaches a validity overlay on decision answers. `set_decision_lifecycle_meta` records owner and verification (owner changes feed `OWNER_CHANGE` signals).
 
 CLI mirror: `contorium ask` · `contorium lifecycle` · `contorium review` · `contorium health`
 
-See [CIL_V3.md](./CIL_V3.md) · [SURFACES.md](./SURFACES.md).
+See [CIL.md](./CIL.md) · [LIFECYCLE.md](./LIFECYCLE.md) · [SURFACES.md](./SURFACES.md).
 
 ---
 
@@ -383,16 +383,16 @@ Invoke tools in the browser; set `CONTORIUM_WORKSPACE` in the Inspector environm
 | `get_decision_log` | **DECISION log** — append-only decision records |
 | `get_stability_index` | [Legacy] same as `get_confidence_index` |
 
-See [PROJECT_INTELLIGENCE_LAYER.md](./PROJECT_INTELLIGENCE_LAYER.md).
+See [PIL_RUNTIME.md](./PIL_RUNTIME.md) · [MCP tool callability](./MCP_TOOL_CALLABILITY.md).
 
 `get_project_change`, `get_project_graph`, `get_project_knowledge_graph`, `get_project_graph_snapshot`, `get_workspace_context`, `get_project_snapshot`, `get_project_state`, `get_project_intelligence`, `get_intent_graph`, `get_active_intents`, `get_state_conflicts`, `store_memory`, `search_memory`, `get_memory`, and others remain available for backward compatibility.
 
 ---
 
-## Decision Provenance tools (preferred)
+## Decision Provenance tools (advanced / slow)
 
 Single decision pipeline shared with IDE and CLI. Artifacts persist under `.contora/governance/`.  
-See [Language Spec](./CONTORIUM_LANGUAGE_SPEC.md).
+These tools can take **1–3 minutes** on large workspaces — prefer `ask_project` / `inspect_*` / `get_knowledge_health` for ordinary questions. Call **at most one** derive cycle per turn (aliases share the same handler). See [MCP_TOOL_CALLABILITY.md](./MCP_TOOL_CALLABILITY.md).
 
 | Tool | Purpose | IDE equivalent | CLI equivalent |
 |------|---------|----------------|----------------|
@@ -476,7 +476,7 @@ Mode B overlay suggests skills from open sources (GitHub, npm, local registry). 
 | `search_memory` | Search memory by keyword |
 | `get_memory` | Get memory entry by exact key |
 
-### Decision Provenance (preferred + legacy aliases)
+### Decision Provenance (advanced + legacy aliases)
 
 `inspect_cognition_ready` · `get_decision_context` · `resolve_scope_context` · `derive_decision_provenance` · `synthesize_context_payload` · `export_decision_provenance` · `record_project_intent` · `analyze_project` · `get_cognitive_state` · `get_change_log`
 
@@ -604,7 +604,8 @@ contorium-mcp bootstrap --workspace E:/your-project
 ## Related docs
 
 - [Install overview](./INSTALL.md)
-- [Runtime Dashboard (CRBP)](./DASHBOARD.md)
+- [Runtime Dashboard](./DASHBOARD.md)
 - [CLI](./CLI.md)
 - [IDE Extension](./IDE_EXTENSION.md)
-- [Architecture V3.1](./ARCHITECTURE_V3.md)
+- [Knowledge Lifecycle](./LIFECYCLE.md)
+- [MCP tool callability](./MCP_TOOL_CALLABILITY.md)

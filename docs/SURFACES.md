@@ -1,7 +1,6 @@
 # Contorium — Three-Surface Information Architecture
 
-> How IDE, CLI, and MCP divide responsibility.  
-> **Freeze:** [CIL_FREEZE.md](./CIL_FREEZE.md)
+> How IDE, CLI, and MCP divide responsibility.
 
 ---
 

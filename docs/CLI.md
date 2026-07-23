@@ -159,7 +159,7 @@ contorium ai test [path] [--json]
 | `contorium timeline [path]` | `timeline.json` | `get_project_timeline` |
 | `contorium export [path] [--format json\|markdown]` | Unified export (handoff + governance appendix) | combined tools |
 
-### Decision Provenance (preferred — [Language Spec](./CONTORIUM_LANGUAGE_SPEC.md))
+### Decision Provenance (advanced)
 
 Unified artifacts under `.contora/governance/` — see [INSTALL.md](./INSTALL.md#architecture-three-adapters).
 
@@ -343,7 +343,5 @@ Remove-Item -Recurse -Force .contora
 - [Install overview](./INSTALL.md)
 - [IDE Extension](./IDE_EXTENSION.md)
 - [MCP Server](./MCP.md)
-- [Runtime Dashboard (CRBP)](./DASHBOARD.md)
-- [Architecture V3.1](./ARCHITECTURE_V3.md)
-- [Engineering Closure](./ENGINEERING_CLOSURE.md)
-- [State Engine](./STATE_ENGINE.md)
+- [Runtime Dashboard](./DASHBOARD.md)
+- [Knowledge Lifecycle](./LIFECYCLE.md)

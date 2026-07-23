@@ -497,7 +497,7 @@ It preserves and explains the intelligence behind your decisions.
 - **PIL Guide:** [docs/PIL_RUNTIME.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/PIL_RUNTIME.md)
 - **AI Layer:** [docs/AI_LAYER.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/AI_LAYER.md)
 - **MCP Docs:** [docs/MCP.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/MCP.md)
-- **Knowledge Lifecycle:** [docs/LIFECYCLE_V1.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/LIFECYCLE_V1.md)
+- **Knowledge Lifecycle:** [docs/LIFECYCLE.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/LIFECYCLE.md)
 - **Install Guide:** [docs/INSTALL.md](https://github.com/ContoriumLabs/contorium/blob/main/docs/INSTALL.md)
 
 ---

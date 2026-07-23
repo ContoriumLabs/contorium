@@ -511,6 +511,8 @@ Contorium aims to become the intelligence layer that allows software projects to
 
 ## Links
 
+**Documentation:** [docs/README.md](./docs/README.md) · [Install](./docs/INSTALL.md) · [Overview](./docs/OVERVIEW.md)
+
 **Website:** [https://www.contorium.dev](https://www.contorium.dev)
 
 **GitHub:** [https://github.com/ContoriumLabs/contorium](https://github.com/ContoriumLabs/contorium)

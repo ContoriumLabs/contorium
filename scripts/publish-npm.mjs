@@ -35,16 +35,26 @@ function run(cmd, cmdArgs, cwd = root) {
   }
 }
 
+function printAuthHelp(reason) {
+  console.error(`\n[publish] ${reason}`);
+  console.error('[publish] Browser login often fails with:');
+  console.error('[publish]   E404 GET https://registry.npmjs.org/-/v1/done?authId=…');
+  console.error('[publish] Prefer an Automation / Granular Access Token instead:');
+  console.error('[publish]   1. https://www.npmjs.com/settings/~/tokens → Generate → Automation');
+  console.error('[publish]      (or Granular: read/write for @contorium/mcp, bypass 2FA for CI)');
+  console.error('[publish]   2. npm config set //registry.npmjs.org/:_authToken YOUR_TOKEN');
+  console.error('[publish]   3. npm whoami   # must print your username');
+  console.error('[publish]   4. npm run publish:npm');
+  console.error('[publish] Dry-run without login:  npm run publish:npm:dry-run\n');
+}
+
 function ensureNpmAuth() {
   if (dryRun) {
     return;
   }
   const r = spawnSync('npm', ['whoami'], { encoding: 'utf8', shell: true });
   if (r.status !== 0) {
-    console.error('\n[publish] ENEEDAUTH — not logged in to https://registry.npmjs.org/');
-    console.error('[publish] Run:  npm login');
-    console.error('[publish] Then: npm run publish:npm');
-    console.error('[publish] Dry-run without login:  npm run publish:npm:dry-run\n');
+    printAuthHelp('ENEEDAUTH — not logged in to https://registry.npmjs.org/');
     process.exit(1);
   }
   console.error(`[publish] npm user: ${String(r.stdout).trim()}`);
@@ -94,9 +104,35 @@ ensureNpmAuth();
 
 try {
   bundleStateCoreForPublish();
+  // Keep bin path npm-clean (no leading ./) after any package.json rewrite.
+  {
+    const pkg = JSON.parse(fs.readFileSync(mcpPkgPath, 'utf8'));
+    if (pkg.bin && typeof pkg.bin === 'object') {
+      for (const [name, rel] of Object.entries(pkg.bin)) {
+        if (typeof rel === 'string' && rel.startsWith('./')) {
+          pkg.bin[name] = rel.slice(2);
+        }
+      }
+      // Prefer single canonical field; npm treats these as aliases.
+      if (pkg.bundledDependencies && pkg.bundleDependencies) {
+        delete pkg.bundledDependencies;
+      }
+      fs.writeFileSync(mcpPkgPath, `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
+    }
+  }
   run('npm', ['run', 'build'], mcpDir);
   console.error('\n[publish] @contorium/mcp (with bundled state-core) …');
-  run('npm', ['publish', '--access', 'public'], mcpDir);
+  const pub = spawnSync('npm', ['publish', '--access', 'public', ...(dryRun ? ['--dry-run'] : [])], {
+    cwd: mcpDir,
+    stdio: 'inherit',
+    shell: true,
+  });
+  if (pub.status !== 0) {
+    printAuthHelp(
+      'npm publish failed — if you saw browser auth / E404 …/-/v1/done?authId=…, use a token (not browser login).',
+    );
+    process.exit(pub.status ?? 1);
+  }
   console.error(dryRun ? '\n[publish] dry-run complete.' : '\n[publish] done — users: npm install -g @contorium/mcp');
 } finally {
   restoreMcpPackageJson();
