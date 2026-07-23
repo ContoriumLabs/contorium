@@ -430,7 +430,7 @@ export function renderCognitiveViewMode(
   const active = ctx.cognitiveModeActive ?? 'A';
   const dot = (id: CognitiveViewSelection, label: string) => {
     const on = sel === id;
-    const applied = id !== 'C' && id !== 'D' && id !== 'E' && active === id;
+    const applied = (id === 'A' || id === 'B' || id === 'C' || id === 'D') && active === id;
     const marker = on ? c.bold('●') : c.dim('○');
     const text = on ? c.bold(label) : c.dim(label);
     const suffix = applied ? c.green(' ✓') : '';
@@ -444,7 +444,7 @@ export function renderCognitiveViewMode(
     dot('C', 'Debug Trace'),
     dot('D', 'Project History'),
     dot('E', 'LLM Config'),
-    c.dim('↑↓ view · Enter apply (A/B) · C/D/E preview · E: ←→ provider'),
+    c.dim('↑↓ view · Enter apply · C/D local lenses · E: ←→ provider'),
   ];
 }
 

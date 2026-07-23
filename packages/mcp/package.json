@@ -1,6 +1,6 @@
 {
   "name": "@contorium/mcp",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "description": "Contorium MCP Server — standardized AI runtime handoff for Claude Code, Cursor, Codex (stdio MCP).",
   "type": "module",
   "license": "MIT",
@@ -35,6 +35,8 @@
   "scripts": {
     "build": "node ../../scripts/clean-dist.mjs packages/mcp && tsc -p ./",
     "start": "node ./bin/contorium-mcp.js",
+    "test:tools": "node ../../scripts/verify-mcp-tools.mjs",
+    "test:tools:prefer": "node ../../scripts/verify-mcp-tools.mjs --prefer-only",
     "prepublishOnly": "npm run build"
   },
   "publishConfig": {

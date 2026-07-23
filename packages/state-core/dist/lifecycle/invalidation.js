@@ -24,6 +24,11 @@ function ownerChangeSignal(meta) {
     if (meta.previous_owner === meta.owner) {
         return undefined;
     }
+    if (meta.verified_at &&
+        meta.owner_changed_at &&
+        Date.parse(meta.verified_at) >= Date.parse(meta.owner_changed_at)) {
+        return undefined;
+    }
     return {
         type: 'OWNER_CHANGE',
         detected_at: meta.owner_changed_at ?? new Date().toISOString(),
@@ -79,7 +84,10 @@ function supersededValiditySignal(adr, ctx) {
         detail: 'Decision is no longer authoritative',
     };
 }
-function resolveValidityState(lifecycleStatus, signals, expired) {
+function resolveValidityState(lifecycleStatus, signals, expired, decayPenalty = 0, impactLevel) {
+    if (lifecycleStatus === 'ARCHIVED') {
+        return 'ARCHIVED';
+    }
     if (lifecycleStatus === 'SUPERSEDED' || lifecycleStatus === 'DEPRECATED') {
         return 'INVALIDATED';
     }
@@ -102,8 +110,15 @@ function resolveValidityState(lifecycleStatus, signals, expired) {
     if (highInvalidation || (expired && signals.length > 0)) {
         return 'NEEDS_REVALIDATION';
     }
-    if (signals.length) {
+    if (impactLevel === 'high' || decayPenalty >= 45) {
+        return 'SUSPECTED_INVALID';
+    }
+    if (impactLevel === 'medium' || decayPenalty >= 25) {
         return 'DECAYING';
+    }
+    if (signals.length) {
+        const allLow = signals.every((s) => s.severity === 'low');
+        return allLow ? 'WARNING' : 'DECAYING';
     }
     return 'VALID';
 }
@@ -128,8 +143,13 @@ function suggestedValidityAction(state, signals, decisionId) {
         case 'SUPERSEDED':
             return `Follow replacement decision ${primary.evidence ?? ''}`.trim();
         default:
-            if (state === 'NEEDS_REVALIDATION' || state === 'INVALIDATED') {
+            if (state === 'NEEDS_REVALIDATION' ||
+                state === 'INVALIDATED' ||
+                state === 'SUSPECTED_INVALID') {
                 return `Run: contorium lifecycle verify ${decisionId} --type manual --by <name>`;
+            }
+            if (state === 'WARNING') {
+                return 'Monitor change signals; confirm still valid if stack or scale shifts';
             }
             return 'Monitor validity signals and re-verify when convenient';
     }
@@ -138,12 +158,18 @@ function formatValidityStateLabel(state) {
     switch (state) {
         case 'VALID':
             return 'Valid';
+        case 'WARNING':
+            return 'Warning';
         case 'DECAYING':
             return 'Decaying';
+        case 'SUSPECTED_INVALID':
+            return 'Suspected invalid';
         case 'NEEDS_REVALIDATION':
             return 'Needs revalidation';
         case 'INVALIDATED':
             return 'Invalidated';
+        case 'ARCHIVED':
+            return 'Archived';
     }
 }
 /** Aggregate five decay triggers into validity causality (优化.md §三). */
@@ -157,6 +183,7 @@ async function computeDecisionInvalidation(workspaceRoot, input) {
     ]);
     const ownerSig = ownerChangeSignal(input.meta);
     const supersededSig = supersededValiditySignal(input.adr, input.supersededContext);
+    const impactSignal = input.impact?.signal;
     const signals = [
         ...codeChangeValiditySignals(input.codeHits),
         ...conflictValiditySignals(input.conflictRefs),
@@ -164,10 +191,11 @@ async function computeDecisionInvalidation(workspaceRoot, input) {
         ...assumptionSignals,
         ...(ownerSig ? [ownerSig] : []),
         ...(supersededSig ? [supersededSig] : []),
+        ...(impactSignal ? [impactSignal] : []),
     ];
     const decay_penalty = (0, decayPolicy_js_1.decayPenaltyForSignals)(signals);
     const invalidation_score = (0, decayPolicy_js_1.invalidationScoreFromPenalty)(decay_penalty);
-    const validity_state = resolveValidityState(input.lifecycleStatus, signals, input.expired);
+    const validity_state = resolveValidityState(input.lifecycleStatus, signals, input.expired, decay_penalty, input.impact?.impact);
     return {
         validity_state,
         validity_signals: signals,
@@ -175,5 +203,6 @@ async function computeDecisionInvalidation(workspaceRoot, input) {
         decay_penalty,
         assumptions,
         superseded_context: input.supersededContext,
+        invalidation_reason_chain: input.impact?.chain,
     };
 }

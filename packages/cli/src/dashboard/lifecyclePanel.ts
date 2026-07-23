@@ -50,13 +50,19 @@ export function renderKnowledgeGovernanceLines(
   const missingOwner = lc.decisions.filter((r) => !r.meta.owner);
   const invalidated = lc.decisions.filter((r) => r.validity_state === 'INVALIDATED');
   const needsRevalidation = lc.decisions.filter((r) => r.validity_state === 'NEEDS_REVALIDATION');
+  const suspected = lc.decisions.filter((r) => r.validity_state === 'SUSPECTED_INVALID');
   const decaying = lc.decisions.filter((r) => r.validity_state === 'DECAYING');
+  const warning = lc.decisions.filter((r) => r.validity_state === 'WARNING');
   const validCount = lc.decisions.filter((r) => r.validity_state === 'VALID').length;
+  const validityHealth = h.decision_validity_health;
 
   lines.push(`Fresh decisions: ${fresh.length} · Stale: ${stale.length} · Conflicts: ${conflicted.length}`);
   lines.push(
-    `Validity: valid ${validCount} · decaying ${decaying.length} · revalidate ${needsRevalidation.length} · invalidated ${invalidated.length}`,
+    `Validity: valid ${validCount} · warning ${warning.length} · decaying ${decaying.length} · suspected ${suspected.length} · revalidate ${needsRevalidation.length} · invalidated ${invalidated.length}`,
   );
+  if (validityHealth?.unresolved_impacts) {
+    lines.push(`Unresolved impacts: ${validityHealth.unresolved_impacts}`);
+  }
   lines.push(`Needs review: ${lc.review_queue.length} · Missing owners: ${missingOwner.length} · Unverified: ${unverified.length}`);
 
   const topReview = lc.review_queue.slice(0, 3);
@@ -111,11 +117,14 @@ export function renderLayeredHealthLines(state: DashboardState, width: number): 
     const h = lc.health;
     const invalidated = lc.decisions.filter((r) => r.validity_state === 'INVALIDATED').length;
     const revalidate = lc.decisions.filter((r) => r.validity_state === 'NEEDS_REVALIDATION').length;
+    const suspected = lc.decisions.filter((r) => r.validity_state === 'SUSPECTED_INVALID').length;
     lines.push(
       `Knowledge Lifecycle: ${h.score}% (fresh ${h.dimensions.freshness}% · review debt ${h.dimensions.review_debt}%)`,
     );
-    if (invalidated || revalidate) {
-      lines.push(`  Validity alerts: invalidated ${invalidated} · needs revalidation ${revalidate}`);
+    if (invalidated || revalidate || suspected) {
+      lines.push(
+        `  Validity alerts: invalidated ${invalidated} · suspected ${suspected} · needs revalidation ${revalidate}`,
+      );
     }
     if (lc.review_queue.length) {
       lines.push(`  Review queue: ${lc.review_queue.length} · expired ${h.expired_decisions} · stale ${h.stale_decisions}`);

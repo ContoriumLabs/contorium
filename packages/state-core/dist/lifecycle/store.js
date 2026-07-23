@@ -69,7 +69,9 @@ async function persistKnowledgeLifecycle(workspaceRoot) {
 }
 async function readKnowledgeLifecycle(workspaceRoot) {
     const raw = await (0, io_js_1.readJsonFile)((0, paths_js_1.lifecycleIndexPath)(workspaceRoot));
-    if (raw?.schema === types_js_1.KNOWLEDGE_LIFECYCLE_SCHEMA && Array.isArray(raw.decisions)) {
+    if (raw &&
+        Array.isArray(raw.decisions) &&
+        (raw.schema === types_js_1.KNOWLEDGE_LIFECYCLE_SCHEMA || raw.schema === 'contorium.lifecycle.v2')) {
         return raw;
     }
     return null;

@@ -3,6 +3,7 @@ import type { CodeDecisionTension } from './codeContradiction.js';
 import { extractAdrAssumptions, detectAssumptionFailures } from './assumption.js';
 import { decayPenaltyForSignals, invalidationScoreFromPenalty } from './decayPolicy.js';
 import { scanDependencyValiditySignals } from './dependencyScanner.js';
+import type { DecisionImpactResult } from './impactEngine.js';
 import type {
   AdrAssumption,
   DecisionLifecycleMeta,
@@ -10,6 +11,7 @@ import type {
   SupersededContext,
   ValiditySignal,
   ValidityState,
+  InvalidationChainLink,
 } from './types.js';
 
 export interface InvalidationInput {
@@ -20,6 +22,7 @@ export interface InvalidationInput {
   conflictRefs: string[];
   expired: boolean;
   supersededContext?: SupersededContext;
+  impact?: DecisionImpactResult;
 }
 
 const SEVERITY_RANK: Record<ValiditySignal['severity'], number> = {
@@ -34,6 +37,13 @@ export function ownerChangeSignal(meta: DecisionLifecycleMeta): ValiditySignal |
     return undefined;
   }
   if (meta.previous_owner === meta.owner) {
+    return undefined;
+  }
+  if (
+    meta.verified_at &&
+    meta.owner_changed_at &&
+    Date.parse(meta.verified_at) >= Date.parse(meta.owner_changed_at)
+  ) {
     return undefined;
   }
   return {
@@ -104,7 +114,12 @@ export function resolveValidityState(
   lifecycleStatus: LifecycleDecisionStatus,
   signals: ValiditySignal[],
   expired: boolean,
+  decayPenalty = 0,
+  impactLevel?: DecisionImpactResult['impact'],
 ): ValidityState {
+  if (lifecycleStatus === 'ARCHIVED') {
+    return 'ARCHIVED';
+  }
   if (lifecycleStatus === 'SUPERSEDED' || lifecycleStatus === 'DEPRECATED') {
     return 'INVALIDATED';
   }
@@ -130,8 +145,15 @@ export function resolveValidityState(
   if (highInvalidation || (expired && signals.length > 0)) {
     return 'NEEDS_REVALIDATION';
   }
-  if (signals.length) {
+  if (impactLevel === 'high' || decayPenalty >= 45) {
+    return 'SUSPECTED_INVALID';
+  }
+  if (impactLevel === 'medium' || decayPenalty >= 25) {
     return 'DECAYING';
+  }
+  if (signals.length) {
+    const allLow = signals.every((s) => s.severity === 'low');
+    return allLow ? 'WARNING' : 'DECAYING';
   }
   return 'VALID';
 }
@@ -164,8 +186,15 @@ export function suggestedValidityAction(
     case 'SUPERSEDED':
       return `Follow replacement decision ${primary.evidence ?? ''}`.trim();
     default:
-      if (state === 'NEEDS_REVALIDATION' || state === 'INVALIDATED') {
+      if (
+        state === 'NEEDS_REVALIDATION' ||
+        state === 'INVALIDATED' ||
+        state === 'SUSPECTED_INVALID'
+      ) {
         return `Run: contorium lifecycle verify ${decisionId} --type manual --by <name>`;
+      }
+      if (state === 'WARNING') {
+        return 'Monitor change signals; confirm still valid if stack or scale shifts';
       }
       return 'Monitor validity signals and re-verify when convenient';
   }
@@ -175,12 +204,18 @@ export function formatValidityStateLabel(state: ValidityState): string {
   switch (state) {
     case 'VALID':
       return 'Valid';
+    case 'WARNING':
+      return 'Warning';
     case 'DECAYING':
       return 'Decaying';
+    case 'SUSPECTED_INVALID':
+      return 'Suspected invalid';
     case 'NEEDS_REVALIDATION':
       return 'Needs revalidation';
     case 'INVALIDATED':
       return 'Invalidated';
+    case 'ARCHIVED':
+      return 'Archived';
   }
 }
 
@@ -195,6 +230,7 @@ export async function computeDecisionInvalidation(
   decay_penalty: number;
   assumptions: AdrAssumption[];
   superseded_context?: SupersededContext;
+  invalidation_reason_chain?: InvalidationChainLink[];
 }> {
   const assumptions = input.meta.assumptions?.length
     ? input.meta.assumptions
@@ -208,6 +244,7 @@ export async function computeDecisionInvalidation(
   const ownerSig = ownerChangeSignal(input.meta);
   const supersededSig = supersededValiditySignal(input.adr, input.supersededContext);
 
+  const impactSignal = input.impact?.signal;
   const signals: ValiditySignal[] = [
     ...codeChangeValiditySignals(input.codeHits),
     ...conflictValiditySignals(input.conflictRefs),
@@ -215,11 +252,18 @@ export async function computeDecisionInvalidation(
     ...assumptionSignals,
     ...(ownerSig ? [ownerSig] : []),
     ...(supersededSig ? [supersededSig] : []),
+    ...(impactSignal ? [impactSignal] : []),
   ];
 
   const decay_penalty = decayPenaltyForSignals(signals);
   const invalidation_score = invalidationScoreFromPenalty(decay_penalty);
-  const validity_state = resolveValidityState(input.lifecycleStatus, signals, input.expired);
+  const validity_state = resolveValidityState(
+    input.lifecycleStatus,
+    signals,
+    input.expired,
+    decay_penalty,
+    input.impact?.impact,
+  );
 
   return {
     validity_state,
@@ -228,5 +272,6 @@ export async function computeDecisionInvalidation(
     decay_penalty,
     assumptions,
     superseded_context: input.supersededContext,
+    invalidation_reason_chain: input.impact?.chain,
   };
 }

@@ -21,10 +21,10 @@ export function registerGovernanceAuxTools(
     'update_project_intent',
     {
       description:
-        '[Inspect · record] Record user direction overlay for cognition projection (alias: record_project_intent).',
+        '[Legacy alias · prefer record_project_intent] Record user direction overlay for cognition. Requires user_input. Does not execute work.',
       inputSchema: z.object({
         workspaceRoot: z.string().optional(),
-        user_input: z.string().min(1),
+        user_input: z.string().min(1).describe('User direction / intent text to record'),
       }),
     },
     async ({ workspaceRoot: override, user_input }) => {
@@ -38,10 +38,10 @@ export function registerGovernanceAuxTools(
     'record_project_intent',
     {
       description:
-        '[Project Intelligence · record] Record project direction for intent/why layers — human → system, not agent execution.',
+        '[Write · Intent] Record project direction for intent/why layers (human → system). Requires user_input. Prefer capture_focus for simple current-task updates.',
       inputSchema: z.object({
         workspaceRoot: z.string().optional(),
-        user_input: z.string().min(1),
+        user_input: z.string().min(1).describe('Project direction / intent to persist'),
       }),
     },
     async ({ workspaceRoot: override, user_input }) => {
@@ -54,7 +54,8 @@ export function registerGovernanceAuxTools(
   server.registerTool(
     'analyze_project',
     {
-      description: '[Inspect] Project cognition snapshot — governance + handoff + state (read-only analysis).',
+      description:
+        '[Inspect · Composite] One-shot cognition snapshot (governance + handoff + state). Prefer ask_project or inspect_* for targeted reads; use this for a broad diagnostic dump.',
       inputSchema: workspaceRootSchema,
     },
     async ({ workspaceRoot: override }) => {
@@ -67,7 +68,8 @@ export function registerGovernanceAuxTools(
   server.registerTool(
     'get_cognitive_state',
     {
-      description: '[Control Surface] Read derived cognitive projection.',
+      description:
+        '[Inspect] Derived cognitive projection (.contora/cognitive/). Prefer inspect_state / inspect_intent for PIL facts.',
       inputSchema: workspaceRootSchema,
     },
     async ({ workspaceRoot: override }) => {
@@ -92,10 +94,11 @@ export function registerGovernanceAuxTools(
   server.registerTool(
     'get_change_log',
     {
-      description: '[Control Surface] Recent guard checks from change-log.json.',
+      description:
+        '[Inspect] Recent guard / change-log records. Optional limit (1–50, default 20). Prefer get_recent_events for cognitive timeline.',
       inputSchema: z.object({
         workspaceRoot: z.string().optional(),
-        limit: z.number().int().min(1).max(50).optional(),
+        limit: z.number().int().min(1).max(50).optional().describe('Max records (default 20)'),
       }),
     },
     async ({ workspaceRoot: override, limit }) => {

@@ -1,4 +1,3 @@
-import type { ContoriumMcpMode } from './cognitiveModeBridge.js';
 import type { CognitiveViewSelection } from './cognitiveRenderer.js';
 import type { DashboardCognitiveInsights } from './cognitiveInsights.js';
 import { STATUS_FRAMES, statusGlyph } from './statusAnimation.js';
@@ -13,12 +12,18 @@ function colors(useColor: boolean): Record<string, ColorFn> {
 }
 
 export function modeStatusLamp(
-  active: ContoriumMcpMode,
+  active: 'A' | 'B' | 'C' | 'D',
   c: Record<string, ColorFn>,
   tick = 0,
 ): string {
   if (active === 'B') {
     return `${statusGlyph(tick, c.green, true)} Governance Overlay`;
+  }
+  if (active === 'C') {
+    return `${statusGlyph(tick, c.yellow, true)} Debug Trace`;
+  }
+  if (active === 'D') {
+    return `${statusGlyph(tick, c.cyan, true)} Project History`;
   }
   const pulse = STATUS_FRAMES[tick % STATUS_FRAMES.length]!;
   return `${c.dim(pulse)} Live Cognition`;
@@ -26,7 +31,7 @@ export function modeStatusLamp(
 
 export function renderCognitiveModeSelectorLines(args: {
   selection: CognitiveViewSelection;
-  active: ContoriumMcpMode;
+  active: 'A' | 'B' | 'C' | 'D';
   useColor: boolean;
   width: number;
   compact?: boolean;
@@ -57,20 +62,20 @@ export function renderCognitiveModeSelectorLines(args: {
   lines.push('');
   row('B', 'Governance Overlay', 'Policy · Violations · Scope');
   lines.push('');
-  row('C', 'Debug Trace', 'Provenance · Raw review (view-only)');
+  row('C', 'Debug Trace', 'Provenance · Raw review (local lens)');
   lines.push('');
-  row('D', 'Project History', 'CIL event feed · last 7 days (view-only)');
+  row('D', 'Project History', 'CIL event feed · last 7 days (local lens)');
   return lines;
 }
 
 export function renderCognitiveInsightsLines(
   insights: DashboardCognitiveInsights | undefined,
-  modeActive: ContoriumMcpMode,
+  modeActive: 'A' | 'B' | 'C' | 'D',
   useColor: boolean,
   width: number,
 ): string[] {
   const c = colors(useColor);
-  if (modeActive === 'A') {
+  if (modeActive === 'A' || modeActive === 'C' || modeActive === 'D') {
     return [
       c.dim('Not available in Runtime mode'),
       '',

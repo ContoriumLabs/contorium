@@ -64,47 +64,40 @@ function textResult(data: unknown) {
   };
 }
 
-const MCP_SERVER_INSTRUCTIONS = `Contorium MCP — AI Project Intelligence Layer (PIL Runtime).
+const MCP_SERVER_INSTRUCTIONS = `Contorium MCP — Project Intelligence for AI agents (PIL + CIL).
 
-Contorium captures, structures, preserves, retrieves and transfers project intelligence.
-It does NOT execute work, make decisions, or recommend actions.
+RULES
+- Prefer the tools listed under PREFERRED. Many get_* / run_* / ensure_* names are legacy aliases.
+- Contorium does NOT execute coding tasks or apply patches. Suggestions (get_next_actions, skill suggestions) are advisory only (is_executable: false).
+- workspaceRoot is optional; omit unless targeting another folder.
+- COST: tools marked [SLOW] may take 1–3 minutes on large repos. Prefer fast inspect_* / ask_project / transfer_project first. Call at most ONE slow governance cycle per turn unless the user explicitly asks for a full provenance derive.
 
-PIL Core objects: STATE · INTENT · DECISION · WHY
-Dimensions: TIMELINE · IMPACT · CONFIDENCE
-Systems: PROVENANCE · EVOLUTION
+WHEN TO CALL (route by user intent)
+1) Natural-language question → ask_project(question)
+2) New chat / continuity → get_handoff_injection_status; if pending → confirm_handoff_injection or skip_handoff_injection; else transfer_project(mode=context|handoff)
+3) Export into this chat → transfer_project(mode: context | intelligence | story | essence | handoff)
+4) Structured reads → inspect_state · inspect_intent · inspect_decision · inspect_why · inspect_timeline · inspect_impact · inspect_health · inspect_graph · inspect_confidence · inspect_evolution · inspect_provenance
+5) Write memory → capture_focus · capture_note · capture_decision
+6) Decision validity → get_knowledge_health · get_review_queue · set_decision_lifecycle_meta
+7) History window → get_project_history(range) or get_recent_events(limit)
+8) Module focus → get_module_history / get_blast_radius (require module)
+9) Governance inject (advanced, SLOW) → inspect_cognition_ready → get_decision_context → derive_decision_provenance (once) → synthesize_context_payload. Do NOT also call run_governance_cycle / decision_snapshot / derive_decision_trace — they are aliases of the same cycle.
 
-PIL Runtime Contract (v3.0 — preferred):
+PREFERRED (~20)
+ask_project · transfer_project · capture_focus · capture_note · capture_decision
+inspect_state · inspect_intent · inspect_decision · inspect_why · inspect_health
+get_knowledge_health · get_review_queue · set_decision_lifecycle_meta
+get_next_actions · get_decisions · get_recent_events · get_project_history
+get_handoff_injection_status · confirm_handoff_injection · skip_handoff_injection
 
-  Inspect — retrieve intelligence records
-    inspect_state · inspect_intent · inspect_decision · inspect_timeline
-    inspect_graph · inspect_confidence · inspect_impact · inspect_evolution · inspect_provenance · inspect_health · inspect_why
+SLOW / HIGH-COST (call sparingly; pass active_file + mode=advisory + persist=false when possible)
+derive_decision_provenance · derive_decision_trace · decision_snapshot · build_decision_provenance · run_governance_cycle · trace_governance_cycle
+inspect_cognition_ready · ensure_control_ready (and legacy ready aliases)
 
-  Transfer — export for AI continuity
-    transfer_project (mode: context | intelligence | story | essence | handoff) — unified CIL transfer
-    transfer_context (~300–800 tokens) — Intelligence Transfer, Context mode (legacy alias)
-    transfer_intelligence (~8000 tokens) — Intelligence Transfer, Full mode (legacy alias)
-    transfer_handoff (~100–300 tokens) — compact handoff for new-chat injection (legacy alias)
-
-  Capture — write intelligence records
-    capture_focus · capture_note · capture_decision
-
-New chat with active runtime:
-1. get_handoff_injection_status → if pending, offer Runtime Transfer (confirm/skip_handoff_injection)
-2. Or call transfer_context / transfer_intelligence for Intelligence Transfer
-
-Legacy tools (still available): get_project_* · get_cognitive_snapshot · get_full_intelligence
-
-CIL — Cognitive Interaction Layer (v3 — Kernel First):
-  ask_project · transfer_project · get_next_actions · get_project_story
-  get_decision_graph · get_snapshot · get_cognitive_health · get_knowledge_health · get_review_queue · get_entity_knowledge
-  get_project_essence · get_handoff_replay · get_project_dna · get_suggested_questions
-  get_snapshot (date + perspective) · get_recent_events · get_project_history
-  get_decisions · get_module_history · get_blast_radius · get_project_journey
-  get_ai_status · test_ai_connection
-  (CIL outputs suggestions only — is_executable: false; never executes tasks)
-
-Decision Provenance: inspect_cognition_ready → get_decision_context → derive_decision_provenance
-Cognitive overlay (display-only): get_cognitive_mode · get_skill_suggestions`;
+LEGACY (avoid unless caller already uses them)
+get_project_* · get_cognitive_snapshot · get_full_intelligence · transfer_context · transfer_intelligence · transfer_handoff · transfer_story · transfer_runtime
+run_governance_cycle · ensure_control_ready · get_intent_graph (legacy path; prefer inspect_intent)
+get_ai_status · test_ai_connection (optional LLM layer status only)`;
 
 const server = new McpServer(
   {
@@ -232,7 +225,7 @@ server.registerTool(
   'get_intent_graph',
   {
     description:
-      'Read the full Contorium intent graph from .contora/intent-graph/graph.json (multi-intent cognition layer).',
+      '[Legacy · prefer inspect_intent] Old intent graph at .contora/intent-graph/graph.json (not vNext). Use inspect_intent for .contora/intent/intent_graph.json.',
     inputSchema: z.object({
       workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
     }),
@@ -505,7 +498,7 @@ server.registerTool(
   'get_project_intent',
   {
     description:
-      '[Project Intelligence · read-only] Project intent summary — prefer get_project_intent_graph for full why/design graph.',
+      '[Legacy · prefer inspect_intent] Compact intent summary artifact. Prefer inspect_intent (vNext graph) or ask_project for NL.',
     inputSchema: z.object({
       workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
     }),
@@ -517,7 +510,7 @@ server.registerTool(
       return textResult({
         workspaceRoot: root,
         found: false,
-        hint: 'Intent not available — use get_project_handoff.',
+        hint: 'Intent not available — use inspect_intent or get_project_handoff.',
       });
     }
     return textResult({
@@ -525,7 +518,7 @@ server.registerTool(
       found: true,
       intent,
       deprecated: true,
-      prefer: 'get_project_handoff',
+      prefer: 'inspect_intent',
     });
   },
 );
@@ -534,7 +527,7 @@ server.registerTool(
   'get_handoff_injection_status',
   {
     description:
-      'At the START of each new chat: check if Contorium runtime is active and user should be asked to inject context. Call automatically — no CLI command needed.',
+      '[Prefer · New chat] Call at the start of a new session: check if runtime handoff injection is pending. If pending=true, ask the user then call confirm_handoff_injection (Y) or skip_handoff_injection (N). Else use transfer_project(mode=context) if continuity is needed.',
     inputSchema: workspaceRootSchema,
   },
   async ({ workspaceRoot: override }) => {
@@ -564,7 +557,7 @@ server.registerTool(
   'confirm_handoff_injection',
   {
     description:
-      'After user confirms (Y), write .contora/mcp.auto-context.md and mark runtime handoff as injected for this session.',
+      '[Write · New chat] After user confirms (Y): write .contora/mcp.auto-context.md and mark injection done. Optional format: json | markdown | compact (default markdown). Side effect: persists context file.',
     inputSchema: z.object({
       workspaceRoot: z.string().optional().describe('Override workspace root; default auto-detect'),
       format: z
@@ -593,7 +586,8 @@ server.registerTool(
 server.registerTool(
   'skip_handoff_injection',
   {
-    description: 'User declined runtime handoff injection for the current runtime session (N).',
+    description:
+      '[Write · New chat] User declined injection (N). Marks skip for this runtime session; get_project_handoff / transfer_project remain available on demand.',
     inputSchema: workspaceRootSchema,
   },
   async ({ workspaceRoot: override }) => {

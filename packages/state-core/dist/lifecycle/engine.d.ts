@@ -6,4 +6,6 @@ export declare function formatReviewQueue(index: KnowledgeLifecycleIndex): strin
 export declare function findDecisionLifecycle(index: KnowledgeLifecycleIndex, decisionIdOrTopic: string): DecisionLifecycleRecord | undefined;
 /** Format lifecycle trust block for Ask decision answers. */
 export declare function formatDecisionLifecycleAnswer(record: DecisionLifecycleRecord, adrs: import('../cil/types.js').AdrRecord[]): string;
+/** Format "why" output for CLI inspect / why commands (优化.md §13). */
+export declare function formatDecisionWhyAnswer(record: DecisionLifecycleRecord): string[];
 //# sourceMappingURL=engine.d.ts.map

@@ -1,31 +1,29 @@
-import { askProject, buildProjectJourney, exploreHistory, exploreImpact, exploreModuleHistoryFeed, getModuleHistory, runCognitiveKernel, readAllAdrRecords, readDecisionLifecycleMeta, writeDecisionLifecycleMeta, persistKnowledgeLifecycle, setGitSubprocessAllowed, syncCognitiveInteractionLayer, syncWorkspaceState, } from '@contora/state-core';
-export const CIL_USAGE = `Contorium CIL v3 — Cognitive Interaction Layer
+import { askProject, buildProjectJourney, exploreHistory, exploreImpact, exploreModuleHistoryFeed, getModuleHistory, runCognitiveKernel, readAllAdrRecords, readDecisionLifecycleMeta, writeDecisionLifecycleMeta, persistKnowledgeLifecycle, setGitSubprocessAllowed, syncCognitiveInteractionLayer, syncWorkspaceState, applyLifecycleVerification, formatDecisionWhyAnswer, findDecisionLifecycle, computeKnowledgeLifecycle, formatValidityStateLabel, formatDecisionTimeline, } from '@contora/state-core';
+export const CIL_USAGE = `Contorium — Project memory & decision health
 
-User-facing cognition over AI PIL storage. All requests route through Cognitive Kernel.
-
+Core (start here):
   contorium ask "<question>" [path] [--json] [--suggest]
-  contorium next [path] [--json]
-  contorium story [path] [--copy] [--json]
-  contorium history [path] [--range today|yesterday|last_7_days|last_30_days|all]
-  contorium history <module> [path]
-  contorium decisions [path] [--json]
+  contorium why <decision-id> [path] [--json]
   contorium health [path] [--json]
-  contorium review [path] [--json]     Knowledge review queue (Lifecycle)
-  contorium lifecycle [path] [--json]  Knowledge Health + decision trust
-  contorium lifecycle owner <decision-id> --owner <name>
-  contorium lifecycle verify <decision-id> [--type manual|automatic|llm_assisted] [--by <name>]
-  contorium lifecycle expire <decision-id> --days <n>
-  contorium entity <name> [path] [--json]
-  contorium essence [path] [--copy] [--json]
-  contorium replay [path] [--json]
-  contorium dna [path] [--copy] [--json]
-  contorium journey [path] [--json]
-  contorium impact <module> [path] [--json]
+  contorium timeline [path] [--json]
+  contorium history [path] [--range today|yesterday|last_7_days|last_30_days|all]
+  contorium capture decision --selected "…"   (via: contorium capture)
+
+Decision Health:
+  contorium review [path] [--json]
+  contorium lifecycle [path] [--json]
+  contorium lifecycle inspect [path] [--json]
+  contorium lifecycle verify <id> [--reason …] [--evidence …]
+  contorium lifecycle owner <id> --owner <name>
+
+Advanced:
+  contorium decisions · next · journey · impact · essence · dna · replay · entity
 
 Examples:
+  contorium ask "Why don't we use PostgreSQL?"
   contorium ask --suggest
-  contorium ask "What was the project state on 2024-06-18?"
-  contorium transfer --mode=essence --copy
+  contorium timeline
+  contorium why ADR-001
 `;
 function flagValue(name, fallback) {
     const i = process.argv.indexOf(name);
@@ -57,6 +55,9 @@ async function printLines(lines) {
 function lifecycleSubcommand() {
     const idx = process.argv.indexOf('lifecycle');
     const sub = idx >= 0 ? process.argv[idx + 1] : undefined;
+    if (sub === 'inspect') {
+        return { sub };
+    }
     if (sub === 'owner' || sub === 'verify' || sub === 'expire') {
         return { sub, decisionId: process.argv[idx + 2] };
     }
@@ -244,6 +245,28 @@ export async function cmdCil(root, sub) {
         case 'lifecycle': {
             const lifecycleEdit = lifecycleSubcommand();
             if (lifecycleEdit.sub) {
+                if (lifecycleEdit.sub === 'inspect') {
+                    await ensureCil(root);
+                    const index = await computeKnowledgeLifecycle(root);
+                    const lines = ['Decision Health', ''];
+                    for (const r of index.decisions) {
+                        lines.push(`${r.decision_id}`, `Validity: ${formatValidityStateLabel(r.validity_state)}`);
+                        const cause = r.invalidation_reason_chain?.[1]?.event ?? r.validity_signals[0]?.reason;
+                        if (cause) {
+                            lines.push(`Cause: ${cause}`);
+                        }
+                        const assumption = r.assumptions?.[0]?.statement;
+                        if (assumption) {
+                            lines.push(`Affected assumption: ${assumption}`);
+                        }
+                        lines.push(`Confidence: ${(r.confidence.overall / 100).toFixed(2)}`, '');
+                    }
+                    await printLines(lines);
+                    if (hasFlag('--json')) {
+                        await printJson(index);
+                    }
+                    return;
+                }
                 const decisionId = lifecycleEdit.decisionId;
                 if (!decisionId || decisionId.startsWith('--')) {
                     console.error(`Usage: contorium lifecycle ${lifecycleEdit.sub} <decision-id> ...`);
@@ -260,12 +283,13 @@ export async function cmdCil(root, sub) {
                     return;
                 }
                 if (lifecycleEdit.sub === 'verify') {
-                    const now = new Date().toISOString();
-                    const meta = await updateLifecycleMeta(root, decisionId, {
-                        verified_at: now,
-                        verified_by: argAfter('--by') ?? 'cli',
-                        verification_type: parseVerificationType(argAfter('--type')),
-                    });
+                    const existing = (await readDecisionLifecycleMeta(root, decisionId)) ?? {};
+                    const meta = await updateLifecycleMeta(root, decisionId, applyLifecycleVerification(existing, {
+                        by: argAfter('--by') ?? 'cli',
+                        type: parseVerificationType(argAfter('--type')),
+                        reason: argAfter('--reason'),
+                        evidence: argAfter('--evidence'),
+                    }));
                     await printJson({ workspaceRoot: root, decision_id: decisionId, meta });
                     return;
                 }
@@ -377,6 +401,38 @@ export async function cmdCil(root, sub) {
             await ensureCil(root);
             const events = await getModuleHistory(root, module);
             await printJson({ module, events });
+            return;
+        }
+        case 'why': {
+            const wIdx = process.argv.indexOf('why');
+            const decisionId = process.argv[wIdx + 1];
+            if (!decisionId || decisionId.startsWith('--') || decisionId === root) {
+                console.error('Usage: contorium why <decision-id> [path]');
+                process.exit(1);
+            }
+            await ensureCil(root);
+            const index = await computeKnowledgeLifecycle(root);
+            const record = findDecisionLifecycle(index, decisionId);
+            if (!record) {
+                console.error(`Unknown decision: ${decisionId}`);
+                process.exit(1);
+            }
+            await printLines(formatDecisionWhyAnswer(record));
+            if (hasFlag('--json')) {
+                await printJson(record);
+            }
+            return;
+        }
+        case 'timeline': {
+            await ensureCil(root);
+            const [adrs, lc] = await Promise.all([
+                readAllAdrRecords(root),
+                computeKnowledgeLifecycle(root),
+            ]);
+            await printLines(formatDecisionTimeline(adrs, lc));
+            if (hasFlag('--json')) {
+                await printJson({ decisions: adrs, lifecycle: lc });
+            }
             return;
         }
         default:

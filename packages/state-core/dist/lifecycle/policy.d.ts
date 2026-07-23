@@ -4,6 +4,8 @@ export declare const LIFECYCLE_POLICY: {
     readonly maxReviewQueueItems: 32;
     readonly reviewDebtPenaltyPerItem: 8;
     readonly conflictPenaltyPerDecision: 25;
+    /** DECAYING decisions with decay_penalty at or above this enter review queue. */
+    readonly decayReviewPenaltyThreshold: 35;
     readonly confidenceConflictPenalty: 35;
     readonly codeScanMaxFiles: 24;
     readonly codeScanMaxBytesPerFile: 160000;

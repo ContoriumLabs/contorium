@@ -45,9 +45,9 @@ function hasOpposingDirection(a, b) {
     }
     return false;
 }
-/** Detect cognitive conflicts between accepted/proposed ADRs (not just DAG edges). */
+/** Detect cognitive conflicts between accepted/proposed/implemented ADRs (not just DAG edges). */
 function detectDecisionContradictions(adrs) {
-    const active = adrs.filter((a) => a.status === 'accepted' || a.status === 'proposed');
+    const active = adrs.filter((a) => a.status === 'accepted' || a.status === 'proposed' || a.status === 'implemented');
     const out = [];
     const seen = new Set();
     for (let i = 0; i < active.length; i++) {

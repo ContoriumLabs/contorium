@@ -16,54 +16,30 @@ import { cmdCheckAction, cmdControl, cmdGetGovernance, cmdUpdateProjectIntent, }
 import { cmdPil } from './pil/commands.js';
 import { cmdCil } from './cil/commands.js';
 import { cmdAi } from './ai/commands.js';
-const USAGE = `Contorium CLI — PIL Runtime (AI Project Intelligence Layer)
+const USAGE = `Contorium — Project memory & decision health
 
-Shared core: @contora/state-core · same intelligence model as IDE / MCP
+Git remembers what changed. Contorium remembers why.
 
-PIL Runtime Contract (v3.0 — preferred):
-  contorium inspect <state|intent|decision|timeline|graph|confidence|health|why|handoff> [path]
-  contorium transfer [--mode=context|intelligence|story|essence|handoff] [path] [--format json|markdown] [--copy]
-  contorium capture <focus|note|decision> [path] --text|--selected ...
+Core:
+  contorium ask "<question>" [path] [--suggest]
+  contorium why <decision-id>
+  contorium health · contorium timeline · contorium history
+  contorium review · contorium lifecycle
+  contorium capture <focus|note|decision> …
 
-CIL — Cognitive Interaction Layer (v3 — Kernel First):
-  contorium ask "<question>" [path] [--json] [--suggest]
-  contorium history [path] [--range …] · contorium history <module>
-  contorium next [path] [--json]
-  contorium decisions [path] [--json]
-  contorium journey [path] [--json]
-  contorium impact <module> [path] [--json]
-  contorium health [path] [--json]
-  contorium entity <name> [path] [--json]
-  contorium essence [path] [--copy] [--json]
-  contorium replay [path] [--json]
-  contorium dna [path] [--copy] [--json]
-  contorium questions [path] [--json]          → alias for ask --suggest
+PIL / transfer (shared with IDE & MCP):
+  contorium inspect <state|intent|decision|timeline|…>
+  contorium transfer [--mode=context|intelligence|story|essence|handoff]
 
-AI Layer (explanation only — default off):
-  contorium ai setup [path] [--provider …] [--model …] [--enable] [--router rule|hybrid|llm]
-  contorium ai status [path] [--json]
-  contorium ai test [path] [--json]
+AI Layer (optional explanations — default off):
+  contorium ai setup|status|test
+
+Dashboard: contorium dashboard
 
 Workspace:
-  contorium init [workspaceRoot]       Bootstrap or merge .contora/state.json
-  contorium sync [workspaceRoot]       Rescan workspace and refresh state (one-shot)
-  contorium status [workspaceRoot]     JSON summary (mode, source, git counts)
+  contorium init · sync · status · bootstrap
 
-Runtime (CRBP):
-  contorium bootstrap [path] [--source ide|mcp|cli]   Runtime attach (MCP calls on init)
-
-Legacy (still supported — prefer PIL commands above):
-  contorium state [path]                → inspect state
-  contorium snapshot [path]             PROJECT SNAPSHOT markdown
-  contorium snapshot copy [path]        → transfer context
-  contorium export intelligence [path]    → transfer intelligence
-  contorium handoff / change / graph / timeline / knowledge
-  contorium export [path]               governance + handoff (legacy)
-  contorium graph-snapshot [path]       knowledge JSON snapshot (legacy)
-
-Decision Provenance · Cognition inspect · Governance — run contorium without args for full help.
-
-Default workspaceRoot: current directory
+Run \`contorium ask --suggest\` for starter questions.
 `;
 function isPathLike(value) {
     return (value === '.' ||
@@ -600,8 +576,19 @@ async function main() {
         case 'state':
             await cmdState(root);
             return;
-        case 'inspect':
+        case 'inspect': {
+            const iIdx = process.argv.indexOf('inspect');
+            const topic = process.argv[iIdx + 1];
+            if (topic === 'decisions') {
+                process.argv.splice(iIdx, 2, 'lifecycle', 'inspect');
+                await cmdCil(root, 'lifecycle');
+                return;
+            }
             await cmdPil(root, 'inspect');
+            return;
+        }
+        case 'why':
+            await cmdCil(root, 'why');
             return;
         case 'transfer':
             await cmdPil(root, 'transfer');
@@ -672,7 +659,7 @@ async function main() {
             await cmdGraph(root);
             return;
         case 'timeline':
-            await cmdTimeline(root);
+            await cmdCil(root, 'timeline');
             return;
         case 'knowledge':
             await cmdKnowledge(root);

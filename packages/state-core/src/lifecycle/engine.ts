@@ -1,5 +1,6 @@
 import { readJsonFile } from '../intelligence/dimensions/io.js';
 import { readStateJson } from '../bootstrap/bootstrapState.js';
+import { collectChangeEvents } from '../cil/changeEventEngine.js';
 import { detectDecisionContradictions } from '../cil/decisionConsistency.js';
 import { readAllAdrRecords, readAllCognitiveEvents } from '../cil/eventStore.js';
 import { detectProjectDrift } from '../cil/pik/drift.js';
@@ -7,6 +8,9 @@ import { ensureProjectIntentKernel } from '../cil/pik/generator.js';
 import { detectCodeDecisionTensions } from './codeContradiction.js';
 import { computeDecisionConfidence } from './confidence.js';
 import { buildDecisionEvolutionChain, buildSupersededContext, mapAdrToLifecycleStatus } from './evolution.js';
+import { persistAssumptionGraph } from './assumptionGraph.js';
+import { persistDecisionDependencyGraph } from './decisionDependencyGraph.js';
+import { computeDecisionImpacts, formatDecisionWhyChain } from './impactEngine.js';
 import {
   computeFreshnessScore,
   daysSinceUsed,
@@ -30,6 +34,7 @@ import type {
   KnowledgeLifecycleIndex,
   LifecycleEvidenceRef,
   ReviewQueueItem,
+  DecisionValidityHealth,
 } from './types.js';
 import { KNOWLEDGE_HEALTH_SCHEMA, KNOWLEDGE_LIFECYCLE_SCHEMA } from './types.js';
 
@@ -116,6 +121,20 @@ export function buildReviewQueue(records: DecisionLifecycleRecord[]): ReviewQueu
         s.severity === 'critical' ||
         (s.type === 'OWNER_CHANGE' && s.severity === 'medium'),
     );
+    if (r.validity_state === 'SUSPECTED_INVALID') {
+      items.push({
+        decision_id: r.decision_id,
+        title: r.title,
+        reason: 'invalidation_trigger',
+        trigger_type: 'ARCHITECTURE_CHANGE',
+        detail:
+          r.invalidation_reason_chain?.find((c) => c.type === 'DECISION_IMPACT')?.impact ??
+          r.invalidation_reason_chain?.[1]?.event ??
+          'High-impact change propagated to this decision',
+        severity: 'high',
+        action_hint: suggestedValidityAction(r.validity_state, r.validity_signals, r.decision_id),
+      });
+    }
     const coveredTypes = new Set<string>(
       items
         .filter((i) => i.decision_id === r.decision_id)
@@ -150,11 +169,29 @@ export function buildReviewQueue(records: DecisionLifecycleRecord[]): ReviewQueu
     .slice(0, LIFECYCLE_POLICY.maxReviewQueueItems);
 }
 
+function buildDecisionValidityHealth(
+  records: DecisionLifecycleRecord[],
+  unresolvedImpacts: number,
+): DecisionValidityHealth {
+  const active = records.filter((r) => r.lifecycle_status === 'ACTIVE');
+  return {
+    active_decisions: active.length,
+    valid_decisions: records.filter((r) => r.validity_state === 'VALID').length,
+    warning_decisions: records.filter((r) => r.validity_state === 'WARNING').length,
+    decaying_decisions: records.filter((r) => r.validity_state === 'DECAYING').length,
+    suspected_invalid_decisions: records.filter((r) => r.validity_state === 'SUSPECTED_INVALID').length,
+    needs_revalidation_decisions: records.filter((r) => r.validity_state === 'NEEDS_REVALIDATION').length,
+    invalidated_decisions: records.filter((r) => r.validity_state === 'INVALIDATED').length,
+    unresolved_impacts: unresolvedImpacts,
+  };
+}
+
 function buildKnowledgeHealth(
   records: DecisionLifecycleRecord[],
   reviewItems: ReviewQueueItem[],
   driftScore: number,
   derivedFrom: string[],
+  validityHealth: DecisionValidityHealth,
 ): KnowledgeHealthReport {
   const n = records.length || 1;
   const avgFresh = records.reduce((s, r) => s + r.freshness_score, 0) / n;
@@ -204,6 +241,13 @@ function buildKnowledgeHealth(
     stale ? `${stale} stale decision(s)` : '',
     conflicts ? `${conflicts} decision(s) with conflicts` : '',
     reviewItems.length ? `${reviewItems.length} item(s) in review queue` : 'Review queue clear',
+    '',
+    'Decision validity health:',
+    `Valid ${validityHealth.valid_decisions} | Warning ${validityHealth.warning_decisions} | Decaying ${validityHealth.decaying_decisions}`,
+    `Suspected invalid ${validityHealth.suspected_invalid_decisions} | Needs revalidation ${validityHealth.needs_revalidation_decisions} | Invalidated ${validityHealth.invalidated_decisions}`,
+    validityHealth.unresolved_impacts
+      ? `${validityHealth.unresolved_impacts} unresolved impact(s)`
+      : 'No unresolved impacts',
   ].filter(Boolean);
 
   return {
@@ -218,6 +262,7 @@ function buildKnowledgeHealth(
     conflict_count: conflicts,
     missing_owner_count: records.filter((r) => !r.meta.owner?.trim()).length,
     unverified_count: records.filter((r) => !r.last_verified_at).length,
+    decision_validity_health: validityHealth,
     formatted,
   };
 }
@@ -242,6 +287,15 @@ export async function computeKnowledgeLifecycle(workspaceRoot: string): Promise<
     ? await detectProjectDrift(workspaceRoot, pik).catch(() => ({ drift_score: 0 }))
     : { drift_score: 0 };
 
+  const [assumptionGraph, depGraph, changeEvents] = await Promise.all([
+    persistAssumptionGraph(workspaceRoot, adrs),
+    persistDecisionDependencyGraph(workspaceRoot, adrs),
+    collectChangeEvents(workspaceRoot),
+  ]);
+  const impacts = computeDecisionImpacts(changeEvents, depGraph, assumptionGraph);
+  const impactByDecision = new Map(impacts.map((i) => [i.decision_id, i]));
+  const adrIds = new Set(adrs.map((a) => a.id));
+
   const records: DecisionLifecycleRecord[] = [];
 
   for (const adr of adrs) {
@@ -251,12 +305,16 @@ export async function computeKnowledgeLifecycle(workspaceRoot: string): Promise<
     let conflictRefs = conflictRefsFor(adr.id, conflicts);
     const codeHits = codeTensions.filter((t) => t.decision_id === adr.id);
     if (codeHits.length) {
-      conflictRefs = [...new Set([...conflictRefs, ...codeHits.map((h) => h.code_signal)])];
+      const codeExtras = codeHits
+        .map((h) => h.code_signal)
+        .filter((signal) => !adrIds.has(signal));
+      conflictRefs = [...new Set([...conflictRefs, ...codeExtras])];
     }
     const freshnessScore = computeFreshnessScore(adr, meta, lastUsedAt);
     const expired = isDecisionExpired(adr, meta);
     const lifecycleStatus = mapAdrToLifecycleStatus(adr.status);
     const supersededContext = buildSupersededContext(adr, adrs);
+    const impact = impactByDecision.get(adr.id);
     const invalidation = await computeDecisionInvalidation(workspaceRoot, {
       adr,
       meta,
@@ -265,12 +323,16 @@ export async function computeKnowledgeLifecycle(workspaceRoot: string): Promise<
       conflictRefs,
       expired,
       supersededContext,
+      impact,
     });
     const needsReview =
       expired ||
       freshnessScore < 50 ||
       invalidation.validity_state === 'NEEDS_REVALIDATION' ||
-      invalidation.validity_state === 'INVALIDATED';
+      invalidation.validity_state === 'INVALIDATED' ||
+      invalidation.validity_state === 'SUSPECTED_INVALID' ||
+      (invalidation.validity_state === 'DECAYING' &&
+        invalidation.decay_penalty >= LIFECYCLE_POLICY.decayReviewPenaltyThreshold);
     const evolution = buildDecisionEvolutionChain(adrs, adr.id);
     const warnings: string[] = [];
     const evidence: LifecycleEvidenceRef[] = [
@@ -323,6 +385,7 @@ export async function computeKnowledgeLifecycle(workspaceRoot: string): Promise<
       decay_penalty: invalidation.decay_penalty,
       superseded_context: invalidation.superseded_context,
       assumptions: invalidation.assumptions,
+      invalidation_reason_chain: invalidation.invalidation_reason_chain,
     };
 
     const freshnessWarn = formatFreshnessWarning(recordDraft);
@@ -344,12 +407,27 @@ export async function computeKnowledgeLifecycle(workspaceRoot: string): Promise<
     for (const sig of invalidation.validity_signals) {
       warnings.push(`Validity (${sig.type}): ${sig.reason}`);
     }
+    if (invalidation.invalidation_reason_chain?.length) {
+      warnings.push(
+        `Impact chain: ${formatDecisionWhyChain(invalidation.invalidation_reason_chain).join(' → ')}`,
+      );
+    }
 
     records.push({ ...recordDraft, formatted_warnings: warnings });
   }
 
   const review_queue = buildReviewQueue(records);
-  const health = buildKnowledgeHealth(records, review_queue, drift.drift_score ?? 0, adrs.map((a) => a.id));
+  const validityHealth = buildDecisionValidityHealth(
+    records,
+    impacts.filter((i) => i.impact !== 'low').length,
+  );
+  const health = buildKnowledgeHealth(
+    records,
+    review_queue,
+    drift.drift_score ?? 0,
+    adrs.map((a) => a.id),
+    validityHealth,
+  );
 
   return {
     schema: KNOWLEDGE_LIFECYCLE_SCHEMA,
@@ -404,11 +482,17 @@ export function formatDecisionLifecycleAnswer(
   const validityIcon =
     record.validity_state === 'VALID'
       ? ''
-      : record.validity_state === 'DECAYING'
-        ? '⚠'
-        : record.validity_state === 'NEEDS_REVALIDATION'
+      : record.validity_state === 'WARNING'
+        ? '◦'
+        : record.validity_state === 'DECAYING'
           ? '⚠'
-          : '✕';
+          : record.validity_state === 'SUSPECTED_INVALID'
+            ? '⚠'
+            : record.validity_state === 'NEEDS_REVALIDATION'
+              ? '⚠'
+              : record.validity_state === 'ARCHIVED'
+                ? '—'
+                : '✕';
 
   const lines = [
     `**${record.title}**`,
@@ -422,6 +506,13 @@ export function formatDecisionLifecycleAnswer(
   })[0];
   if (primarySignal && record.validity_state !== 'VALID') {
     lines.push(`**Why:** ${primarySignal.reason}`);
+  }
+
+  if (record.invalidation_reason_chain?.length) {
+    lines.push('', '**Impact chain:**');
+    for (const step of formatDecisionWhyChain(record.invalidation_reason_chain)) {
+      lines.push(`- ${step}`);
+    }
   }
 
   const suggested = suggestedValidityAction(
@@ -481,4 +572,42 @@ export function formatDecisionLifecycleAnswer(
   );
 
   return lines.join('\n');
+}
+
+/** Format "why" output for CLI inspect / why commands (优化.md §13). */
+export function formatDecisionWhyAnswer(record: DecisionLifecycleRecord): string[] {
+  const lines = [
+    `Why this decision changed: ${record.decision_id}`,
+    '',
+    `Validity: ${formatValidityStateLabel(record.validity_state)}`,
+    `Confidence: ${record.confidence.overall}%`,
+    '',
+  ];
+
+  if (record.invalidation_reason_chain?.length) {
+    lines.push(...formatDecisionWhyChain(record.invalidation_reason_chain), '');
+  } else if (record.validity_signals.length) {
+    record.validity_signals.slice(0, 4).forEach((sig, idx) => {
+      lines.push(`${idx + 1}. ${sig.reason}`);
+    });
+    lines.push('');
+  } else {
+    lines.push('No invalidation chain recorded — decision appears valid.', '');
+  }
+
+  const topAssumption = record.assumptions?.[0]?.statement;
+  if (topAssumption) {
+    lines.push(`Affected assumption: ${topAssumption}`, '');
+  }
+
+  const suggested = suggestedValidityAction(
+    record.validity_state,
+    record.validity_signals,
+    record.decision_id,
+  );
+  if (suggested) {
+    lines.push(`Suggested: ${suggested}`);
+  }
+
+  return lines;
 }

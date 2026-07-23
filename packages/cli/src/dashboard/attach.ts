@@ -155,7 +155,7 @@ export async function runAttach(options: AttachOptions): Promise<void> {
   let alternateActive = false;
   let tickCount = 0;
   let cognitiveModeSelection: 'A' | 'B' | 'C' | 'D' | 'E' = 'A';
-  let cognitiveModeActive: ContoriumMcpMode = 'A';
+  let cognitiveModeActive: 'A' | 'B' | 'C' | 'D' = 'A';
   let cognitiveInsights: DashboardCognitiveInsights | undefined;
   let cilHistoryLines: string[] | undefined;
   let llmSnapshot: DashboardLlmSnapshot | undefined;
@@ -430,12 +430,16 @@ export async function runAttach(options: AttachOptions): Promise<void> {
 
   const applyCognitiveModeSelection = async (): Promise<void> => {
     if (cognitiveModeSelection === 'C') {
-      showFlash('Debug Trace — view-only (not persisted to MCP)', 2500);
+      cognitiveModeActive = 'C';
+      showFlash('Debug Trace active — provenance & review (local lens)', 2500);
+      render();
       return;
     }
     if (cognitiveModeSelection === 'D') {
+      cognitiveModeActive = 'D';
       void refreshCilHistory();
-      showFlash('Project History — view-only (CIL last 7 days)', 2500);
+      showFlash('Project History active — CIL last 7 days (local lens)', 2500);
+      render();
       return;
     }
     if (cognitiveModeSelection === 'E') {
@@ -448,7 +452,10 @@ export async function runAttach(options: AttachOptions): Promise<void> {
       showFlash(`Mode ${cognitiveModeActive === 'A' ? 'Live Cognition' : 'Governance Overlay'} already active`, 2000);
       return;
     }
-    const result = await applyCognitiveModeFromDashboard(options.workspaceRoot, cognitiveModeSelection);
+    const result = await applyCognitiveModeFromDashboard(
+      options.workspaceRoot,
+      cognitiveModeSelection as ContoriumMcpMode,
+    );
     cognitiveModeActive = cognitiveModeSelection;
     await refreshCognitiveInsights();
     showFlash(result.hint, 4000);

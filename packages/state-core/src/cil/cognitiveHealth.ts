@@ -9,8 +9,10 @@ import { readKnowledgeEntityIndex } from './knowledgeGraph.js';
 import type { CognitiveHealthReport, CognitiveHealthWarning } from './types.js';
 import { COGNITIVE_HEALTH_SCHEMA } from './types.js';
 import { coerceTimestampToIso } from './timeCoerce.js';
+import { LIFECYCLE_POLICY } from '../lifecycle/policy.js';
 
-const STALE_ADR_DAYS = 60;
+/** Align with Knowledge Lifecycle stale threshold (was a hard-coded 60). */
+const STALE_ADR_DAYS = LIFECYCLE_POLICY.staleVerifyDays;
 const DEAD_FOCUS_DAYS = 14;
 
 function daysSince(iso: string): number {

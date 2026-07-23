@@ -52,9 +52,11 @@ function hasOpposingDirection(a: string, b: string): boolean {
   return false;
 }
 
-/** Detect cognitive conflicts between accepted/proposed ADRs (not just DAG edges). */
+/** Detect cognitive conflicts between accepted/proposed/implemented ADRs (not just DAG edges). */
 export function detectDecisionContradictions(adrs: AdrRecord[]): DecisionContradiction[] {
-  const active = adrs.filter((a) => a.status === 'accepted' || a.status === 'proposed');
+  const active = adrs.filter(
+    (a) => a.status === 'accepted' || a.status === 'proposed' || a.status === 'implemented',
+  );
   const out: DecisionContradiction[] = [];
   const seen = new Set<string>();
 

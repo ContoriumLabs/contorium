@@ -1,13 +1,21 @@
 import { readStateJson } from '../bootstrap/bootstrapState.js';
+import { readAllCognitiveEvents } from '../cil/eventStore.js';
 import { readHandoffArtifact } from '../understanding/store.js';
 import type { AdrRecord } from '../cil/types.js';
 import type { AdrAssumption, ValiditySignal } from './types.js';
+import {
+  collectWorkspaceDependencyNames,
+  extractTechTerms,
+  TECH_TERM_TO_PACKAGES,
+} from './dependencyInventory.js';
 
 const ASSUMPTION_PATTERNS: Array<{ type: AdrAssumption['type']; pattern: RegExp }> = [
   { type: 'BUSINESS_ASSUMPTION', pattern: /traffic\s+(?:remains?|stays?|is)\s+(?:below|under|<)\s*([\d,]+k?)/i },
   { type: 'BUSINESS_ASSUMPTION', pattern: /(?:scale|load|users?)\s+(?:remains?|stays?)\s+(?:below|under|<)\s*([\d,]+k?)/i },
   { type: 'TECHNICAL_ASSUMPTION', pattern: /assuming\s+([^.!?\n]{12,140})/i },
   { type: 'TECHNICAL_ASSUMPTION', pattern: /(?:because|since)\s+([^.!?\n]{12,140})/i },
+  { type: 'TECHNICAL_ASSUMPTION', pattern: /(\w[\w-]*)\s+(?:remains?|stays?|is)\s+available/i },
+  { type: 'OPERATIONAL_ASSUMPTION', pattern: /(?:single\s+owner|team\s+owns|maintained\s+by)\s+([^.!?\n]{4,80})/i },
 ];
 
 /** Extract assumptive statements from ADR reason text. */
@@ -21,7 +29,7 @@ export function extractAdrAssumptions(adr: AdrRecord): AdrAssumption[] {
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
       const statement = (m[1] ?? m[0]).trim().replace(/\s+/g, ' ');
-      if (statement.length < 10 || seen.has(statement.toLowerCase())) {
+      if (statement.length < 8 || seen.has(statement.toLowerCase())) {
         continue;
       }
       seen.add(statement.toLowerCase());
@@ -29,7 +37,18 @@ export function extractAdrAssumptions(adr: AdrRecord): AdrAssumption[] {
     }
   }
 
-  return out.slice(0, 6);
+  // Tech availability assumptions inferred from strong ADR claims
+  for (const term of extractTechTerms(text)) {
+    if (new RegExp(`(?:use|adopt|require)\\s+${term}`, 'i').test(text)) {
+      const statement = `${term} remains available`;
+      if (!seen.has(statement)) {
+        seen.add(statement);
+        out.push({ statement, type: 'TECHNICAL_ASSUMPTION' });
+      }
+    }
+  }
+
+  return out.slice(0, 8);
 }
 
 function contradictsAssumption(statement: string, blob: string): string | undefined {
@@ -60,10 +79,34 @@ function contradictsAssumption(statement: string, blob: string): string | undefi
     return `Storage scale conflicts with "${statement}"`;
   }
 
+  for (const term of Object.keys(TECH_TERM_TO_PACKAGES)) {
+    if (
+      lower.includes(term) &&
+      /available|remains|required/.test(lower) &&
+      new RegExp(`(?:removed|dropping|without|no longer use[sd]?)\\s+${term}|${term}\\s+removed`, 'i').test(b)
+    ) {
+      return `Narrative indicates ${term} is no longer available — conflicts with "${statement}"`;
+    }
+  }
+
   return undefined;
 }
 
-/** Heuristic assumption failure from handoff, focus, and recent narrative. */
+function techMissingFromManifests(statement: string, installed: Set<string>): string | undefined {
+  const lower = statement.toLowerCase();
+  for (const [term, packages] of Object.entries(TECH_TERM_TO_PACKAGES)) {
+    if (!lower.includes(term) || !/available|remains|required|use /.test(lower)) {
+      continue;
+    }
+    const hasPkg = packages.some((p) => installed.has(p.toLowerCase()));
+    if (!hasPkg) {
+      return `Assumption "${statement}" fails: no ${term}-related package in workspace manifests`;
+    }
+  }
+  return undefined;
+}
+
+/** Heuristic assumption failure from handoff, events, focus, and manifests. */
 export async function detectAssumptionFailures(
   workspaceRoot: string,
   adr: AdrRecord,
@@ -74,23 +117,32 @@ export async function detectAssumptionFailures(
     return [];
   }
 
-  const [state, handoff] = await Promise.all([
+  const [state, handoff, events, installed] = await Promise.all([
     readStateJson(workspaceRoot).catch(() => null),
     readHandoffArtifact(workspaceRoot).catch(() => null),
+    readAllCognitiveEvents(workspaceRoot).catch(() => []),
+    collectWorkspaceDependencyNames(workspaceRoot),
   ]);
+
+  const eventBlob = events
+    .slice(0, 24)
+    .map((e) => `${e.title}\n${e.summary}\n${e.why ?? ''}`)
+    .join('\n');
 
   const blob = [
     handoff?.goal ?? '',
     handoff?.summary ?? '',
     state?.currentTask ?? '',
     state?.notes ?? '',
+    eventBlob,
   ].join('\n');
 
   const signals: ValiditySignal[] = [];
   const now = new Date().toISOString();
 
   for (const a of extracted) {
-    const failure = contradictsAssumption(a.statement, blob);
+    const failure =
+      contradictsAssumption(a.statement, blob) ?? techMissingFromManifests(a.statement, installed);
     if (!failure) {
       continue;
     }

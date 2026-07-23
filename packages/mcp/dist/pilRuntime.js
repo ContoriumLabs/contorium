@@ -22,7 +22,7 @@ const transferFormatSchema = workspaceRootSchema.extend({
 export function registerPilRuntimeTools(server, resolveRoot) {
     // ── Inspect ──────────────────────────────────────────────────────────────
     server.registerTool('inspect_state', {
-        description: '[PIL · Inspect] Workspace state — state.json, status summary, and built project state.',
+        description: '[PIL · Inspect] Workspace state — state.json, status, built project state. Call first when grounding on current focus/stage. Prefer ask_project for NL questions.',
         inputSchema: workspaceRootSchema,
     }, async ({ workspaceRoot: override }) => {
         const root = override ? override : await resolveRoot();
@@ -40,7 +40,7 @@ export function registerPilRuntimeTools(server, resolveRoot) {
         });
     });
     server.registerTool('inspect_intent', {
-        description: '[PIL · Inspect] Intent graph (.contora/intent/intent_graph.json).',
+        description: '[PIL · Inspect · Prefer] vNext intent graph (.contora/intent/intent_graph.json). Prefer over legacy get_intent_graph / get_project_intent_graph.',
         inputSchema: workspaceRootSchema,
     }, async ({ workspaceRoot: override }) => {
         const root = override ? override : await resolveRoot();
@@ -48,7 +48,7 @@ export function registerPilRuntimeTools(server, resolveRoot) {
         return textResult({ workspaceRoot: root, found: !!graph?.nodes?.length, intent_graph: graph });
     });
     server.registerTool('inspect_decision', {
-        description: '[PIL · Inspect] Decision provenance graph + governance decision record.',
+        description: '[PIL · Inspect · Prefer] Decision provenance + governance decision + decision log. Prefer over get_decision_graph / get_project_decision for a full decision picture.',
         inputSchema: workspaceRootSchema,
     }, async ({ workspaceRoot: override }) => {
         const root = override ? override : await resolveRoot();
@@ -170,7 +170,7 @@ export function registerPilRuntimeTools(server, resolveRoot) {
     });
     // ── Transfer ─────────────────────────────────────────────────────────────
     server.registerTool('transfer_context', {
-        description: '[PIL · Transfer] Intelligence Transfer — Context mode (~300–800 tokens). Cognitive Snapshot for new AI chats.',
+        description: '[Legacy alias · prefer transfer_project mode=context] Intelligence Transfer Context (~300–800 tokens).',
         inputSchema: transferFormatSchema,
     }, async ({ workspaceRoot: override, format }) => {
         const root = override ? override : await resolveRoot();
@@ -191,7 +191,7 @@ export function registerPilRuntimeTools(server, resolveRoot) {
         });
     });
     server.registerTool('transfer_intelligence', {
-        description: '[PIL · Transfer] Intelligence Transfer — Full mode (~8000 tokens). Complete PIL sections.',
+        description: '[Legacy alias · prefer transfer_project mode=intelligence] Full Intelligence Transfer (~8000 tokens).',
         inputSchema: workspaceRootSchema,
     }, async ({ workspaceRoot: override }) => {
         const root = override ? override : await resolveRoot();
@@ -218,7 +218,7 @@ export function registerPilRuntimeTools(server, resolveRoot) {
         });
     };
     server.registerTool('transfer_handoff', {
-        description: '[PIL · Transfer] Compact handoff for new-chat continuity (~100–300 tokens). Runtime injection payload.',
+        description: '[Legacy alias · prefer transfer_project mode=handoff] Compact handoff (~100–300 tokens) for new-chat continuity.',
         inputSchema: workspaceRootSchema,
     }, transferHandoffHandler);
     server.registerTool('transfer_runtime', {
@@ -227,7 +227,7 @@ export function registerPilRuntimeTools(server, resolveRoot) {
     }, transferHandoffHandler);
     // ── Capture ──────────────────────────────────────────────────────────────
     server.registerTool('capture_focus', {
-        description: '[PIL · Capture] Set current project focus (writes state.json currentTask).',
+        description: '[PIL · Capture · Write] Set current project focus (state.json currentTask). Side effect: persists focus.',
         inputSchema: workspaceRootSchema.extend({
             focus: z.string().min(1).describe('Current project focus (one line)'),
         }),
@@ -237,7 +237,7 @@ export function registerPilRuntimeTools(server, resolveRoot) {
         return textResult(result);
     });
     server.registerTool('capture_note', {
-        description: '[PIL · Capture] Append a timestamped note to state.json notes.',
+        description: '[PIL · Capture · Write] Append a timestamped note to state.json. Side effect: persists note.',
         inputSchema: workspaceRootSchema.extend({
             text: z.string().min(1).describe('Note text'),
         }),
@@ -247,7 +247,7 @@ export function registerPilRuntimeTools(server, resolveRoot) {
         return textResult(result);
     });
     server.registerTool('capture_decision', {
-        description: '[PIL · Capture] Record a decision (append-only decision log).',
+        description: '[PIL · Capture · Write] Record a decision (append-only log). Side effect: persists decision. Requires selected; optional reason / intent_id / decision_id.',
         inputSchema: workspaceRootSchema.extend({
             selected: z.string().min(1).describe('Selected decision / alternative'),
             reason: z.string().optional().describe('Why this was chosen'),

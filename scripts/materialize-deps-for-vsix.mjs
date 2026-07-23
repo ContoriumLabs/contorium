@@ -107,7 +107,7 @@ try {
     path.join(root, 'node_modules', '@contora', 'state-core', 'dist', 'lifecycle', 'types.d.ts'),
     'utf8',
   );
-  if (!lifecycleTypes.includes('contorium.lifecycle.v2')) {
+  if (!lifecycleTypes.includes('contorium.lifecycle.v3')) {
     console.error(
       '[materialize-deps] stale @contora/state-core in node_modules — rebuild packages/state-core first.',
     );

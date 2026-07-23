@@ -90,10 +90,10 @@ export interface RenderContext {
   tickCount?: number;
   filter?: string;
   fsmState: DashboardFsmState;
-  /** Cognitive view lens — A=Live B=Governance C=Debug D=History E=LLM (C/D/E view-only). */
+  /** Cognitive view lens — A=Live B=Governance C=Debug D=History E=LLM. */
   cognitiveModeSelection?: 'A' | 'B' | 'C' | 'D' | 'E';
-  /** Cognitive overlay A/B — saved in .contora/mcp/cognitive.mode.json */
-  cognitiveModeActive?: 'A' | 'B';
+  /** Applied lens (A–D local; A/B also sync MCP attach mode). */
+  cognitiveModeActive?: 'A' | 'B' | 'C' | 'D';
   /** Mode B insights from .contora/mcp/cognitive-insights.json */
   cognitiveInsights?: DashboardCognitiveInsights;
   /** CIL history feed lines for view D. */

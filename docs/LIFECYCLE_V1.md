@@ -1,41 +1,60 @@
 # Knowledge Lifecycle (LIFECYCLE)
 
-Contorium v3.2 adds a **Knowledge Lifecycle** layer on top of ADR decisions. It tracks whether project knowledge is still trustworthy — **how stale** it is and **why** it may no longer be authoritative (Validity-Aware v2, schema `contorium.lifecycle.v2`).
+Contorium v3.2+ tracks whether project knowledge is still trustworthy — **how stale** it is and **why** it may no longer be authoritative.
+
+**Schema:** `contorium.lifecycle.v3` (read-compatible with `contorium.lifecycle.v2`)
 
 ## Artifacts
 
-All lifecycle data lives under `.contora/lifecycle/`:
+### Lifecycle projection
 
 | Path | Purpose |
 | --- | --- |
-| `index.json` | Full lifecycle projection (decisions + health + review queue) |
-| `review-queue.json` | Prioritized review items |
-| `decisions/<id>.json` | Per-decision metadata (owner, verification, expiry) |
+| `.contora/lifecycle/index.json` | Full lifecycle projection (decisions + health + review queue) |
+| `.contora/lifecycle/review-queue.json` | Prioritized review items |
+| `.contora/lifecycle/decisions/<id>.json` | Per-decision metadata (owner, verification, expiry, evidence) |
+
+### Governance graphs (Validity Intelligence)
+
+| Path | Purpose |
+| --- | --- |
+| `.contora/governance/assumption_graph.json` | Structured assumptions per decision |
+| `.contora/governance/decision_dependency_graph.json` | Decision → assumptions / modules / deps |
+| `.contora/governance/dependency_baseline.json` | Manifest package baseline for diff events |
+| `.contora/governance/dismissed_impact_alerts.json` | IDE banner ignore list |
 
 Lifecycle is rebuilt on **Sync** via `persistKnowledgeLifecycle()` and is a **projection** of cognitive events + ADRs — not a second source of truth.
 
-## Dimensions
+## Validity state machine (v3)
 
-Each decision receives a multi-dimensional trust score:
+```text
+VALID → WARNING → DECAYING → SUSPECTED_INVALID → NEEDS_REVALIDATION → INVALIDATED
+                                                                         ARCHIVED
+```
 
-- **Source** — ADR presence and status
-- **Freshness** — age since verification / last use
-- **Conflict** — ADR contradictions + code tension scans
-- **Ownership** — assigned owner or reviewer
-- **Verification** — manual, automatic, or LLM-assisted confirmation
-- **Consistency** — alignment with evolution chain
-- **Usage** — recent references in events
+| Field | Meaning |
+| --- | --- |
+| `validity_state` | One of the states above |
+| `validity_signals[]` | Causal triggers (type, severity, reason, evidence) |
+| `invalidation_reason_chain` | Change event → assumption → impact |
+| `decay_penalty` | Confidence reduction from active signals |
+| `decision_validity_health` | Rollup counts on Knowledge Health |
 
-Project-level **Knowledge Health** aggregates these into freshness, conflict, review debt, and overall score.
+**Decay / impact triggers:** code & architecture drift · dependency add/remove (manifest baseline) · owner change · assumption failure · superseded / ADR conflict · propagated impact.
+
+**Thresholds (shared):** stale verify = **60 days** (`LIFECYCLE_POLICY.staleVerifyDays`); expire = **180 days**. Cognitive Health ADR stale warnings use the same 60-day policy.
 
 ## CLI
 
 ```bash
 contorium lifecycle              # Knowledge Health dashboard
+contorium lifecycle inspect      # Decision health + causes
 contorium review                 # Review queue only
+contorium why <decision-id>      # Impact / validity chain
 contorium lifecycle owner <id> --owner <name>
-contorium lifecycle verify <id> [--type manual|automatic|llm_assisted] [--by <name>]
+contorium lifecycle verify <id> [--type …] [--by …] [--reason …] [--evidence …]
 contorium lifecycle expire <id> --days <n>
+contorium inspect decisions      # Alias → lifecycle inspect
 ```
 
 ## Ask Contorium
@@ -44,55 +63,50 @@ contorium lifecycle expire <id> --days <n>
 | --- | --- |
 | What needs review? | `review` |
 | Knowledge health / stale decisions? | `knowledge_health` / `lifecycle` |
-| Why was X decided? | `decision` + lifecycle trust overlay |
-
-Non-decision answers (history, entity, state) append **lifecycle trust warnings** when stale or conflicted decisions are referenced.
+| Why was X decided / why invalid? | `decision` + lifecycle trust / impact chain |
 
 ## IDE
 
-Sidebar **Explore** menu:
+Sidebar **Explore** menu: Review Queue · Knowledge Health · Set Owner · Verify Decision
 
-- **Review Queue** — items needing attention
-- **Knowledge Health** — lifecycle dimensions
-- **Set Owner** / **Verify Decision** — write metadata without CLI
+**Top-of-sidebar governance banner** (not a screen-center modal):
+
+- Shows Decision / Changed / Assumption / Impact / Reason
+- Actions: Review · Confirm Still Valid · Update · Ignore
+- Queue: ‹ › to cycle alerts · Open Review Queue
 
 ## MCP Tools
 
 | Tool | Description |
 | --- | --- |
-| `get_knowledge_health` | Lifecycle dashboard (kernel mode `lifecycle`) |
-| `get_review_queue` | Review queue (kernel mode `review`) |
-| `set_decision_lifecycle_meta` | Update owner, verification, expiry |
+| `get_knowledge_health` | Lifecycle dashboard |
+| `get_review_queue` | Review queue |
+| `set_decision_lifecycle_meta` | Owner / verify (+ reason & evidence) / expiry |
 
 ## Dashboard
 
-Terminal dashboard (`contorium dashboard`) loads lifecycle into state:
+- **A/B** — Live Cognition / Governance Overlay (MCP mode)
+- **C/D** — Debug Trace / Project History (**local lenses**, Enter applies)
+- **E** — LLM Config
 
-- **Cognitive Health** stream — layered: Lifecycle · PIL · Cognitive
-- **Governance lens (B)** — Knowledge Governance block with review queue
+## Pipeline
 
-## Code Contradiction Scan
+```text
+Change Events (git · manifests · cognitive · candidates)
+        ↓
+Assumption Graph + Decision Dependency Graph
+        ↓
+Impact Engine → invalidation_reason_chain
+        ↓
+Validity Engine + Confidence + Review Queue
+        ↓
+IDE banner · CLI why · MCP meta · Ask overlay
+```
 
-On sync, recent file paths and bounded file contents are scanned for **tension** against accepted ADRs (e.g. JWT decision vs OAuth code). High-confidence hits add conflict evidence and suggest re-verification.
-
-## Validity-Aware Lifecycle (v2)
-
-Each decision includes a **validity causality** layer:
-
-| Field | Meaning |
-| --- | --- |
-| `validity_state` | `VALID` · `DECAYING` · `NEEDS_REVALIDATION` · `INVALIDATED` |
-| `validity_signals[]` | Causal triggers (type, severity, reason, evidence) |
-| `decay_penalty` | Confidence reduction from active signals |
-
-**Decay triggers:** code/architecture drift · dependency change/removal · owner change · assumption failure · superseded / ADR conflict.
-
-**Surfaces:** Review queue adds `invalidation_trigger`; Ask decision answers show **Validity**, **Why**, and **Suggested action**. Same engine on IDE, CLI, MCP, and Dashboard.
-
-Implementation: `packages/state-core/src/lifecycle/` (`invalidation.ts`, `assumption.ts`, `dependencyScanner.ts`, …).
+Implementation: `packages/state-core/src/lifecycle/` · `cil/changeEventEngine.ts`
 
 ## Related
 
-- PIK (Project Intent Kernel): `.contora/intent/kernel.json`
-- Cognitive Health: missing WHY, stale ADR (complementary to lifecycle trust)
+- Spec notes: [优化.md](../优化.md) · [KNOWLEDGE_LIFECYCLE_OPTIMIZATION_BREAKDOWN.md](./KNOWLEDGE_LIFECYCLE_OPTIMIZATION_BREAKDOWN.md)
+- Cognitive Health: complementary quality signals (shared stale threshold)
 - Governance v4: change review (orthogonal to decision lifecycle)

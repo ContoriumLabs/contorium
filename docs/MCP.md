@@ -60,13 +60,15 @@ See [AI_LAYER.md](./AI_LAYER.md).
 | **Verify (debug only)** | `npx contorium-mcp --workspace /path/to/project` → expect `ready on stdio`, then Ctrl+C |
 | **Published (npm)** | `npm install -g @contorium/mcp` · `contorium-mcp bootstrap --workspace .` |
 | **Daily use** | Open Codex / Claude / Cursor — host starts MCP automatically |
-| **Primary transfer** | `transfer_context` · `transfer_intelligence` · `transfer_handoff` |
-| **Primary inspect** | `inspect_state` · `inspect_health` · `inspect_intent` |
+| **Primary transfer** | `transfer_project` (`mode`: context \| intelligence \| story \| essence \| handoff) |
+| **Primary inspect** | `inspect_state` · `inspect_intent` · `inspect_decision` · `inspect_why` · `inspect_health` |
 | **Capture** | `capture_focus` · `capture_note` · `capture_decision` |
 | **CIL Ask** | `ask_project` · `get_suggested_questions` |
+| **Lifecycle** | `get_knowledge_health` · `get_review_queue` · `set_decision_lifecycle_meta` |
 | **AI Layer** | `get_ai_status` · `test_ai_connection` |
-| **New chat** | `get_handoff_injection_status` → `confirm_handoff_injection` |
-| **Governance** | `run_governance_cycle` · `ensure_control_ready` |
+| **New chat** | `get_handoff_injection_status` → `confirm_handoff_injection` / `skip_handoff_injection` |
+| **Governance** | `inspect_cognition_ready` → `derive_decision_provenance` → `synthesize_context_payload` (**SLOW** — see [MCP_TOOL_CALLABILITY.md](./MCP_TOOL_CALLABILITY.md)) |
+| **Verify tools** | `npm run test:mcp-tools:prefer` · full: `npm run test:mcp-tools` · report: [MCP_TOOL_CALLABILITY.md](./MCP_TOOL_CALLABILITY.md) |
 | **Remove** | Host-specific: see [Uninstall](#uninstall--disable) |
 
 ---

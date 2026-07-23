@@ -659,9 +659,9 @@ const cycleInputSchema = z.object({
     .enum(['auto', 'current_file', 'open_files', 'git_staged', 'git_commit'])
     .optional(),
   scoped_files: z.array(scopedFileSchema).optional(),
-  mode: cycleModeSchema.optional().describe('strict | soft | advisory'),
+  mode: cycleModeSchema.optional().describe('strict | soft | advisory — prefer advisory for lighter smoke / LLM runs'),
   user_confirmed: z.boolean().optional(),
-  persist: z.boolean().optional(),
+  persist: z.boolean().optional().describe('Write artifacts; prefer false unless you need a durable snapshot'),
   audit: z.boolean().optional().describe('Append strict audit record only'),
 });
 
@@ -724,12 +724,12 @@ export function registerGovernanceV4Tools(
     'resolve_scope_context',
     {
       description:
-        '[Governance V4] Resolve diff/file/project into primary, related, risk, and dependency file scopes.',
+        '[Governance V4 · fast] Resolve diff/file/project into primary, related, risk, and dependency scopes. mode: auto | strict | minimal (not "project"). Prefer before a SLOW derive_decision_provenance when scoping a single file.',
       inputSchema: z.object({
         workspaceRoot: z.string().optional(),
         diff_text: z.string().optional(),
         active_file: z.string().optional(),
-        mode: scopeModeSchema.optional(),
+        mode: scopeModeSchema.optional().describe('auto | strict | minimal'),
         scope_preference: z
           .enum(['auto', 'current_file', 'open_files', 'git_staged', 'git_commit'])
           .optional(),
@@ -752,12 +752,17 @@ export function registerGovernanceV4Tools(
 
   const provenanceDescriptions = {
     derive:
-      '[Decision Provenance · derive] Derive decision provenance chain (review → decision → scope → trace). Records only — no code execution.',
-    trace: '[Decision Provenance · derive] Alias of derive_decision_provenance.',
-    snapshot: '[Decision Provenance · project] Persist decision provenance snapshot for the workspace.',
-    legacy_build: '[Legacy alias] Same as derive_decision_provenance.',
-    legacy_run: '[Legacy alias] Same as derive_decision_provenance.',
-    legacy_trace: '[Legacy alias] Same as derive_decision_provenance.',
+      '[SLOW · ~2–3 min · Prefer once] Derive decision provenance (review → decision → scope → trace). Records only — no code execution. Pass active_file + mode=advisory + persist=false for lighter runs. Do NOT also call aliases in the same turn (derive_decision_trace / decision_snapshot / run_governance_cycle / build_decision_provenance / trace_governance_cycle). Prefer get_decision_context or ask_project for quick reads.',
+    trace:
+      '[SLOW · Alias · prefer derive_decision_provenance] Same handler — avoid calling both in one turn.',
+    snapshot:
+      '[SLOW · Alias · prefer derive_decision_provenance] Same derive cycle (persist=true only if you need a written snapshot) — not a separate API.',
+    legacy_build:
+      '[SLOW · Legacy · prefer derive_decision_provenance] Same heavy cycle — do not call for ordinary Q&A.',
+    legacy_run:
+      '[SLOW · Legacy · prefer derive_decision_provenance] Same heavy cycle. Not task execution. Avoid unless caller already uses this name.',
+    legacy_trace:
+      '[SLOW · Legacy · prefer derive_decision_provenance] Same heavy cycle — alias only.',
   };
 
   for (const [name, description] of [
@@ -789,7 +794,7 @@ export function registerGovernanceV4Tools(
   registerToolAlias(
     server,
     'synthesize_context_payload',
-    '[Project Intelligence · synthesize] Synthesize structured context from decision provenance (no autonomous action).',
+    '[Prefer · Inject] Build structured AI context from decision provenance (no autonomous action). Call after derive_decision_provenance when injecting governance context.',
     synthesizeSchema,
     synthesizeHandler,
   );
@@ -836,28 +841,28 @@ export function registerGovernanceV4Tools(
   registerToolAlias(
     server,
     'inspect_cognition_ready',
-    '[Cognition · inspect] Verify Decision Provenance layer is initialized.',
+    '[SLOW · Ready] Verify Decision Provenance layer is initialized (~10–20s). Call before derive_decision_provenance on a fresh workspace; skip if already initialized this session.',
     workspaceRootSchema,
     inspectReadyHandler,
   );
   registerToolAlias(
     server,
     'inspect_system_ready',
-    '[Legacy alias] Same as inspect_cognition_ready.',
+    '[SLOW · Legacy · prefer inspect_cognition_ready] Same ready check (~10–20s).',
     workspaceRootSchema,
     inspectReadyHandler,
   );
   registerToolAlias(
     server,
     'inspect_control_ready',
-    '[Legacy alias] Same as inspect_cognition_ready.',
+    '[SLOW · Legacy · prefer inspect_cognition_ready] Same ready check (~10–20s).',
     workspaceRootSchema,
     inspectReadyHandler,
   );
   registerToolAlias(
     server,
     'ensure_control_ready',
-    '[Legacy alias] Same as inspect_cognition_ready.',
+    '[SLOW · Legacy · prefer inspect_cognition_ready] Same ready check (~10–20s). Avoid unless caller already uses this name.',
     workspaceRootSchema,
     inspectReadyHandler,
   );

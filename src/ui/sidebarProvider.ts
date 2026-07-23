@@ -25,7 +25,11 @@ import {
   type GovernanceOverviewOverlay,
 } from './sidebarGovernancePanel';
 import type { SidebarOverlay } from './sidebarCilPanel';
-import { runCilDecisionsPanel, runCilHistoryPanel, runCilHealthPanel, runCilDnaPanel, runCilReplayPanel, runCilImpactPanel, runCilReviewPanel, runCilLifecyclePanel, runCilLifecycleOwnerPanel, runCilLifecycleVerifyPanel } from '../cil/ideCilPanel';
+import { runCilDecisionsPanel, runCilHistoryPanel, runCilHealthPanel, runCilDnaPanel, runCilReplayPanel, runCilImpactPanel, runCilReviewPanel, runCilLifecyclePanel, runCilLifecycleOwnerPanel, runCilLifecycleVerifyPanel, runCilLifecycleVerifyForDecision, runCilGovernanceAlertReview, runCilTimelinePanel } from '../cil/ideCilPanel';
+import {
+  buildSidebarGovernanceAlertPanel,
+  type SidebarGovernanceAlertPanel,
+} from '../cognition/sidebarGovernanceAlertPanel';
 import { runIdeTransfer } from '../cil/ideTransfer';
 import { runAskContoriumWithQuery } from '../cil/askContorium';
 import {
@@ -72,6 +76,7 @@ type WebviewToExt =
   | { type: 'startFreshAiSession' }
   | { type: 'cilHistory' }
   | { type: 'cilDecisions' }
+  | { type: 'cilTimeline' }
   | { type: 'cilHealth' }
   | { type: 'cilReview' }
   | { type: 'cilLifecycle' }
@@ -80,7 +85,11 @@ type WebviewToExt =
   | { type: 'cilDna' }
   | { type: 'cilReplay' }
   | { type: 'cilImpact' }
-  | { type: 'cilAsk' };
+  | { type: 'cilAsk' }
+  | { type: 'governanceAlertDismiss'; alertId: string }
+  | { type: 'governanceAlertReview'; decisionId: string }
+  | { type: 'governanceAlertVerify'; decisionId: string; reason?: string; evidence?: string }
+  | { type: 'governanceAlertUpdate'; decisionId: string };
 
 const TASK_MAX = 500;
 
@@ -197,6 +206,14 @@ const EMPTY_CONFLICTS: SidebarConflictsPanel = {
   empty: true,
 };
 
+const EMPTY_GOVERNANCE_ALERTS: SidebarGovernanceAlertPanel = {
+  alerts: [],
+  topAlert: null,
+  totalCount: 0,
+  dismissedCount: 0,
+  empty: true,
+};
+
 const PANEL_LOAD_TIMEOUT_MS = 12_000;
 const WEBVIEW_READY_FALLBACK_MS = [300, 1_000, 2_500] as const;
 
@@ -205,7 +222,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
   /** Bust on layout changes so Reload Window picks up sidebar HTML. */
   private static htmlTemplateCache: string | undefined;
   private static htmlTemplateCachedVersion = 0;
-  private static htmlTemplateVersion = 17;
+  private static htmlTemplateVersion = 21;
 
   private view?: vscode.WebviewView;
   private folder: vscode.WorkspaceFolder | undefined;
@@ -396,6 +413,13 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         await this.showCilDecisions();
         return;
       }
+      if (msg.type === 'cilTimeline') {
+        const overlay = await runCilTimelinePanel();
+        if (overlay) {
+          this.postOverlay(overlay);
+        }
+        return;
+      }
       if (msg.type === 'cilAsk') {
         await vscode.commands.executeCommand('contora.askContorium');
         return;
@@ -440,6 +464,41 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
       if (msg.type === 'cilLifecycleVerify') {
         await runCilLifecycleVerifyPanel();
+        return;
+      }
+      if (msg.type === 'governanceAlertDismiss') {
+        const folder = this.folder ?? this.stateManager.getPrimaryFolder();
+        if (!folder || !msg.alertId) {
+          return;
+        }
+        const { dismissGovernanceAlert } = await import('@contora/state-core');
+        await dismissGovernanceAlert(folder.uri.fsPath, msg.alertId);
+        void this.refresh();
+        return;
+      }
+      if (msg.type === 'governanceAlertReview') {
+        const overlay = await runCilGovernanceAlertReview(msg.decisionId);
+        if (overlay) {
+          this.postOverlay(overlay);
+        }
+        return;
+      }
+      if (msg.type === 'governanceAlertVerify') {
+        const ok = await runCilLifecycleVerifyForDecision(msg.decisionId, {
+          reason: msg.reason,
+          evidence: msg.evidence,
+          verifiedBy: 'ide',
+          verificationType: 'manual',
+        });
+        if (ok) {
+          void this.refresh();
+        }
+        return;
+      }
+      if (msg.type === 'governanceAlertUpdate') {
+        await this.runHomeAsk(
+          `Decision ${msg.decisionId} may need updating after recent project changes. What should we change and why?`,
+        );
         return;
       }
       if (msg.type === 'cilDna') {
@@ -764,6 +823,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       stateConflicts: { ...EMPTY_CONFLICTS },
       understandingPanel: { ...EMPTY_UNDERSTANDING },
       governanceStatus: undefined as Record<string, unknown> | undefined,
+      governanceAlerts: { ...EMPTY_GOVERNANCE_ALERTS },
       v22View: { ...EMPTY_V22_PLACEHOLDER },
     };
   }
@@ -1010,6 +1070,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
           this.activeRelativeFile(),
           readGovernanceReviewScope(),
         ),
+        buildSidebarGovernanceAlertPanel(folder),
       ]),
       PANEL_LOAD_TIMEOUT_MS,
       [] as PromiseSettledResult<unknown>[],
@@ -1035,6 +1096,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const stateConflicts = pick(4, { ...EMPTY_CONFLICTS });
     const aiIntent = pick(5, { goals: [] } as SidebarAiIntentPanel);
     const governanceStatus = pick(6, this.governanceStatusFallback());
+    const governanceAlerts = pick(7, { ...EMPTY_GOVERNANCE_ALERTS });
 
     for (const result of settledCore) {
       if (result.status === 'rejected') {
@@ -1049,6 +1111,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       stateConflicts,
       aiIntent,
       governanceStatus,
+      governanceAlerts,
       dataLoading: false,
       heavyLoading: false,
       panelsLoading: this.view.visible,
@@ -1392,6 +1455,30 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       letter-spacing: 0.08em;
       font-size: 11px;
       color: var(--vscode-sideBarTitle-foreground, var(--vscode-foreground));
+    }
+    .cr-brand-block { min-width: 0; flex: 1; }
+    .cr-tagline {
+      margin: 3px 0 0;
+      font-size: 10px;
+      line-height: 1.35;
+      color: var(--vscode-descriptionForeground);
+      font-weight: 400;
+      letter-spacing: 0;
+      opacity: 0.92;
+    }
+    .cr-home-health-line {
+      margin: 0 0 8px;
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--vscode-foreground);
+    }
+    .cr-home-health-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .cr-module-card--health {
+      border-color: var(--vscode-inputValidation-warningBorder, rgba(191, 136, 3, 0.45));
     }
     .cr-logo {
       width: 22px;
@@ -3077,7 +3164,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
     .cr-home { margin-top: 10px; }
     .cr-content-zone {
-      margin: 12px 8px 14px;
+      margin: 12px 0 14px;
       padding: 10px;
       border-radius: 12px;
       background: var(--vscode-input-background, rgba(255, 255, 255, 0.04));
@@ -3163,7 +3250,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
     .cr-action-bar {
       margin-top: 4px;
-      padding: 0 8px;
+      padding: 0;
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -3214,7 +3301,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       display: flex;
       flex-direction: column;
       gap: 6px;
-      padding: 0 8px 10px;
+      padding: 0 0 10px;
     }
     .cr-fold-btn {
       border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.35));
@@ -3282,7 +3369,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.14));
     }
     .cr-fold-panel {
-      padding: 10px 12px 12px;
+      padding: 8px;
       background: var(--vscode-editor-background, rgba(0, 0, 0, 0.15));
       border-top: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.2));
     }
@@ -3403,7 +3490,7 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin: 0 8px 8px;
+      margin: 0 0 8px;
       padding: 6px 10px;
       border-radius: 6px;
       font-size: 11px;
@@ -3423,6 +3510,102 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       0%, 100% { opacity: 0.35; transform: scale(0.85); }
       50% { opacity: 1; transform: scale(1); }
     }
+    .cr-gov-banner {
+      margin: 0 0 8px;
+      padding: 10px 10px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--vscode-inputValidation-warningBorder, #bf8803);
+      background: var(--vscode-inputValidation-warningBackground, rgba(191, 136, 3, 0.12));
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+    }
+    .cr-gov-banner[hidden] { display: none !important; }
+    .cr-gov-banner--high {
+      border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+      background: var(--vscode-inputValidation-errorBackground, rgba(190, 17, 0, 0.12));
+    }
+    .cr-gov-banner-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .cr-gov-banner-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--vscode-foreground);
+      margin: 0;
+    }
+    .cr-gov-banner-dismiss {
+      border: none;
+      background: transparent;
+      color: var(--vscode-descriptionForeground);
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0 2px;
+    }
+    .cr-gov-banner-dismiss:hover { color: var(--vscode-foreground); }
+    .cr-gov-banner-nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+    }
+    .cr-gov-banner-nav-btn {
+      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35));
+      background: transparent;
+      color: var(--vscode-foreground);
+      border-radius: 4px;
+      width: 22px;
+      height: 22px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+    }
+    .cr-gov-banner-pos {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      min-width: 28px;
+      text-align: center;
+    }
+    .cr-gov-banner-kv {
+      font-size: 11px;
+      line-height: 1.45;
+      margin: 0 0 4px;
+      color: var(--vscode-foreground);
+    }
+    .cr-gov-banner-k {
+      color: var(--vscode-descriptionForeground);
+      font-weight: 600;
+      margin-right: 4px;
+    }
+    .cr-gov-banner-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .cr-gov-banner-actions button {
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--vscode-button-border, transparent);
+      background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.18));
+      color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+      cursor: pointer;
+    }
+    .cr-gov-banner-actions button.cr-gov-primary {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+    }
+    .cr-gov-banner-queue {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      margin-top: 6px;
+    }
   </style>
 </head>
 <body>
@@ -3430,8 +3613,35 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     <span class="cr-boot-bar-dot" aria-hidden="true"></span>
     <span id="crBootBarText">Loading workspace data…</span>
   </div>
+  <section id="crGovBanner" class="cr-gov-banner" hidden aria-live="polite" aria-label="Decision governance alert">
+    <div class="cr-gov-banner-head">
+      <h3 class="cr-gov-banner-title" id="crGovBannerTitle">Decision Health</h3>
+      <div class="cr-gov-banner-nav" id="crGovBannerNav" hidden>
+        <button type="button" class="cr-gov-banner-nav-btn" id="crGovBtnPrev" aria-label="Previous alert" title="Previous">‹</button>
+        <span class="cr-gov-banner-pos" id="crGovPos">1/1</span>
+        <button type="button" class="cr-gov-banner-nav-btn" id="crGovBtnNext" aria-label="Next alert" title="Next">›</button>
+      </div>
+      <button type="button" class="cr-gov-banner-dismiss" id="crGovBannerDismiss" aria-label="Dismiss alert" title="Ignore for now">×</button>
+    </div>
+    <p class="cr-gov-banner-kv"><span class="cr-gov-banner-k">Decision</span><span id="crGovDecision">—</span></p>
+    <p class="cr-gov-banner-kv"><span class="cr-gov-banner-k">Changed</span><span id="crGovChanged">—</span></p>
+    <p class="cr-gov-banner-kv" id="crGovAssumptionRow" hidden><span class="cr-gov-banner-k">Affected assumption</span><span id="crGovAssumption">—</span></p>
+    <p class="cr-gov-banner-kv"><span class="cr-gov-banner-k">Impact</span><span id="crGovImpact">—</span></p>
+    <p class="cr-gov-banner-kv"><span class="cr-gov-banner-k">Reason</span><span id="crGovReason">—</span></p>
+    <div class="cr-gov-banner-actions">
+      <button type="button" class="cr-gov-primary" id="crGovBtnReview">Review Decision</button>
+      <button type="button" id="crGovBtnConfirm">Confirm Still Valid</button>
+      <button type="button" id="crGovBtnUpdate">Update Decision</button>
+      <button type="button" id="crGovBtnIgnore">Ignore</button>
+      <button type="button" id="crGovBtnQueue">Open Review Queue</button>
+    </div>
+    <p class="cr-gov-banner-queue" id="crGovQueue" hidden></p>
+  </section>
   <header class="cr-header">
-    <div class="cr-brand"><span class="cr-logo">C</span> CONTORIUM</div>
+    <div class="cr-brand-block">
+      <div class="cr-brand"><span class="cr-logo">C</span> CONTORIUM</div>
+      <p class="cr-tagline">Git remembers what changed · Contorium remembers why</p>
+    </div>
     <div class="cr-header-actions" aria-hidden="true">
       <span class="cr-icon-pill" title="Decorative">${ico.refresh}</span>
       <span class="cr-icon-pill" title="Decorative">${ico.more}</span>
@@ -3452,6 +3662,61 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         </div>
       </div>
     </section>
+  </div>
+
+  <div class="cr-stack cr-surface-stack" aria-label="Decision Health">
+    <div class="cr-stack-label"><span>Decision Health</span></div>
+    <section class="cr-section">
+      <div class="cr-module-card cr-module-card--health" id="crHomeHealthCard">
+        <div class="cr-module-card-body">
+          <p id="homeHealthLine" class="cr-home-health-line">Checking decision health…</p>
+          <div class="cr-home-health-actions">
+            <button type="button" class="cr-action-workspace" id="btnHomeHealthReview">Review</button>
+            <button type="button" class="cr-action-workspace" id="btnHomeHealthTimeline">Timeline</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="cr-action-bar cr-action-bar--ask" aria-label="Ask Project">
+    <div class="cr-stack-label"><span>Ask Project</span></div>
+    <div class="cr-ask-group">
+      <div class="cr-module-card cr-module-card--ask">
+        <form id="homeAskForm" class="cr-ask-form" aria-label="Ask your project">
+          <input type="text" id="homeAskInput" class="cr-ask-input" maxlength="240" placeholder="Ask your project — not just the code…" aria-label="Ask your project" autocomplete="off" />
+          <p class="cr-ask-hint">Why this decision · What needs review · Project health · Timeline</p>
+          <div class="cr-ask-chips" aria-label="Suggested questions">
+            <button type="button" class="cr-ask-chip" data-ask="What needs review?">Review</button>
+            <button type="button" class="cr-ask-chip" data-ask="Why were recent decisions made?">Why</button>
+            <button type="button" class="cr-ask-chip" data-ask="Is the project knowledge healthy?">Health</button>
+          </div>
+          <button type="submit" class="cr-primary" id="btnHomeAsk" title="Ask about project history, decisions, or health">Ask</button>
+        </form>
+      </div>
+      <details class="cr-fold-btn cr-fold-btn--attached" id="crAskLlmConfig">
+        <summary>
+          <span>Configure LLM</span>
+          <span class="cr-fold-summary-hint">Optional explanations</span>
+        </summary>
+        <div class="cr-fold-panel cr-fold-panel--llm">
+          <section class="cr-section" id="crSecCilAi">
+            <div class="cr-module-card cr-module-card--intelligence">
+              <div class="cr-module-card-body cr-v22-fields">
+                <div class="cr-v22-row"><span class="cr-psb-k">Status</span><p id="v22CilAiStatus" class="cr-graph-line">—</p></div>
+                <div class="cr-v22-row"><span class="cr-psb-k">Provider / model</span><p id="v22CilAiProvider" class="cr-graph-line">—</p></div>
+                <div class="cr-v22-row"><span class="cr-psb-k">Modules</span><p id="v22CilAiModules" class="cr-graph-muted">—</p></div>
+                <div class="cr-v22-row"><span class="cr-psb-k">Intent router</span><p id="v22CilAiRouter" class="cr-graph-muted">—</p></div>
+                <p id="v22CilAiWarn" class="cr-byok-warn" hidden></p>
+                <div class="cr-more-workspace" style="margin-top:8px">
+                  <button type="button" class="cr-action-workspace" id="btnCilAiConfigure">Configure LLM</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </details>
+    </div>
   </div>
 
   <div class="cr-stack cr-surface-stack" aria-label="Activity summary">
@@ -3504,75 +3769,41 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     </div>
   </div>
 
-  <div class="cr-action-bar cr-action-bar--ask" aria-label="Ask">
-    <div class="cr-stack-label"><span>Ask Contorium</span></div>
-    <div class="cr-ask-group">
-      <div class="cr-module-card cr-module-card--ask">
-        <form id="homeAskForm" class="cr-ask-form" aria-label="Ask your project">
-          <input type="text" id="homeAskInput" class="cr-ask-input" maxlength="240" placeholder="Ask your project…" aria-label="Ask your project" autocomplete="off" />
-          <p class="cr-ask-hint">What happened · Why · Next · Story · Health · Review · Knowledge health · MCP · Timeline</p>
-          <div class="cr-ask-chips" aria-label="Suggested questions">
-            <button type="button" class="cr-ask-chip" data-ask="What needs review?">Review</button>
-            <button type="button" class="cr-ask-chip" data-ask="Is the project knowledge healthy?">Knowledge health</button>
-            <button type="button" class="cr-ask-chip" data-ask="Is the project healthy?">Health</button>
-          </div>
-          <button type="submit" class="cr-primary" id="btnHomeAsk" title="Ask about project history, decisions, or next steps">Ask</button>
-        </form>
-      </div>
-      <details class="cr-fold-btn cr-fold-btn--attached" id="crAskLlmConfig">
-        <summary>
-          <span>Configure LLM</span>
-          <span class="cr-fold-summary-hint">Configure LLM for better results</span>
-        </summary>
-        <div class="cr-fold-panel cr-fold-panel--llm">
-          <section class="cr-section" id="crSecCilAi">
-            <div class="cr-module-card cr-module-card--intelligence">
-              <div class="cr-module-card-body cr-v22-fields">
-                <div class="cr-v22-row"><span class="cr-psb-k">Status</span><p id="v22CilAiStatus" class="cr-graph-line">—</p></div>
-                <div class="cr-v22-row"><span class="cr-psb-k">Provider / model</span><p id="v22CilAiProvider" class="cr-graph-line">—</p></div>
-                <div class="cr-v22-row"><span class="cr-psb-k">Modules</span><p id="v22CilAiModules" class="cr-graph-muted">—</p></div>
-                <div class="cr-v22-row"><span class="cr-psb-k">Intent router</span><p id="v22CilAiRouter" class="cr-graph-muted">—</p></div>
-                <p id="v22CilAiWarn" class="cr-byok-warn" hidden></p>
-                <div class="cr-more-workspace" style="margin-top:8px">
-                  <button type="button" class="cr-action-workspace" id="btnCilAiConfigure">Configure LLM</button>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-      </details>
-    </div>
-  </div>
-
   <div class="cr-fold-group" aria-label="Advanced">
     <details class="cr-fold-btn" id="crMoreDetails">
       <summary>Explore · Capture · Workspace</summary>
       <div class="cr-fold-panel">
         <div class="cr-more-section">
-          <span class="cr-more-section-k">Explore</span>
+          <span class="cr-more-section-k">Core</span>
           <ul class="cr-more-menu">
-            <li><button type="button" class="cr-more-item" data-action="cilHistory">History</button></li>
-            <li><button type="button" class="cr-more-item" data-action="cilDecisions">Decisions</button></li>
-            <li><button type="button" class="cr-more-item" data-action="cilImpact">Impact</button></li>
-            <li><button type="button" class="cr-more-item" data-action="cilDna">DNA</button></li>
-            <li><button type="button" class="cr-more-item" data-action="cilReplay">Replay</button></li>
-            <li><button type="button" class="cr-more-item" data-action="cilHealth">Health</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilTimeline">Decision Timeline</button></li>
             <li><button type="button" class="cr-more-item" data-action="cilReview">Review Queue</button></li>
-            <li><button type="button" class="cr-more-item" data-action="cilLifecycle">Knowledge Health</button></li>
-            <li><button type="button" class="cr-more-item" data-action="cilLifecycleOwner">Set Owner</button></li>
-            <li><button type="button" class="cr-more-item" data-action="cilLifecycleVerify">Verify Decision</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilLifecycle">Decision Health</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilDecisions">Decisions</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilHistory">History</button></li>
           </ul>
         </div>
         <div class="cr-more-section">
           <span class="cr-more-section-k">Capture</span>
           <div class="cr-v22-row cr-capture-row">
+            <input type="text" id="v22CaptureDecision" class="cr-v22-capture-input" maxlength="240" placeholder="Record a decision…" aria-label="Decision" />
+            <button type="button" class="cr-action-workspace" id="btnCaptureDecision">Decision</button>
+          </div>
+          <div class="cr-v22-row cr-capture-row">
             <input type="text" id="v22CaptureNote" class="cr-v22-capture-input" maxlength="240" placeholder="Project note" aria-label="Project note" />
             <button type="button" class="cr-action-workspace" id="btnCaptureNote">Note</button>
           </div>
-          <div class="cr-v22-row cr-capture-row">
-            <input type="text" id="v22CaptureDecision" class="cr-v22-capture-input" maxlength="240" placeholder="Decision" aria-label="Decision" />
-            <button type="button" class="cr-action-workspace" id="btnCaptureDecision">Decision</button>
-          </div>
+        </div>
+        <div class="cr-more-section">
+          <span class="cr-more-section-k">More</span>
+          <ul class="cr-more-menu">
+            <li><button type="button" class="cr-more-item" data-action="cilImpact">Impact</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilHealth">Cognitive Health</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilDna">DNA</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilReplay">Replay</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilLifecycleOwner">Set Owner</button></li>
+            <li><button type="button" class="cr-more-item" data-action="cilLifecycleVerify">Verify Decision</button></li>
+          </ul>
         </div>
         <div class="cr-more-section">
           <span class="cr-more-section-k">Workspace</span>
@@ -3813,6 +4044,30 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     const crOverlayClose = document.getElementById('crOverlayClose');
     const crOverlayBackdrop = document.getElementById('crOverlayBackdrop');
     const crOverlayContinue = document.getElementById('crOverlayContinue');
+    const homeHealthLine = document.getElementById('homeHealthLine');
+    const btnHomeHealthReview = document.getElementById('btnHomeHealthReview');
+    const btnHomeHealthTimeline = document.getElementById('btnHomeHealthTimeline');
+    const crGovBanner = document.getElementById('crGovBanner');
+    const crGovBannerDismiss = document.getElementById('crGovBannerDismiss');
+    const crGovDecision = document.getElementById('crGovDecision');
+    const crGovChanged = document.getElementById('crGovChanged');
+    const crGovAssumptionRow = document.getElementById('crGovAssumptionRow');
+    const crGovAssumption = document.getElementById('crGovAssumption');
+    const crGovImpact = document.getElementById('crGovImpact');
+    const crGovReason = document.getElementById('crGovReason');
+    const crGovQueue = document.getElementById('crGovQueue');
+    const crGovBtnReview = document.getElementById('crGovBtnReview');
+    const crGovBtnConfirm = document.getElementById('crGovBtnConfirm');
+    const crGovBtnUpdate = document.getElementById('crGovBtnUpdate');
+    const crGovBtnIgnore = document.getElementById('crGovBtnIgnore');
+    const crGovBtnQueue = document.getElementById('crGovBtnQueue');
+    const crGovBtnPrev = document.getElementById('crGovBtnPrev');
+    const crGovBtnNext = document.getElementById('crGovBtnNext');
+    const crGovBannerNav = document.getElementById('crGovBannerNav');
+    const crGovPos = document.getElementById('crGovPos');
+    let activeGovAlert = null;
+    let govAlertQueue = [];
+    let govAlertIndex = 0;
     const graphMetaEl = document.getElementById('graphMeta');
     const graphUnderstandingEl = document.getElementById('graphUnderstanding');
     const graphProblemEl = document.getElementById('graphProblem');
@@ -4284,6 +4539,88 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    function paintHomeHealth(panel) {
+      if (!homeHealthLine) return;
+      const n = panel && panel.totalCount ? panel.totalCount : 0;
+      const top = panel && panel.topAlert ? panel.topAlert : null;
+      if (!n) {
+        homeHealthLine.textContent = 'All tracked decisions look healthy';
+        return;
+      }
+      const title = top && top.decision_title ? top.decision_title : 'a prior decision';
+      homeHealthLine.textContent =
+        n === 1
+          ? '1 decision needs check — ' + title
+          : n + ' historical decisions need check — e.g. ' + title;
+    }
+
+    function paintGovernanceBanner(panel) {
+      if (!crGovBanner) return;
+      const alerts = (panel && panel.alerts) || [];
+      govAlertQueue = alerts;
+      if (!alerts.length || (panel && panel.empty)) {
+        activeGovAlert = null;
+        govAlertIndex = 0;
+        crGovBanner.hidden = true;
+        crGovBanner.classList.remove('cr-gov-banner--high');
+        if (crGovBannerNav) crGovBannerNav.hidden = true;
+        return;
+      }
+      if (govAlertIndex >= alerts.length) {
+        govAlertIndex = 0;
+      }
+      const top = alerts[govAlertIndex];
+      activeGovAlert = top;
+      crGovBanner.hidden = false;
+      crGovBanner.classList.toggle('cr-gov-banner--high', top.impact === 'high');
+      if (crGovDecision) {
+        crGovDecision.textContent = top.decision_title || top.decision_id || '—';
+      }
+      if (crGovChanged) crGovChanged.textContent = top.changed || '—';
+      if (crGovAssumptionRow && crGovAssumption) {
+        const hasAsm = Boolean(top.affected_assumption);
+        crGovAssumptionRow.hidden = !hasAsm;
+        if (hasAsm) crGovAssumption.textContent = top.affected_assumption;
+      }
+      if (crGovImpact) {
+        const impactLabel = String(top.impact || 'medium');
+        crGovImpact.textContent = impactLabel.charAt(0).toUpperCase() + impactLabel.slice(1);
+      }
+      if (crGovReason) crGovReason.textContent = top.reason || '—';
+      if (crGovBannerNav) {
+        crGovBannerNav.hidden = alerts.length < 2;
+      }
+      if (crGovPos) {
+        crGovPos.textContent = (govAlertIndex + 1) + '/' + alerts.length;
+      }
+      if (crGovQueue) {
+        if (alerts.length > 1) {
+          crGovQueue.hidden = false;
+          crGovQueue.textContent =
+            'Alert ' + (govAlertIndex + 1) + ' of ' + alerts.length + ' — use ‹ › or Open Review Queue';
+        } else {
+          crGovQueue.hidden = true;
+          crGovQueue.textContent = '';
+        }
+      }
+    }
+
+    function showGovAlertAt(delta) {
+      if (!govAlertQueue.length) return;
+      govAlertIndex = (govAlertIndex + delta + govAlertQueue.length) % govAlertQueue.length;
+      paintGovernanceBanner({
+        alerts: govAlertQueue,
+        topAlert: govAlertQueue[govAlertIndex],
+        totalCount: govAlertQueue.length,
+        empty: false,
+      });
+    }
+
+    function postGovernanceAlertAction(type, extra) {
+      if (!activeGovAlert) return;
+      vscode.postMessage(Object.assign({ type: type }, extra || {}));
+    }
+
     function paintHomeLayer(s, v22View) {
       const recentList = document.getElementById('homeRecentList');
       const recentEmpty = document.getElementById('homeRecentEmpty');
@@ -4466,6 +4803,10 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       if (!jsonEq(prev.stateConflicts, s.stateConflicts)) {
         paintConflictsPanel(s.stateConflicts || null);
       }
+      if (!jsonEq(prev.governanceAlerts, s.governanceAlerts)) {
+        paintGovernanceBanner(s.governanceAlerts || null);
+        paintHomeHealth(s.governanceAlerts || null);
+      }
       bumpTrackStatus(s);
     }
 
@@ -4482,6 +4823,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
       paintGovernancePanel(s.governanceStatus || null);
       paintUnderstandingPanel(s.understandingPanel || null);
       paintConflictsPanel(s.stateConflicts || null);
+      paintGovernanceBanner(s.governanceAlerts || null);
+      paintHomeHealth(s.governanceAlerts || null);
       bumpTrackStatus(s);
     }
 
@@ -5189,6 +5532,66 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     if (crOverlayClose) crOverlayClose.addEventListener('click', closeOverlayPanel);
+    if (btnHomeHealthReview) {
+      btnHomeHealthReview.addEventListener('click', function () {
+        vscode.postMessage({ type: 'cilReview' });
+      });
+    }
+    if (btnHomeHealthTimeline) {
+      btnHomeHealthTimeline.addEventListener('click', function () {
+        vscode.postMessage({ type: 'cilTimeline' });
+      });
+    }
+    if (crGovBannerDismiss) {
+      crGovBannerDismiss.addEventListener('click', function () {
+        if (!activeGovAlert) return;
+        vscode.postMessage({ type: 'governanceAlertDismiss', alertId: activeGovAlert.id });
+      });
+    }
+    if (crGovBtnIgnore) {
+      crGovBtnIgnore.addEventListener('click', function () {
+        if (!activeGovAlert) return;
+        vscode.postMessage({ type: 'governanceAlertDismiss', alertId: activeGovAlert.id });
+      });
+    }
+    if (crGovBtnReview) {
+      crGovBtnReview.addEventListener('click', function () {
+        if (!activeGovAlert) return;
+        vscode.postMessage({ type: 'governanceAlertReview', decisionId: activeGovAlert.decision_id });
+      });
+    }
+    if (crGovBtnConfirm) {
+      crGovBtnConfirm.addEventListener('click', function () {
+        if (!activeGovAlert) return;
+        vscode.postMessage({
+          type: 'governanceAlertVerify',
+          decisionId: activeGovAlert.decision_id,
+          reason: 'Confirmed still valid from governance banner',
+          evidence: activeGovAlert.changed,
+        });
+      });
+    }
+    if (crGovBtnUpdate) {
+      crGovBtnUpdate.addEventListener('click', function () {
+        if (!activeGovAlert) return;
+        vscode.postMessage({ type: 'governanceAlertUpdate', decisionId: activeGovAlert.decision_id });
+      });
+    }
+    if (crGovBtnPrev) {
+      crGovBtnPrev.addEventListener('click', function () {
+        showGovAlertAt(-1);
+      });
+    }
+    if (crGovBtnNext) {
+      crGovBtnNext.addEventListener('click', function () {
+        showGovAlertAt(1);
+      });
+    }
+    if (crGovBtnQueue) {
+      crGovBtnQueue.addEventListener('click', function () {
+        vscode.postMessage({ type: 'cilReview' });
+      });
+    }
     if (crOverlayBackdrop) crOverlayBackdrop.addEventListener('click', closeOverlayPanel);
     if (crOverlayContinue) crOverlayContinue.addEventListener('click', closeOverlayPanel);
 
@@ -5963,6 +6366,8 @@ export class ContoraSidebarProvider implements vscode.WebviewViewProvider {
         paintTodayFromPanels(null, null);
         paintUnderstandingPanel(null);
         paintConflictsPanel(null);
+        paintGovernanceBanner(null);
+        paintHomeHealth(null);
         bumpTrackStatus(null);
         return;
       }

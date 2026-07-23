@@ -362,12 +362,16 @@ export async function runAttach(options) {
     };
     const applyCognitiveModeSelection = async () => {
         if (cognitiveModeSelection === 'C') {
-            showFlash('Debug Trace — view-only (not persisted to MCP)', 2500);
+            cognitiveModeActive = 'C';
+            showFlash('Debug Trace active — provenance & review (local lens)', 2500);
+            render();
             return;
         }
         if (cognitiveModeSelection === 'D') {
+            cognitiveModeActive = 'D';
             void refreshCilHistory();
-            showFlash('Project History — view-only (CIL last 7 days)', 2500);
+            showFlash('Project History active — CIL last 7 days (local lens)', 2500);
+            render();
             return;
         }
         if (cognitiveModeSelection === 'E') {

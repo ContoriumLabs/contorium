@@ -1,59 +1,12 @@
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import type { AdrRecord } from '../cil/types.js';
 import type { ValiditySignal } from './types.js';
+import {
+  collectWorkspaceDependencyNames,
+  extractTechTerms,
+  TECH_TERM_TO_PACKAGES,
+} from './dependencyInventory.js';
 
-/** Decision vocabulary → npm package names that implement it. */
-const TECH_PACKAGES: Record<string, string[]> = {
-  redis: ['redis', 'ioredis', '@redis/client', 'node-redis'],
-  jwt: ['jsonwebtoken', 'jose', 'passport-jwt', '@auth0/angular-jwt'],
-  oauth: ['oauth', 'oauth2', 'passport-oauth2', 'openid-client'],
-  postgres: ['pg', 'postgres', 'postgresql', '@prisma/client', 'prisma'],
-  mysql: ['mysql', 'mysql2'],
-  mongodb: ['mongodb', 'mongoose'],
-  sqlite: ['sqlite3', 'better-sqlite3', '@libsql/client'],
-  graphql: ['graphql', '@apollo/server', 'apollo-server', 'graphql-yoga'],
-  mcp: ['@modelcontextprotocol/sdk', 'mcp'],
-};
-
-function extractTechTerms(text: string): string[] {
-  const lower = text.toLowerCase();
-  return Object.keys(TECH_PACKAGES).filter((term) => {
-    const re = new RegExp(`\\b${term}\\b`, 'i');
-    return re.test(lower);
-  });
-}
-
-async function readWorkspaceDependencies(workspaceRoot: string): Promise<Set<string>> {
-  const names = new Set<string>();
-  const candidates = [
-    'package.json',
-    'packages/state-core/package.json',
-    'packages/cli/package.json',
-    'packages/mcp/package.json',
-  ];
-
-  for (const rel of candidates) {
-    const full = path.join(workspaceRoot, rel);
-    try {
-      const raw = JSON.parse(await fs.readFile(full, 'utf8')) as Record<string, unknown>;
-      for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
-        const deps = raw[section];
-        if (deps && typeof deps === 'object') {
-          for (const name of Object.keys(deps as Record<string, string>)) {
-            names.add(name.toLowerCase());
-          }
-        }
-      }
-    } catch {
-      // skip missing manifests
-    }
-  }
-
-  return names;
-}
-
-/** Detect dependency drift vs ADR technology choices. */
+/** Detect dependency drift vs ADR technology choices (manifest-backed). */
 export async function scanDependencyValiditySignals(
   workspaceRoot: string,
   adr: AdrRecord,
@@ -62,43 +15,66 @@ export async function scanDependencyValiditySignals(
     return [];
   }
 
-  const terms = extractTechTerms(`${adr.title} ${adr.reason}`);
+  const adrText = `${adr.title} ${adr.reason}`;
+  const terms = extractTechTerms(adrText);
   if (!terms.length) {
     return [];
   }
 
-  const installed = await readWorkspaceDependencies(workspaceRoot);
+  const installed = await collectWorkspaceDependencyNames(workspaceRoot);
   if (!installed.size) {
     return [];
   }
 
   const signals: ValiditySignal[] = [];
   const now = new Date().toISOString();
-  const adrText = `${adr.title} ${adr.reason}`.toLowerCase();
+  const adrLower = adrText.toLowerCase();
+
+  // Only emit DEPENDENCY_REMOVAL when ADR strongly claims the tech is required
+  const strongClaim = (term: string): boolean =>
+    new RegExp(
+      `(?:use|adopt|require|depend(?:s)?\\s+on|based\\s+on)\\s+${term}|\\b${term}\\b\\s+(?:as|for|cache|database|db|store)`,
+      'i',
+    ).test(adrText);
 
   for (const term of terms) {
-    const packages = TECH_PACKAGES[term] ?? [];
+    const packages = TECH_TERM_TO_PACKAGES[term] ?? [];
     const hasPkg = packages.some((p) => installed.has(p.toLowerCase()));
     if (hasPkg) {
       continue;
     }
 
-    const altInstalled = Object.entries(TECH_PACKAGES)
+    const altInstalled = Object.entries(TECH_TERM_TO_PACKAGES)
       .filter(([other]) => other !== term)
       .filter(([, pkgs]) => pkgs.some((p) => installed.has(p.toLowerCase())))
       .map(([other]) => other)
-      .filter((other) => adrText.includes(other) === false);
+      .filter((other) => !adrLower.includes(other));
 
-    if (altInstalled.length) {
+    // Same family alternatives (sqlite↔postgres etc.) count as CHANGE not noisy REMOVAL
+    const storageFamily = new Set(['sqlite', 'postgres', 'mysql', 'mongodb']);
+    const authFamily = new Set(['jwt', 'oauth']);
+    const familyAlts = altInstalled.filter((other) => {
+      if (storageFamily.has(term) && storageFamily.has(other)) {
+        return true;
+      }
+      if (authFamily.has(term) && authFamily.has(other)) {
+        return true;
+      }
+      return false;
+    });
+
+    if (familyAlts.length || altInstalled.length) {
       signals.push({
         type: 'DEPENDENCY_CHANGE',
         detected_at: now,
-        reason: `Decision emphasizes "${term}" but workspace uses ${altInstalled.slice(0, 2).join(', ')}`,
-        severity: 'high',
+        reason: `Decision emphasizes "${term}" but workspace manifests include ${
+          (familyAlts.length ? familyAlts : altInstalled).slice(0, 2).join(', ')
+        } without ${term}`,
+        severity: strongClaim(term) ? 'high' : 'medium',
         evidence: term,
         detail: `Referenced stack may have migrated away from ${term}`,
       });
-    } else {
+    } else if (strongClaim(term)) {
       signals.push({
         type: 'DEPENDENCY_REMOVAL',
         detected_at: now,

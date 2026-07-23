@@ -13,7 +13,9 @@ const eventStore_js_1 = require("./eventStore.js");
 const knowledgeGraph_js_1 = require("./knowledgeGraph.js");
 const types_js_1 = require("./types.js");
 const timeCoerce_js_1 = require("./timeCoerce.js");
-const STALE_ADR_DAYS = 60;
+const policy_js_1 = require("../lifecycle/policy.js");
+/** Align with Knowledge Lifecycle stale threshold (was a hard-coded 60). */
+const STALE_ADR_DAYS = policy_js_1.LIFECYCLE_POLICY.staleVerifyDays;
 const DEAD_FOCUS_DAYS = 14;
 function daysSince(iso) {
     const parsed = Date.parse(iso);

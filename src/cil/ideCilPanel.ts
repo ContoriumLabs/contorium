@@ -139,6 +139,29 @@ export async function runCilDecisionsPanel(): Promise<CilOverlay | undefined> {
   }
 }
 
+export async function fetchCilDecisionTimeline(root: string): Promise<CilOverlay> {
+  const {
+    syncCognitiveInteractionLayer,
+    readAllAdrRecords,
+    readKnowledgeLifecycle,
+    formatDecisionTimeline,
+  } = await import('@contora/state-core');
+  await syncCognitiveInteractionLayer(root, 'ide');
+  const [adrs, lc] = await Promise.all([
+    readAllAdrRecords(root),
+    readKnowledgeLifecycle(root).catch(() => null),
+  ]);
+  return {
+    kind: 'cil',
+    title: 'Decision Timeline',
+    subtitle: 'Project evolution as a series of choices',
+    lines: formatDecisionTimeline(adrs, lc),
+  };
+}
+
+export const runCilTimelinePanel = () =>
+  runCilOverlayPanel('Decision Timeline', fetchCilDecisionTimeline, 'Open a folder workspace first.');
+
 async function runCilOverlayPanel(
   title: string,
   loader: (root: string) => Promise<CilOverlay>,
@@ -289,6 +312,101 @@ export async function runCilLifecycleOwnerPanel(): Promise<void> {
 }
 
 /** IDE shortcut — mark decision verified (mirrors `contorium lifecycle verify`). */
+export async function runCilLifecycleVerifyForDecision(
+  decisionId: string,
+  opts?: {
+    reason?: string;
+    evidence?: string;
+    verifiedBy?: string;
+    verificationType?: 'manual' | 'automatic' | 'llm_assisted';
+  },
+): Promise<boolean> {
+  const root = await workspaceRoot();
+  if (!root) {
+    void vscode.window.showWarningMessage('Open a folder workspace first.');
+    return false;
+  }
+  try {
+    const {
+      readDecisionLifecycleMeta,
+      writeDecisionLifecycleMeta,
+      persistKnowledgeLifecycle,
+      applyLifecycleVerification,
+    } = await import('@contora/state-core');
+    const existing = (await readDecisionLifecycleMeta(root, decisionId)) ?? {};
+    await writeDecisionLifecycleMeta(
+      root,
+      decisionId,
+      applyLifecycleVerification(existing, {
+        by: opts?.verifiedBy?.trim() || 'ide',
+        type: opts?.verificationType ?? 'manual',
+        reason: opts?.reason,
+        evidence: opts?.evidence,
+      }),
+    );
+    await persistKnowledgeLifecycle(root);
+    void vscode.window.showInformationMessage(`Verified ${decisionId} — assumptions confirmed`);
+    return true;
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `Verify failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
+}
+
+export async function runCilGovernanceAlertReview(decisionId: string): Promise<CilOverlay | undefined> {
+  const root = await workspaceRoot();
+  if (!root) {
+    void vscode.window.showWarningMessage('Open a folder workspace first.');
+    return undefined;
+  }
+  try {
+    return await fetchCilDecisionReview(root, decisionId);
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `Review failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return undefined;
+  }
+}
+
+export async function fetchCilDecisionReview(root: string, decisionId: string): Promise<CilOverlay> {
+  const {
+    syncCognitiveInteractionLayer,
+    computeKnowledgeLifecycle,
+    findDecisionLifecycle,
+    formatDecisionLifecycleAnswer,
+    formatDecisionWhyAnswer,
+    readAllAdrRecords,
+  } = await import('@contora/state-core');
+  await syncCognitiveInteractionLayer(root, 'ide');
+  const index = await computeKnowledgeLifecycle(root);
+  const record = findDecisionLifecycle(index, decisionId);
+  if (!record) {
+    return {
+      kind: 'cil',
+      title: `Decision: ${decisionId}`,
+      subtitle: 'Not found',
+      lines: ['Unknown decision id — run Sync state'],
+    };
+  }
+  const adrs = await readAllAdrRecords(root);
+  const lines = [
+    ...formatDecisionLifecycleAnswer(record, adrs).split('\n'),
+    '',
+    '---',
+    ...formatDecisionWhyAnswer(record),
+  ];
+  return {
+    kind: 'cil',
+    title: 'Decision impact review',
+    subtitle: `${record.decision_id} · ${record.title}`,
+    lines,
+  };
+}
+
+/** IDE shortcut — mark decision verified (mirrors `contorium lifecycle verify`). */
 export async function runCilLifecycleVerifyPanel(): Promise<void> {
   const root = await workspaceRoot();
   if (!root) {
@@ -316,20 +434,22 @@ export async function runCilLifecycleVerifyPanel(): Promise<void> {
     value: 'ide',
   });
   try {
-    const {
-      readDecisionLifecycleMeta,
-      writeDecisionLifecycleMeta,
-      persistKnowledgeLifecycle,
-    } = await import('@contora/state-core');
-    const existing = (await readDecisionLifecycleMeta(root, decisionId)) ?? {};
-    await writeDecisionLifecycleMeta(root, decisionId, {
-      ...existing,
-      verified_at: new Date().toISOString(),
-      verified_by: verifiedBy?.trim() || 'ide',
-      verification_type: verifyType.value,
+    const reason = await vscode.window.showInputBox({
+      title: 'Why is this decision still valid?',
+      prompt: 'Optional — recorded as verification evidence (优化.md §10)',
+      placeHolder: 'e.g. Redis replaced by compatible cache layer',
     });
-    await persistKnowledgeLifecycle(root);
-    void vscode.window.showInformationMessage(`Verified ${decisionId} (${verifyType.label})`);
+    const evidence = await vscode.window.showInputBox({
+      title: 'Evidence',
+      prompt: 'Optional supporting note',
+      placeHolder: 'e.g. cache abstraction preserved in cache.service.ts',
+    });
+    await runCilLifecycleVerifyForDecision(decisionId, {
+      reason: reason?.trim() || undefined,
+      evidence: evidence?.trim() || undefined,
+      verifiedBy: verifiedBy?.trim() || 'ide',
+      verificationType: verifyType.value,
+    });
   } catch (err) {
     void vscode.window.showErrorMessage(
       `Verify failed: ${err instanceof Error ? err.message : String(err)}`,

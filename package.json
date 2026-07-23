@@ -2,7 +2,7 @@
   "name": "contorium",
   "displayName": "Contorium",
   "description": "Contorium: AI Project Intelligence Layer — capture, structure, preserve, retrieve and transfer project intelligence across IDE, MCP, and CLI.",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -242,6 +242,9 @@
     "compile": "node scripts/ensure-dev-deps.mjs && npm run version:sync && npm run build:runtime && npm run build:state-core && node scripts/materialize-deps-for-vsix.mjs && node scripts/ensure-dev-deps.mjs && npm run build:cli && npm run build:mcp && node scripts/run-tsc.mjs .",
     "test": "npm run build:state-core && npm run test:v3-core --prefix packages/state-core",
     "test:v3-core": "npm run test:v3-core --prefix packages/state-core",
+    "test:mcp-tools": "node scripts/verify-mcp-tools.mjs",
+    "test:mcp-tools:prefer": "node scripts/verify-mcp-tools.mjs --prefer-only",
+    "verify:mcp-tools": "npm run test:mcp-tools",
     "publish:npm": "npm run compile && node scripts/publish-npm.mjs",
     "publish:npm:dry-run": "npm run compile && node scripts/publish-npm.mjs --dry-run",
     "postversion": "node scripts/sync-version.mjs",
@@ -253,8 +256,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.2.7.tgz",
-    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.2.7.tgz",
+    "@contora/runtime": "file:.vscode-pack/contora-runtime-1.2.8.tgz",
+    "@contora/state-core": "file:.vscode-pack/contora-state-core-1.2.8.tgz",
     "simple-git": "^3.22.0"
   }
 }

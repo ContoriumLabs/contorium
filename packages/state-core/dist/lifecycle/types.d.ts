@@ -1,13 +1,21 @@
 import type { AdrStatus } from '../cil/types.js';
-export declare const KNOWLEDGE_LIFECYCLE_SCHEMA: "contorium.lifecycle.v2";
+export declare const KNOWLEDGE_LIFECYCLE_SCHEMA: "contorium.lifecycle.v3";
 export declare const KNOWLEDGE_HEALTH_SCHEMA: "contorium.knowledge_health.v1";
 export declare const REVIEW_QUEUE_SCHEMA: "contorium.review_queue.v1";
 /** Lifecycle status overlay — maps ADR status + graph edges. */
 export type LifecycleDecisionStatus = 'ACTIVE' | 'SUPERSEDED' | 'DEPRECATED' | 'ARCHIVED' | 'UNKNOWN';
 export type VerificationType = 'automatic' | 'manual' | 'llm_assisted' | 'none';
-/** Validity state — why a decision may no longer be authoritative (优化.md §二). */
-export type ValidityState = 'VALID' | 'DECAYING' | 'NEEDS_REVALIDATION' | 'INVALIDATED';
 export type ValiditySignalType = 'CODE_CHANGE' | 'DEPENDENCY_CHANGE' | 'DEPENDENCY_REMOVAL' | 'OWNER_CHANGE' | 'ASSUMPTION_FAILURE' | 'ARCHITECTURE_CHANGE' | 'ADR_CONFLICT' | 'SUPERSEDED';
+/** Validity state — why a decision may no longer be authoritative (优化.md §9). */
+export type ValidityState = 'VALID' | 'WARNING' | 'DECAYING' | 'SUSPECTED_INVALID' | 'NEEDS_REVALIDATION' | 'INVALIDATED' | 'ARCHIVED';
+export type InvalidationChainLinkType = ValiditySignalType | 'CHANGE_EVENT' | 'DECISION_IMPACT';
+export interface InvalidationChainLink {
+    type: InvalidationChainLinkType;
+    event?: string;
+    assumption?: string;
+    impact?: 'low' | 'medium' | 'high';
+    detail?: string;
+}
 export type ValiditySignalSeverity = 'low' | 'medium' | 'high' | 'critical';
 export interface ValiditySignal {
     type: ValiditySignalType;
@@ -40,6 +48,11 @@ export interface DecisionLifecycleMeta {
     last_used_at?: string;
     /** Optional persisted assumptions (otherwise extracted from ADR reason). */
     assumptions?: AdrAssumption[];
+    /** Why the decision was last revalidated (优化.md §10). */
+    verified_reason?: string;
+    verification_evidence?: string[];
+    /** Clears transient invalidation baselines after verify. */
+    last_invalidation_reset_at?: string;
 }
 export interface LifecycleEvidenceRef {
     source: 'adr' | 'code' | 'event' | 'metadata';
@@ -86,6 +99,18 @@ export interface DecisionLifecycleRecord {
     decay_penalty: number;
     superseded_context?: SupersededContext;
     assumptions?: AdrAssumption[];
+    /** v3 — causal chain from change event to decision impact (优化.md §8). */
+    invalidation_reason_chain?: InvalidationChainLink[];
+}
+export interface DecisionValidityHealth {
+    active_decisions: number;
+    valid_decisions: number;
+    warning_decisions: number;
+    decaying_decisions: number;
+    suspected_invalid_decisions: number;
+    needs_revalidation_decisions: number;
+    invalidated_decisions: number;
+    unresolved_impacts: number;
 }
 export interface KnowledgeHealthDimensions {
     completeness: number;
@@ -109,6 +134,8 @@ export interface KnowledgeHealthReport {
     conflict_count: number;
     missing_owner_count: number;
     unverified_count: number;
+    /** v3 — lifecycle validity rollup (优化.md §14). */
+    decision_validity_health?: DecisionValidityHealth;
     formatted: string[];
 }
 export interface ReviewQueueItem {

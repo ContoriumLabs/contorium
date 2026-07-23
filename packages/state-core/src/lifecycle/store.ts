@@ -41,9 +41,15 @@ export async function persistKnowledgeLifecycle(workspaceRoot: string): Promise<
 export async function readKnowledgeLifecycle(
   workspaceRoot: string,
 ): Promise<KnowledgeLifecycleIndex | null> {
-  const raw = await readJsonFile<KnowledgeLifecycleIndex>(lifecycleIndexPath(workspaceRoot));
-  if (raw?.schema === KNOWLEDGE_LIFECYCLE_SCHEMA && Array.isArray(raw.decisions)) {
-    return raw;
+  const raw = await readJsonFile<KnowledgeLifecycleIndex & { schema?: string }>(
+    lifecycleIndexPath(workspaceRoot),
+  );
+  if (
+    raw &&
+    Array.isArray(raw.decisions) &&
+    (raw.schema === KNOWLEDGE_LIFECYCLE_SCHEMA || raw.schema === 'contorium.lifecycle.v2')
+  ) {
+    return raw as KnowledgeLifecycleIndex;
   }
   return null;
 }

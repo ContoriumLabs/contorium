@@ -663,10 +663,17 @@ export {
   extractDecisionRefsFromAskResult,
   formatReviewQueue,
   formatDecisionLifecycleAnswer,
+  formatDecisionWhyAnswer,
+  formatDecisionTimeline,
   findDecisionLifecycle,
   formatValidityStateLabel,
   writeDecisionLifecycleMeta,
   readDecisionLifecycleMeta,
+  applyLifecycleVerification,
+  buildGovernanceAlertPanel,
+  buildGovernanceImpactAlerts,
+  readDismissedGovernanceAlerts,
+  dismissGovernanceAlert,
   appendLifecycleTrustWarnings,
   appendLifecycleTrustOverlay,
   listLifecycleDecisionsForPicker,
@@ -686,6 +693,10 @@ export {
   type ValidityState,
   type ValiditySignal,
   type ValiditySignalType,
+  type DecisionValidityHealth,
+  type InvalidationChainLink,
+  type GovernanceImpactAlert,
+  type GovernanceAlertPanel,
 } from './lifecycle/index.js';
 
 export type {
